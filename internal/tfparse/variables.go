@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	maxFileSize     = 1 << 20 // 1 MB
-	maxVariables    = 500
+	maxFileSize  = 1 << 20 // 1 MB
+	maxVariables = 500
 )
 
 // DiscoveredVariable represents a variable block parsed from a .tf file.
@@ -96,8 +96,8 @@ func ParseVariables(content string) []DiscoveredVariable {
 }
 
 var (
-	stringAttrRe = regexp.MustCompile(`(?m)^\s*(\w+)\s*=\s*"([^"]*)"`)
-	typeAttrRe   = regexp.MustCompile(`(?m)^\s*type\s*=\s*(.+)`)
+	stringAttrRe  = regexp.MustCompile(`(?m)^\s*(\w+)\s*=\s*"([^"]*)"`)
+	typeAttrRe    = regexp.MustCompile(`(?m)^\s*type\s*=\s*(.+)`)
 	defaultAttrRe = regexp.MustCompile(`(?m)^\s*default\s*=\s*(.+)`)
 )
 
@@ -240,4 +240,177 @@ func ParseDirectory(dir string) ([]DiscoveredVariable, error) {
 	}
 
 	return result, nil
+}
+
+// ParseTerragruntInputs reads the terragrunt.hcl at dir and extracts the
+// `inputs = { ... }` block into DiscoveredVariable entries. Only the leaf's
+// own inputs are surfaced — values inherited via include/_envcommon are not
+// followed (full resolution would require shelling out to `terragrunt
+// render-json`).
+//
+// Returned entries have Default set to the literal RHS text (e.g. "3",
+// `"us-west-2"`, `{ Env = "prod" }`) and Required=false. The handler is
+// expected to mark them Configured=true since terragrunt already owns the
+// value at run time.
+func ParseTerragruntInputs(dir string) ([]DiscoveredVariable, error) {
+	path := filepath.Join(dir, "terragrunt.hcl")
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if info.Size() > maxFileSize {
+		return nil, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return parseTerragruntInputs(string(data)), nil
+}
+
+var inputsBlockRe = regexp.MustCompile(`(?m)^\s*inputs\s*=\s*\{`)
+
+func parseTerragruntInputs(content string) []DiscoveredVariable {
+	loc := inputsBlockRe.FindStringIndex(content)
+	if loc == nil {
+		return nil
+	}
+	openIdx := strings.Index(content[loc[0]:], "{")
+	if openIdx < 0 {
+		return nil
+	}
+	blockStart := loc[0] + openIdx
+
+	// Balance-count to find the matching close brace.
+	depth := 0
+	blockEnd := -1
+	for i := blockStart; i < len(content); i++ {
+		switch content[i] {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				blockEnd = i
+				goto found
+			}
+		case '"':
+			for i++; i < len(content) && content[i] != '"'; i++ {
+				if content[i] == '\\' {
+					i++
+				}
+			}
+		case '#':
+			for i++; i < len(content) && content[i] != '\n'; i++ {
+			}
+		}
+	}
+found:
+	if blockEnd < 0 {
+		return nil
+	}
+
+	body := content[blockStart+1 : blockEnd]
+	return parseInputAssignments(body)
+}
+
+// parseInputAssignments walks the body of an inputs block and pulls each
+// top-level `key = value` pair. Values may span multiple lines (maps,
+// lists, function calls); they're captured as literal text via brace and
+// bracket balance counting.
+func parseInputAssignments(body string) []DiscoveredVariable {
+	var out []DiscoveredVariable
+	i := 0
+	for i < len(body) {
+		// Skip whitespace, commas, and comments at depth 0.
+		switch {
+		case body[i] == ' ' || body[i] == '\t' || body[i] == '\n' || body[i] == '\r' || body[i] == ',':
+			i++
+			continue
+		case body[i] == '#':
+			for i < len(body) && body[i] != '\n' {
+				i++
+			}
+			continue
+		case strings.HasPrefix(body[i:], "//"):
+			for i < len(body) && body[i] != '\n' {
+				i++
+			}
+			continue
+		}
+
+		// Read an identifier.
+		start := i
+		for i < len(body) && (body[i] == '_' || body[i] == '-' || (body[i] >= 'a' && body[i] <= 'z') || (body[i] >= 'A' && body[i] <= 'Z') || (body[i] >= '0' && body[i] <= '9')) {
+			i++
+		}
+		if i == start {
+			i++
+			continue
+		}
+		name := body[start:i]
+
+		// Expect optional whitespace then '='.
+		for i < len(body) && (body[i] == ' ' || body[i] == '\t') {
+			i++
+		}
+		if i >= len(body) || body[i] != '=' {
+			continue
+		}
+		i++ // consume '='
+		for i < len(body) && (body[i] == ' ' || body[i] == '\t') {
+			i++
+		}
+
+		// Capture the value, respecting nested braces/brackets/parens and strings.
+		valStart := i
+		depth := 0
+		for i < len(body) {
+			c := body[i]
+			if depth == 0 && (c == '\n' || c == ',') {
+				break
+			}
+			switch c {
+			case '{', '[', '(':
+				depth++
+			case '}', ']', ')':
+				if depth == 0 {
+					break
+				}
+				depth--
+			case '"':
+				i++
+				for i < len(body) && body[i] != '"' {
+					if body[i] == '\\' {
+						i++
+					}
+					i++
+				}
+			case '#':
+				if depth == 0 {
+					goto afterValue
+				}
+				for i < len(body) && body[i] != '\n' {
+					i++
+				}
+				continue
+			}
+			i++
+		}
+	afterValue:
+		val := strings.TrimSpace(body[valStart:i])
+		if val == "" {
+			continue
+		}
+		def := val
+		out = append(out, DiscoveredVariable{
+			Name:     name,
+			Default:  &def,
+			Required: false,
+		})
+		if len(out) >= maxVariables {
+			break
+		}
+	}
+	return out
 }

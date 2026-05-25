@@ -15,15 +15,15 @@ type Team struct {
 }
 
 type TeamMember struct {
-	ID         string    `json:"id"`
-	TeamID     string    `json:"team_id"`
-	UserID     string    `json:"user_id"`
-	Role       string    `json:"role"`
+	ID            string    `json:"id"`
+	TeamID        string    `json:"team_id"`
+	UserID        string    `json:"user_id"`
+	Role          string    `json:"role"`
 	CloudIdentity string    `json:"cloud_identity"`
-	CreatedAt  time.Time `json:"created_at"`
-	Email      string    `json:"email"`
-	UserName   string    `json:"user_name"`
-	AvatarURL  string    `json:"avatar_url"`
+	CreatedAt     time.Time `json:"created_at"`
+	Email         string    `json:"email"`
+	UserName      string    `json:"user_name"`
+	AvatarURL     string    `json:"avatar_url"`
 }
 
 type WorkspaceTeamAccess struct {
@@ -104,10 +104,10 @@ func (q *Queries) DeleteTeam(ctx context.Context, id, orgID string) error {
 }
 
 type AddTeamMemberParams struct {
-	ID         string
-	TeamID     string
-	UserID     string
-	Role       string
+	ID            string
+	TeamID        string
+	UserID        string
+	Role          string
 	CloudIdentity string
 }
 
@@ -124,9 +124,9 @@ func (q *Queries) AddTeamMember(ctx context.Context, arg AddTeamMemberParams) (T
 }
 
 type UpdateTeamMemberParams struct {
-	TeamID     string
-	UserID     string
-	Role       string
+	TeamID        string
+	UserID        string
+	Role          string
 	CloudIdentity string
 }
 

@@ -169,9 +169,12 @@ func isValidOperation(op string) bool {
 }
 
 // isCancellableStatus returns whether a run in the given status can be cancelled.
+// "planned" is cancellable because it parks a workspace's queue indefinitely
+// (the queue gate treats planned as active), and the user may decide the plan
+// is stale rather than ever applying it.
 func isCancellableStatus(status string) bool {
 	switch status {
-	case "pending", "queued", "planning", "applying", "awaiting_approval":
+	case "pending", "queued", "planning", "planned", "applying", "awaiting_approval":
 		return true
 	default:
 		return false

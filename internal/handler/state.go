@@ -1,25 +1,29 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/stxkxs/tofui/internal/auth"
 	"github.com/stxkxs/tofui/internal/handler/respond"
 	"github.com/stxkxs/tofui/internal/repository"
+	"github.com/stxkxs/tofui/internal/service"
 	"github.com/stxkxs/tofui/internal/storage"
 	"github.com/stxkxs/tofui/internal/tfstate"
 )
 
 type StateHandler struct {
-	queries *repository.Queries
-	storage *storage.S3Storage
+	queries  *repository.Queries
+	storage  *storage.S3Storage
+	auditSvc *service.AuditService
 }
 
-func NewStateHandler(queries *repository.Queries, store *storage.S3Storage) *StateHandler {
-	return &StateHandler{queries: queries, storage: store}
+func NewStateHandler(queries *repository.Queries, store *storage.S3Storage, auditSvc *service.AuditService) *StateHandler {
+	return &StateHandler{queries: queries, storage: store, auditSvc: auditSvc}
 }
 
 func (h *StateHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -235,4 +239,53 @@ func (h *StateHandler) Diff(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respond.JSON(w, http.StatusOK, diff)
+}
+
+// Delete drops a single state-version row + its S3 objects. Last-ditch
+// recovery for cases where the worker captured a state that's broken
+// (e.g. encrypted with a passphrase that's no longer accessible, or a
+// "partial (errored)" row from a half-failed apply that should be
+// discarded so the next run rolls back to an earlier serial). Admin-only;
+// the route applies the RBAC gate.
+func (h *StateHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	userCtx := auth.GetUser(r.Context())
+	workspaceID := chi.URLParam(r, "workspaceID")
+
+	serial, err := strconv.Atoi(chi.URLParam(r, "serial"))
+	if err != nil || serial < 0 {
+		respond.Error(w, http.StatusBadRequest, "invalid serial")
+		return
+	}
+
+	sv, err := h.queries.DeleteStateVersion(r.Context(), repository.GetStateVersionBySerialParams{
+		WorkspaceID: workspaceID, OrgID: userCtx.OrgID, Serial: int32(serial),
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			respond.Error(w, http.StatusNotFound, "state version not found")
+			return
+		}
+		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to delete state version")
+		return
+	}
+
+	// Best-effort S3 cleanup. We've already removed the DB row, so any
+	// orphan objects in storage are recoverable noise; audit them and move on.
+	storageErr := h.storage.DeleteStateObjects(r.Context(), workspaceID, serial)
+
+	ip, ua := auditContext(r)
+	h.auditSvc.Log(r.Context(), service.AuditEntry{
+		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
+		Action: "state_version.delete", EntityType: "state_version", EntityID: sv.ID,
+		Before: sv, IPAddress: ip, UserAgent: ua,
+	})
+
+	if storageErr != nil {
+		respond.JSON(w, http.StatusOK, map[string]any{
+			"deleted":       sv,
+			"storage_error": storageErr.Error(),
+		})
+		return
+	}
+	respond.NoContent(w)
 }

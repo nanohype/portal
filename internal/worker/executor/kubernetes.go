@@ -80,10 +80,22 @@ func (e *KubernetesExecutor) Execute(ctx context.Context, params ExecuteParams) 
 		{Name: "TF_INPUT", Value: "false"},
 		{Name: "TOFUI_RUN_ID", Value: params.RunID},
 		{Name: "TOFUI_OPERATION", Value: params.Operation},
+		// Terragrunt-specific defaults. Harmless for tofu runs (tofu
+		// ignores TG_*-prefixed env vars). See local.go for rationale.
+		{Name: "TG_NON_INTERACTIVE", Value: "true"},
+		{Name: "TG_BACKEND_BOOTSTRAP", Value: "true"},
 	}
 	for _, v := range params.Variables {
-		if v.Category == "env" {
+		switch v.Category {
+		case "env":
 			envVars = append(envVars, corev1.EnvVar{Name: v.Key, Value: v.Value})
+		case "terraform":
+			// Mirror the local executor: terraform vars are always passed
+			// as TF_VAR_* env so they flow into both tofu mode (redundant
+			// with tofui.auto.tfvars; file wins via precedence) and
+			// terragrunt mode (only source; terragrunt's own inputs win
+			// for any key it sets).
+			envVars = append(envVars, corev1.EnvVar{Name: "TF_VAR_" + v.Key, Value: v.Value})
 		}
 	}
 
@@ -129,7 +141,7 @@ func (e *KubernetesExecutor) Execute(ctx context.Context, params ExecuteParams) 
 			Namespace: e.namespace,
 			Labels: map[string]string{
 				"app.kubernetes.io/managed-by": "tofui",
-				"tofui/run-id":                params.RunID,
+				"tofui/run-id":                 params.RunID,
 			},
 		},
 		Data: cmData,
@@ -250,36 +262,53 @@ func (e *KubernetesExecutor) buildScript(params ExecuteParams) string {
 		sb.WriteString(fmt.Sprintf("cd /work/%s\n\n", params.WorkingDir))
 	}
 
-	// Copy tfvars if present
-	sb.WriteString("if [ -f /config/tofui.auto.tfvars ]; then cp /config/tofui.auto.tfvars .; fi\n\n")
+	// Detect wrapper. terragrunt.hcl at the leaf → terragrunt drives the run
+	// (it walks parent dirs and renders terraform itself); otherwise tofu does.
+	sb.WriteString("if [ -f terragrunt.hcl ]; then\n")
+	sb.WriteString("  BIN=terragrunt\n")
+	sb.WriteString("  echo 'Detected terragrunt.hcl — using terragrunt wrapper.'\n")
+	sb.WriteString("  echo '[tofui] TG_NON_INTERACTIVE=true — terragrunt prompts auto-confirmed.'\n")
+	sb.WriteString("  echo '[tofui] TG_BACKEND_BOOTSTRAP=true — remote state bucket will be auto-created if missing.'\n")
+	sb.WriteString("else\n")
+	sb.WriteString("  BIN=tofu\n")
+	sb.WriteString("fi\n\n")
 
-	// Restore previous state if present
-	sb.WriteString("if [ -f /config/terraform.tfstate ]; then\n")
+	// Copy tfvars if present. Skipped in terragrunt mode — terragrunt's
+	// `inputs = {}` block is the source of truth.
+	sb.WriteString("if [ \"$BIN\" = \"tofu\" ] && [ -f /config/tofui.auto.tfvars ]; then cp /config/tofui.auto.tfvars .; fi\n\n")
+
+	// Restore previous state if present. Skipped in terragrunt mode —
+	// state lives in the remote backend; a local file just confuses init.
+	sb.WriteString("if [ \"$BIN\" = \"tofu\" ] && [ -f /config/terraform.tfstate ]; then\n")
 	sb.WriteString("  cp /config/terraform.tfstate .\n")
 	sb.WriteString("  echo 'Restored previous state file.'\n")
 	sb.WriteString("fi\n\n")
 
-	// Copy encryption override if present
-	sb.WriteString("if [ -f /config/tofui_encryption_override.tf ]; then\n")
+	// Copy encryption override if present. Skipped in terragrunt mode —
+	// terragrunt's source copy pulls leaf .tf files into the rendered cache,
+	// so the override would silently encrypt the user's remote state with
+	// tofui's per-workspace passphrase and break `dependency` blocks across
+	// sibling workspaces.
+	sb.WriteString("if [ \"$BIN\" = \"tofu\" ] && [ -f /config/tofui_encryption_override.tf ]; then\n")
 	sb.WriteString("  cp /config/tofui_encryption_override.tf .\n")
 	sb.WriteString("  echo 'State encryption enabled (AES-GCM).'\n")
 	sb.WriteString("fi\n\n")
 
 	// Init
-	sb.WriteString("echo '$ tofu init'\n")
-	sb.WriteString("tofu init -no-color\n\n")
+	sb.WriteString("echo \"\\$ $BIN init\"\n")
+	sb.WriteString("$BIN init -no-color\n\n")
 
 	// Validate
-	sb.WriteString("echo '$ tofu validate'\n")
-	sb.WriteString("tofu validate -no-color\n\n")
+	sb.WriteString("echo \"\\$ $BIN validate\"\n")
+	sb.WriteString("$BIN validate -no-color\n\n")
 
 	// Operation
 	sb.WriteString("if [ -f tofui.auto.tfvars ]; then VAR_FILE='-var-file=tofui.auto.tfvars'; fi\n\n")
 
 	switch params.Operation {
 	case "test":
-		sb.WriteString("echo '$ tofu output -json'\n")
-		sb.WriteString("tofu output -json > outputs.json 2>/dev/null || echo 'Warning: tofu output failed (continuing anyway)'\n\n")
+		sb.WriteString("echo \"\\$ $BIN output -json\"\n")
+		sb.WriteString("$BIN output -json > outputs.json 2>/dev/null || echo \"Warning: $BIN output failed (continuing anyway)\"\n\n")
 		sb.WriteString("if [ ! -f smoke-test.sh ]; then\n")
 		sb.WriteString("  echo 'smoke-test.sh not found in working directory'\n")
 		sb.WriteString("  exit 1\n")
@@ -288,23 +317,23 @@ func (e *KubernetesExecutor) buildScript(params ExecuteParams) string {
 		sb.WriteString("echo '$ ./smoke-test.sh'\n")
 		sb.WriteString("./smoke-test.sh\n")
 	case "plan":
-		sb.WriteString("echo '$ tofu plan'\n")
+		sb.WriteString("echo \"\\$ $BIN plan\"\n")
 		// -detailed-exitcode: 0=no changes, 1=error, 2=changes detected
 		// Capture exit code explicitly — only fail on exit 1 (error)
 		sb.WriteString("set +e\n")
-		sb.WriteString("tofu plan -no-color -detailed-exitcode -out=planfile $VAR_FILE\n")
+		sb.WriteString("$BIN plan -no-color -detailed-exitcode -out=planfile $VAR_FILE\n")
 		sb.WriteString("PLAN_EXIT=$?\n")
 		sb.WriteString("set -e\n")
 		sb.WriteString("if [ \"$PLAN_EXIT\" -eq 1 ]; then echo 'Plan failed with errors'; exit 1; fi\n")
 		sb.WriteString("\n# Output JSON plan for capture\n")
 		sb.WriteString("if [ -f planfile ]; then\n")
 		sb.WriteString("  echo '===TOFUI_PLAN_JSON_BEGIN==='\n")
-		sb.WriteString("  tofu show -json planfile\n")
+		sb.WriteString("  $BIN show -json planfile\n")
 		sb.WriteString("  echo '===TOFUI_PLAN_JSON_END==='\n")
 		sb.WriteString("fi\n")
 	case "apply":
-		sb.WriteString("echo '$ tofu apply'\n")
-		sb.WriteString("tofu apply -no-color -auto-approve $VAR_FILE\n")
+		sb.WriteString("echo \"\\$ $BIN apply\"\n")
+		sb.WriteString("$BIN apply -no-color -auto-approve $VAR_FILE\n")
 		sb.WriteString("\n# Output raw state (may be encrypted) for restoration\n")
 		sb.WriteString("if [ -f terraform.tfstate ]; then\n")
 		sb.WriteString("  echo '===TOFUI_STATE_BEGIN==='\n")
@@ -313,11 +342,11 @@ func (e *KubernetesExecutor) buildScript(params ExecuteParams) string {
 		sb.WriteString("fi\n")
 		sb.WriteString("# Output decrypted state for resource browsing\n")
 		sb.WriteString("echo '===TOFUI_STATE_JSON_BEGIN==='\n")
-		sb.WriteString("tofu state pull\n")
+		sb.WriteString("$BIN state pull\n")
 		sb.WriteString("echo '===TOFUI_STATE_JSON_END==='\n")
 	case "destroy":
-		sb.WriteString("echo '$ tofu destroy'\n")
-		sb.WriteString("tofu destroy -no-color -auto-approve $VAR_FILE\n")
+		sb.WriteString("echo \"\\$ $BIN destroy\"\n")
+		sb.WriteString("$BIN destroy -no-color -auto-approve $VAR_FILE\n")
 		sb.WriteString("\n# Output raw state for restoration\n")
 		sb.WriteString("if [ -f terraform.tfstate ]; then\n")
 		sb.WriteString("  echo '===TOFUI_STATE_BEGIN==='\n")
@@ -326,7 +355,7 @@ func (e *KubernetesExecutor) buildScript(params ExecuteParams) string {
 		sb.WriteString("fi\n")
 		sb.WriteString("# Output decrypted state for resource browsing\n")
 		sb.WriteString("echo '===TOFUI_STATE_JSON_BEGIN==='\n")
-		sb.WriteString("tofu state pull\n")
+		sb.WriteString("$BIN state pull\n")
 		sb.WriteString("echo '===TOFUI_STATE_JSON_END==='\n")
 	}
 
@@ -374,9 +403,9 @@ func (e *KubernetesExecutor) buildPod(name string, params ExecuteParams, envVars
 			Labels: map[string]string{
 				"app.kubernetes.io/managed-by": "tofui",
 				"app.kubernetes.io/component":  "executor",
-				"tofui/run-id":                params.RunID,
-				"tofui/workspace-id":          params.WorkspaceID,
-				"tofui/operation":             params.Operation,
+				"tofui/run-id":                 params.RunID,
+				"tofui/workspace-id":           params.WorkspaceID,
+				"tofui/operation":              params.Operation,
 			},
 		},
 		Spec: corev1.PodSpec{

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api } from "@/api/client";
-import type { Run, Workspace } from "@/api/types";
+import type { Run, RunOperation } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -113,12 +113,12 @@ export function WorkspaceDetail({ workspaceId }: Props) {
   const [importRows, setImportRows] = useState([{ address: "", id: "" }]);
 
   const createRunMutation = useMutation({
-    mutationFn: async (params: { operation: string; imports?: { address: string; id: string }[] }) => {
+    mutationFn: async (params: { operation: RunOperation; imports?: { address: string; id: string }[] }) => {
       const { data, error } = await api.POST(
         "/workspaces/{workspaceId}/runs",
         {
           params: { path: { workspaceId } },
-          body: params as any,
+          body: params,
         }
       );
       if (error) throw error;

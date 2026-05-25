@@ -444,7 +444,11 @@ export function VariablesPanel({ workspaceId }: Props) {
                       <code className="text-sm font-mono font-medium">{v.name}</code>
                       {v.type && <Badge variant="outline" className="text-xs shrink-0">{v.type}</Badge>}
                       {v.configured ? (
-                        <Badge className="text-xs bg-emerald-500/10 text-emerald-600 border-emerald-500/20 shrink-0"><Check className="w-3 h-3 mr-1" />configured</Badge>
+                        v.configured_by === "terragrunt" ? (
+                          <Badge className="text-xs bg-violet-500/10 text-violet-600 border-violet-500/20 shrink-0"><Check className="w-3 h-3 mr-1" />terragrunt</Badge>
+                        ) : (
+                          <Badge className="text-xs bg-emerald-500/10 text-emerald-600 border-emerald-500/20 shrink-0"><Check className="w-3 h-3 mr-1" />configured</Badge>
+                        )
                       ) : v.required ? (
                         <Badge className="text-xs bg-red-500/10 text-red-600 border-red-500/20 shrink-0">required</Badge>
                       ) : (
@@ -460,7 +464,16 @@ export function VariablesPanel({ workspaceId }: Props) {
                       )}
                     </div>
                   </div>
-                  {v.description && <p className="text-xs text-muted-foreground mt-1">{v.description}</p>}
+                  {(v.description || v.configured_by === "terragrunt") && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {v.description}
+                      {v.configured_by === "terragrunt" && (
+                        v.description
+                          ? " — set in terragrunt.hcl; edit there to change"
+                          : "set in terragrunt.hcl; edit there to change"
+                      )}
+                    </p>
+                  )}
                 </div>
               ))}
             </div>

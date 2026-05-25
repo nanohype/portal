@@ -3,8 +3,6 @@ import { useAuthStore } from "@/stores/auth";
 import { Spinner } from "@/components/ui/spinner";
 
 export function AuthCallbackPage() {
-  const setAuth = useAuthStore((s) => s.setAuth);
-
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const token = params.get("token");

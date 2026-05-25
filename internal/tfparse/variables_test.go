@@ -205,3 +205,120 @@ variable "bucket" {
 		}
 	}
 }
+
+func TestParseTerragruntInputs_Literal(t *testing.T) {
+	content := `
+include "root" {
+  path = find_in_parent_folders("root.hcl")
+}
+
+inputs = {
+  nat_gateways         = 3
+  enable_flow_logs     = true
+  enable_vpc_endpoints = true
+}
+`
+	vars := parseTerragruntInputs(content)
+	if len(vars) != 3 {
+		t.Fatalf("expected 3 inputs, got %d: %+v", len(vars), vars)
+	}
+	want := map[string]string{
+		"nat_gateways":         "3",
+		"enable_flow_logs":     "true",
+		"enable_vpc_endpoints": "true",
+	}
+	for _, v := range vars {
+		w, ok := want[v.Name]
+		if !ok {
+			t.Errorf("unexpected variable %q", v.Name)
+			continue
+		}
+		if v.Default == nil || *v.Default != w {
+			got := "nil"
+			if v.Default != nil {
+				got = *v.Default
+			}
+			t.Errorf("var %q: want default %q, got %q", v.Name, w, got)
+		}
+		if v.Required {
+			t.Errorf("var %q: expected Required=false", v.Name)
+		}
+	}
+}
+
+func TestParseTerragruntInputs_NestedAndStrings(t *testing.T) {
+	content := `
+inputs = {
+  region = "us-west-2"
+  tags = {
+    Environment = "production"
+    Team        = "platform"
+  }
+  subnets = ["a", "b", "c"]
+}
+`
+	vars := parseTerragruntInputs(content)
+	if len(vars) != 3 {
+		t.Fatalf("expected 3 inputs, got %d: %+v", len(vars), vars)
+	}
+	byName := map[string]string{}
+	for _, v := range vars {
+		if v.Default != nil {
+			byName[v.Name] = *v.Default
+		}
+	}
+	if byName["region"] != `"us-west-2"` {
+		t.Errorf("region: got %q", byName["region"])
+	}
+	if !contains(byName["tags"], `Environment = "production"`) {
+		t.Errorf("tags: got %q", byName["tags"])
+	}
+	if byName["subnets"] != `["a", "b", "c"]` {
+		t.Errorf("subnets: got %q", byName["subnets"])
+	}
+}
+
+func TestParseTerragruntInputs_NoInputs(t *testing.T) {
+	content := `include "root" { path = find_in_parent_folders("root.hcl") }`
+	vars := parseTerragruntInputs(content)
+	if len(vars) != 0 {
+		t.Errorf("expected 0 inputs, got %d", len(vars))
+	}
+}
+
+func TestParseTerragruntInputs_FromDisk(t *testing.T) {
+	dir := t.TempDir()
+	hcl := `
+include "root" {
+  path = find_in_parent_folders("root.hcl")
+}
+
+inputs = {
+  cluster_name = "prod"
+  node_count   = 6
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "terragrunt.hcl"), []byte(hcl), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	vars, err := ParseTerragruntInputs(dir)
+	if err != nil {
+		t.Fatalf("ParseTerragruntInputs: %v", err)
+	}
+	if len(vars) != 2 {
+		t.Fatalf("expected 2 inputs, got %d", len(vars))
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || (len(s) > 0 && indexOf(s, substr) >= 0))
+}
+
+func indexOf(s, substr string) int {
+	for i := 0; i+len(substr) <= len(s); i++ {
+		if s[i:i+len(substr)] == substr {
+			return i
+		}
+	}
+	return -1
+}

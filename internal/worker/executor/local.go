@@ -58,8 +58,23 @@ func (e *LocalExecutor) Execute(ctx context.Context, params ExecuteParams) (*Exe
 
 	tfDir := filepath.Join(workDir, params.WorkingDir)
 
-	// Restore previous state if available
-	if len(params.PreviousState) > 0 {
+	// Detect whether this workspace is driven by terragrunt or tofu directly.
+	// When terragrunt.hcl is present at the leaf, terragrunt walks parent dirs
+	// and renders terraform at run time; otherwise tofu owns the run.
+	binary := DetectBinary(tfDir)
+	if binary == "terragrunt" {
+		params.LogCallback([]byte("Detected terragrunt.hcl — using terragrunt wrapper.\r\n"))
+		params.LogCallback([]byte("[tofui] TG_NON_INTERACTIVE=true — terragrunt prompts auto-confirmed.\r\n"))
+		params.LogCallback([]byte("[tofui] TG_BACKEND_BOOTSTRAP=true — remote state bucket will be auto-created if missing.\r\n\r\n"))
+	}
+
+	// Restore previous state if available. Skipped in terragrunt mode —
+	// terragrunt's state lives in the remote backend (S3/GCS/Azure), so a
+	// local terraform.tfstate file is meaningless and can actively confuse
+	// `tofu init` (e.g. when the cached blob was encrypted by a prior
+	// tofui state-encryption run that has since been disabled, init
+	// prompts for migration input and fails under TF_INPUT=false).
+	if len(params.PreviousState) > 0 && binary != "terragrunt" {
 		statePath := filepath.Join(tfDir, "terraform.tfstate")
 		if err := os.WriteFile(statePath, params.PreviousState, 0600); err != nil {
 			return nil, fmt.Errorf("failed to restore state: %w", err)
@@ -68,8 +83,15 @@ func (e *LocalExecutor) Execute(ctx context.Context, params ExecuteParams) (*Exe
 		logger.Info("restored previous state", "size", len(params.PreviousState))
 	}
 
-	// Write encryption override if state encryption is enabled
-	if params.StateEncryptionPassphrase != "" {
+	// Write encryption override if state encryption is enabled. Skipped for
+	// terragrunt — terragrunt's source-copy mechanism pulls the leaf's .tf
+	// files into the rendered cache dir alongside the module source, so the
+	// override would silently encrypt the user's remote state with tofui's
+	// derived passphrase. That breaks terragrunt `dependency` blocks (which
+	// invoke `tofu output -json` in sibling workspaces without the override)
+	// and conflates tofui-managed encryption with the user's own backend
+	// encryption setup (typically S3 SSE-KMS configured in root.hcl).
+	if params.StateEncryptionPassphrase != "" && binary != "terragrunt" {
 		overridePath := filepath.Join(tfDir, "tofui_encryption_override.tf")
 		content := GenerateEncryptionOverride(params.StateEncryptionPassphrase)
 		if err := os.WriteFile(overridePath, []byte(content), 0600); err != nil {
@@ -78,9 +100,12 @@ func (e *LocalExecutor) Execute(ctx context.Context, params ExecuteParams) (*Exe
 		params.LogCallback([]byte("State encryption enabled (AES-GCM).\r\n"))
 	}
 
-	// Write variables file if any
-	if err := e.writeVariables(tfDir, params.Variables); err != nil {
-		return nil, fmt.Errorf("failed to write variables: %w", err)
+	// Write variables file if any. Skipped for terragrunt — its `inputs = {}`
+	// block is the source of truth and tofui shouldn't interfere with it.
+	if binary != "terragrunt" {
+		if err := e.writeVariables(tfDir, params.Variables); err != nil {
+			return nil, fmt.Errorf("failed to write variables: %w", err)
+		}
 	}
 
 	// Build environment with env variables, filtering out tofui-internal vars
@@ -97,6 +122,17 @@ func (e *LocalExecutor) Execute(ctx context.Context, params ExecuteParams) (*Exe
 	}
 	env = append(env, "TF_IN_AUTOMATION=true", "TF_INPUT=false")
 
+	// Terragrunt-specific defaults. Harmless for tofu runs (tofu ignores
+	// TG_*-prefixed env vars).
+	//   TG_NON_INTERACTIVE  — we're a worker, never interactive.
+	//   TG_BACKEND_BOOTSTRAP — auto-create the remote state bucket on init
+	//                          if it doesn't exist (no-op when it already
+	//                          does). Without this, `terragrunt init`
+	//                          fails on the first run when the bucket
+	//                          defined in root.hcl's remote_state block
+	//                          doesn't exist yet.
+	env = append(env, "TG_NON_INTERACTIVE=true", "TG_BACKEND_BOOTSTRAP=true")
+
 	// Use plugin cache to avoid re-downloading providers every run
 	if os.Getenv("TF_PLUGIN_CACHE_DIR") == "" {
 		cacheDir := filepath.Join(os.TempDir(), "tofui-plugin-cache")
@@ -104,22 +140,33 @@ func (e *LocalExecutor) Execute(ctx context.Context, params ExecuteParams) (*Exe
 		env = append(env, "TF_PLUGIN_CACHE_DIR="+cacheDir)
 	}
 	for _, v := range params.Variables {
-		if v.Category == "env" {
+		switch v.Category {
+		case "env":
 			env = append(env, fmt.Sprintf("%s=%s", v.Key, v.Value))
+		case "terraform":
+			// terraform-category vars always go in as TF_VAR_* env entries.
+			// In tofu mode, tofui.auto.tfvars (written by writeVariables()
+			// above) takes precedence over TF_VAR_ — the env entries are
+			// redundant but harmless. In terragrunt mode the file is not
+			// written, so TF_VAR_ is the only source; terragrunt's own
+			// `inputs = {}` block (passed as -var, highest precedence)
+			// silently wins for any key it sets, and keys it doesn't set
+			// get picked up from TF_VAR_ cleanly.
+			env = append(env, fmt.Sprintf("TF_VAR_%s=%s", v.Key, v.Value))
 		}
 	}
 
-	// tofu init
-	params.LogCallback([]byte("\033[1m$ tofu init\033[0m\r\n"))
-	if err := e.runTofu(ctx, tfDir, []string{"init", "-no-color"}, env, params.LogCallback); err != nil {
-		return nil, fmt.Errorf("tofu init failed: %w", err)
+	// init
+	params.LogCallback([]byte(fmt.Sprintf("\033[1m$ %s init\033[0m\r\n", binary)))
+	if err := e.runTool(ctx, binary, tfDir, []string{"init", "-no-color"}, env, params.LogCallback); err != nil {
+		return nil, fmt.Errorf("%s init failed: %w", binary, err)
 	}
 	params.LogCallback([]byte("\r\n"))
 
-	// tofu validate
-	params.LogCallback([]byte("\033[1m$ tofu validate\033[0m\r\n"))
-	if err := e.runTofu(ctx, tfDir, []string{"validate", "-no-color"}, env, params.LogCallback); err != nil {
-		return nil, fmt.Errorf("tofu validate failed: %w", err)
+	// validate
+	params.LogCallback([]byte(fmt.Sprintf("\033[1m$ %s validate\033[0m\r\n", binary)))
+	if err := e.runTool(ctx, binary, tfDir, []string{"validate", "-no-color"}, env, params.LogCallback); err != nil {
+		return nil, fmt.Errorf("%s validate failed: %w", binary, err)
 	}
 	params.LogCallback([]byte("\r\n"))
 
@@ -130,13 +177,13 @@ func (e *LocalExecutor) Execute(ctx context.Context, params ExecuteParams) (*Exe
 	switch params.Operation {
 	case "test":
 		// Export outputs to JSON for smoke-test.sh
-		params.LogCallback([]byte("\033[1m$ tofu output -json\033[0m\r\n"))
-		outputCmd := exec.CommandContext(ctx, "tofu", "output", "-json")
+		params.LogCallback([]byte(fmt.Sprintf("\033[1m$ %s output -json\033[0m\r\n", binary)))
+		outputCmd := exec.CommandContext(ctx, binary, "output", "-json")
 		outputCmd.Dir = tfDir
 		outputCmd.Env = env
 		outputJSON, outputErr := outputCmd.Output()
 		if outputErr != nil {
-			params.LogCallback([]byte(fmt.Sprintf("\033[33mWarning: tofu output failed: %s (continuing anyway)\033[0m\r\n", outputErr)))
+			params.LogCallback([]byte(fmt.Sprintf("\033[33mWarning: %s output failed: %s (continuing anyway)\033[0m\r\n", binary, outputErr)))
 		} else {
 			outputsPath := filepath.Join(tfDir, "outputs.json")
 			if err := os.WriteFile(outputsPath, outputJSON, 0600); err != nil {
@@ -190,7 +237,7 @@ func (e *LocalExecutor) Execute(ctx context.Context, params ExecuteParams) (*Exe
 		return result, nil
 
 	case "import":
-		params.LogCallback([]byte("\033[1m$ tofu import\033[0m\r\n"))
+		params.LogCallback([]byte(fmt.Sprintf("\033[1m$ %s import\033[0m\r\n", binary)))
 		for _, res := range params.ImportResources {
 			params.LogCallback([]byte(fmt.Sprintf("Importing %s = %s...\r\n", res.Address, res.ID)))
 			importArgs := []string{"import", "-no-color"}
@@ -198,9 +245,9 @@ func (e *LocalExecutor) Execute(ctx context.Context, params ExecuteParams) (*Exe
 				importArgs = append(importArgs, "-var-file=tofui.auto.tfvars")
 			}
 			importArgs = append(importArgs, res.Address, res.ID)
-			if err := e.runTofu(ctx, tfDir, importArgs, env, params.LogCallback); err != nil {
+			if err := e.runTool(ctx, binary, tfDir, importArgs, env, params.LogCallback); err != nil {
 				params.LogCallback([]byte(fmt.Sprintf("\033[31mImport failed for %s: %s\033[0m\r\n", res.Address, err)))
-				return nil, fmt.Errorf("tofu import failed for %s: %w", res.Address, err)
+				return nil, fmt.Errorf("%s import failed for %s: %w", binary, res.Address, err)
 			}
 			params.LogCallback([]byte(fmt.Sprintf("\033[32mImported %s\033[0m\r\n", res.Address)))
 		}
@@ -211,7 +258,7 @@ func (e *LocalExecutor) Execute(ctx context.Context, params ExecuteParams) (*Exe
 		if stateData, err := os.ReadFile(statePath); err == nil && len(stateData) > 0 {
 			result.StateFile = stateData
 		}
-		pullCmd := exec.CommandContext(ctx, "tofu", "state", "pull")
+		pullCmd := exec.CommandContext(ctx, binary, "state", "pull")
 		pullCmd.Dir = tfDir
 		pullCmd.Env = env
 		if jsonData, err := pullCmd.Output(); err == nil && len(jsonData) > 0 {
@@ -224,24 +271,24 @@ func (e *LocalExecutor) Execute(ctx context.Context, params ExecuteParams) (*Exe
 		if e.hasVarFile(tfDir) {
 			tfArgs = append(tfArgs, "-var-file=tofui.auto.tfvars")
 		}
-		params.LogCallback([]byte("\033[1m$ tofu plan\033[0m\r\n"))
+		params.LogCallback([]byte(fmt.Sprintf("\033[1m$ %s plan\033[0m\r\n", binary)))
 	case "apply":
 		tfArgs = []string{"apply", "-no-color", "-auto-approve"}
 		if e.hasVarFile(tfDir) {
 			tfArgs = append(tfArgs, "-var-file=tofui.auto.tfvars")
 		}
-		params.LogCallback([]byte("\033[1m$ tofu apply\033[0m\r\n"))
+		params.LogCallback([]byte(fmt.Sprintf("\033[1m$ %s apply\033[0m\r\n", binary)))
 	case "destroy":
 		tfArgs = []string{"destroy", "-no-color", "-auto-approve"}
 		if e.hasVarFile(tfDir) {
 			tfArgs = append(tfArgs, "-var-file=tofui.auto.tfvars")
 		}
-		params.LogCallback([]byte("\033[1m$ tofu destroy\033[0m\r\n"))
+		params.LogCallback([]byte(fmt.Sprintf("\033[1m$ %s destroy\033[0m\r\n", binary)))
 	default:
 		return nil, fmt.Errorf("unknown operation: %s", params.Operation)
 	}
 
-	output, err := e.runTofuCapture(ctx, tfDir, tfArgs, env, params.LogCallback)
+	output, err := e.runToolCapture(ctx, binary, tfDir, tfArgs, env, params.LogCallback)
 	if err != nil {
 		if params.Operation == "plan" && strings.Contains(err.Error(), "exit status 2") {
 			logger.Info("plan detected changes")
@@ -255,15 +302,15 @@ func (e *LocalExecutor) Execute(ctx context.Context, params ExecuteParams) (*Exe
 					result.StateFile = stateData
 					logger.Info("captured partial state from failed apply", "size", len(stateData))
 				}
-				pullCmd := exec.CommandContext(ctx, "tofu", "state", "pull")
+				pullCmd := exec.CommandContext(ctx, binary, "state", "pull")
 				pullCmd.Dir = tfDir
 				pullCmd.Env = env
 				if jsonData, pullErr := pullCmd.Output(); pullErr == nil && len(jsonData) > 0 {
 					result.StateJSON = jsonData
 				}
-				return result, fmt.Errorf("tofu %s failed: %w", params.Operation, err)
+				return result, fmt.Errorf("%s %s failed: %w", binary, params.Operation, err)
 			}
-			return nil, fmt.Errorf("tofu %s failed: %w", params.Operation, err)
+			return nil, fmt.Errorf("%s %s failed: %w", binary, params.Operation, err)
 		}
 	}
 
@@ -273,7 +320,7 @@ func (e *LocalExecutor) Execute(ctx context.Context, params ExecuteParams) (*Exe
 	if params.Operation == "plan" {
 		planfilePath := filepath.Join(tfDir, "planfile")
 		if _, statErr := os.Stat(planfilePath); statErr == nil {
-			jsonCmd := exec.CommandContext(ctx, "tofu", "show", "-json", "planfile")
+			jsonCmd := exec.CommandContext(ctx, binary, "show", "-json", "planfile")
 			jsonCmd.Dir = tfDir
 			jsonCmd.Env = env
 			if jsonOut, jsonErr := jsonCmd.Output(); jsonErr == nil {
@@ -304,8 +351,8 @@ func (e *LocalExecutor) Execute(ctx context.Context, params ExecuteParams) (*Exe
 			logger.Info("captured state file", "size", len(stateData))
 		}
 
-		// Decrypted state via "tofu state pull" — used for resource browsing
-		pullCmd := exec.CommandContext(ctx, "tofu", "state", "pull")
+		// Decrypted state via "state pull" — used for resource browsing
+		pullCmd := exec.CommandContext(ctx, binary, "state", "pull")
 		pullCmd.Dir = tfDir
 		pullCmd.Env = env
 		if jsonData, err := pullCmd.Output(); err == nil && len(jsonData) > 0 {
@@ -367,8 +414,8 @@ func (e *LocalExecutor) hasVarFile(tfDir string) bool {
 	return err == nil
 }
 
-func (e *LocalExecutor) runTofu(ctx context.Context, dir string, args, env []string, logCallback func([]byte)) error {
-	_, err := e.runTofuCapture(ctx, dir, args, env, logCallback)
+func (e *LocalExecutor) runTool(ctx context.Context, binary, dir string, args, env []string, logCallback func([]byte)) error {
+	_, err := e.runToolCapture(ctx, binary, dir, args, env, logCallback)
 	return err
 }
 
@@ -419,8 +466,8 @@ func extractArchive(data []byte, destDir string) error {
 	return nil
 }
 
-func (e *LocalExecutor) runTofuCapture(ctx context.Context, dir string, args, env []string, logCallback func([]byte)) (string, error) {
-	cmd := exec.CommandContext(ctx, "tofu", args...)
+func (e *LocalExecutor) runToolCapture(ctx context.Context, binary, dir string, args, env []string, logCallback func([]byte)) (string, error) {
+	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.Dir = dir
 	cmd.Env = env
 

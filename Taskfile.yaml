@@ -41,6 +41,24 @@ tasks:
     cmds:
       - npm run dev
 
+  seed:
+    desc: |
+      Seed a fresh dev instance: AWS org vars + 4 landing-zone leaf
+      workspaces (network → cluster → cluster-bootstrap → cluster-addons)
+      + an `eks-gitops-prereqs` pipeline. Idempotent.
+      Configure via env: LANDING_ZONE_PATH, LZ_ACCOUNT, LZ_REGION, LZ_ENV,
+      AWS_PROFILE_NAME, TOFU_VERSION, TOFUI_API.
+    cmds:
+      - ./scripts/seed.sh
+
+  seed:reupload:
+    desc: |
+      Re-pack the landing-zone tree and upload it over the existing
+      lz-* workspaces' archives. Useful after editing the landing-zone
+      repo without doing a full DB reset.
+    cmds:
+      - REUPLOAD=true ./scripts/seed.sh
+
   # === Database ===
 
   db:up:

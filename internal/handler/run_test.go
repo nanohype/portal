@@ -38,7 +38,7 @@ func TestIsCancellableStatus(t *testing.T) {
 		{"planning", true},
 		{"applying", true},
 		{"awaiting_approval", true},
-		{"planned", false},
+		{"planned", true},
 		{"applied", false},
 		{"errored", false},
 		{"cancelled", false},

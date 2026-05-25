@@ -239,6 +239,7 @@ export interface UpdateWorkspaceRequest {
 
 export interface CreateRunRequest {
   operation?: RunOperation;
+  imports?: { address: string; id: string }[];
 }
 
 export interface CreateVariableRequest {
@@ -280,6 +281,7 @@ export interface DiscoveredVariable {
   default?: string;
   required: boolean;
   configured: boolean;
+  configured_by?: "terragrunt" | "tofui";
 }
 
 export interface Pipeline {
@@ -780,6 +782,15 @@ export interface paths {
       parameters: { path: { workspaceId: string; stateId: string } };
       responses: {
         200: { content: { "application/json": StateVersion } };
+      };
+    };
+  };
+  "/workspaces/{workspaceId}/state/serial/{serial}": {
+    delete: {
+      parameters: { path: { workspaceId: string; serial: number } };
+      responses: {
+        204: { content: object };
+        200: { content: { "application/json": { deleted: StateVersion; storage_error: string } } };
       };
     };
   };

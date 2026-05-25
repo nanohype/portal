@@ -3,16 +3,7 @@ import type { ReactNode } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocation } from "@/hooks/useNavigate";
 import { Link } from "@/components/ui/link";
-import {
-  Box,
-  Users,
-  UserCog,
-  Shield,
-  GitBranch,
-  Settings,
-  LogOut,
-  LayoutDashboard,
-} from "lucide-react";
+import { Box, Settings, LogOut } from "lucide-react";
 
 function NavLink({
   href,
