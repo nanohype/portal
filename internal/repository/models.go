@@ -57,7 +57,7 @@ type WorkspaceSummary struct {
 	Workspace
 	LastRunStatus *string    `json:"last_run_status"`
 	LastRunAt     *time.Time `json:"last_run_at"`
-	ResourceCount int32     `json:"resource_count"`
+	ResourceCount int32      `json:"resource_count"`
 }
 
 type Run struct {
@@ -95,17 +95,17 @@ type StateVersion struct {
 }
 
 type AuditLog struct {
-	ID         string           `json:"id"`
-	OrgID      string           `json:"org_id"`
-	UserID     string           `json:"user_id"`
-	Action     string           `json:"action"`
-	EntityType string           `json:"entity_type"`
-	EntityID   string           `json:"entity_id"`
-	BeforeData json.RawMessage  `json:"before_data"`
-	AfterData  json.RawMessage  `json:"after_data"`
-	IPAddress  string           `json:"ip_address"`
-	UserAgent  string           `json:"user_agent"`
-	CreatedAt  time.Time        `json:"created_at"`
+	ID         string          `json:"id"`
+	OrgID      string          `json:"org_id"`
+	UserID     string          `json:"user_id"`
+	Action     string          `json:"action"`
+	EntityType string          `json:"entity_type"`
+	EntityID   string          `json:"entity_id"`
+	BeforeData json.RawMessage `json:"before_data"`
+	AfterData  json.RawMessage `json:"after_data"`
+	IPAddress  string          `json:"ip_address"`
+	UserAgent  string          `json:"user_agent"`
+	CreatedAt  time.Time       `json:"created_at"`
 }
 
 type WorkspaceVariable struct {

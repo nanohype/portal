@@ -21,15 +21,15 @@ func TestCanPerform(t *testing.T) {
 	// Expected minimum role per action (index into roles slice)
 	// viewer=0, operator=1, admin=2, owner=3
 	minRole := map[Action]int{
-		ActionViewWorkspace:  0, // viewer
-		ActionCreateRun:      1, // operator
-		ActionApplyRun:       1, // operator
-		ActionApplyProd:      2, // admin
-		ActionDestroyRun:     2, // admin
-		ActionManageState:    2, // admin
-		ActionManageVars:     2, // admin
-		ActionManageTeams:    2, // admin
-		ActionManageOrg:      3, // owner
+		ActionViewWorkspace:   0, // viewer
+		ActionCreateRun:       1, // operator
+		ActionApplyRun:        1, // operator
+		ActionApplyProd:       2, // admin
+		ActionDestroyRun:      2, // admin
+		ActionManageState:     2, // admin
+		ActionManageVars:      2, // admin
+		ActionManageTeams:     2, // admin
+		ActionManageOrg:       3, // owner
 		ActionDeleteWorkspace: 2, // admin
 	}
 

@@ -39,12 +39,12 @@ type OutputImporter func(ctx context.Context, queries *repository.Queries, store
 
 type PipelineStageJobWorker struct {
 	river.WorkerDefaults[PipelineStageJobArgs]
-	queries        *repository.Queries
-	createRun      RunCreatorFunc
-	importOutputs  OutputImporter
-	storage        *storage.S3Storage
-	riverClient    *river.Client[pgx.Tx]
-	db             *pgxpool.Pool
+	queries       *repository.Queries
+	createRun     RunCreatorFunc
+	importOutputs OutputImporter
+	storage       *storage.S3Storage
+	riverClient   *river.Client[pgx.Tx]
+	db            *pgxpool.Pool
 }
 
 func NewPipelineStageJobWorker(queries *repository.Queries, createRun RunCreatorFunc, importOutputs OutputImporter, store *storage.S3Storage) *PipelineStageJobWorker {

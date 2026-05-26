@@ -777,6 +777,43 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /workspaces/{workspaceId}/state/serial/{serial}:
+    delete:
+      operationId: deleteStateVersion
+      summary: Drop a state version (admin recovery path)
+      description: |
+        Removes a single state-version row and its S3 objects. Intended for
+        recovery from broken or undecryptable state captures (e.g. partial
+        rows from failed applies). Audit-logged. Admin-only.
+      tags: [state]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: serial
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "200":
+          description: Deleted but storage cleanup failed (DB row gone; orphan S3 objects)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: object
+                  storage_error:
+                    type: string
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /workspaces/{workspaceId}/access:
     get:
       operationId: listWorkspaceAccess
@@ -1293,6 +1330,17 @@ components:
           type: string
           enum: [plan, apply, destroy, import, test]
           default: plan
+        imports:
+          type: array
+          description: Required when operation is "import". Each entry maps an existing resource address to its provider-assigned ID.
+          items:
+            type: object
+            required: [address, id]
+            properties:
+              address:
+                type: string
+              id:
+                type: string
 
     WorkspaceVariable:
       type: object

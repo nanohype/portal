@@ -121,6 +121,22 @@ func (s *S3Storage) GetRawState(ctx context.Context, key string) ([]byte, error)
 	return io.ReadAll(obj)
 }
 
+// DeleteStateObjects removes both the browse-state and raw-state objects
+// for a given workspace/serial. Missing objects are treated as success so
+// the caller can recover from partial uploads without surfacing errors.
+func (s *S3Storage) DeleteStateObjects(ctx context.Context, workspaceID string, serial int) error {
+	for _, key := range []string{
+		fmt.Sprintf("state/%s/%d.tfstate", workspaceID, serial),
+		fmt.Sprintf("state-raw/%s/%d.tfstate", workspaceID, serial),
+	} {
+		if err := s.client.RemoveObject(ctx, s.bucket, key, minio.RemoveObjectOptions{}); err != nil {
+			// minio returns no-op success for missing keys, so any error here is real.
+			return fmt.Errorf("failed to remove %s: %w", key, err)
+		}
+	}
+	return nil
+}
+
 func (s *S3Storage) PutConfigArchive(ctx context.Context, workspaceID, configVersionID string, data []byte) (string, error) {
 	key := fmt.Sprintf("configs/%s/%s.tar.gz", workspaceID, configVersionID)
 	_, err := s.client.PutObject(ctx, s.bucket, key, bytes.NewReader(data), int64(len(data)), minio.PutObjectOptions{

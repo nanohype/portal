@@ -141,7 +141,7 @@ func (q *Queries) CancelRun(ctx context.Context, id, orgID string) (Run, error) 
 	row := q.db.QueryRow(ctx,
 		`UPDATE runs SET status = 'cancelled', updated_at = NOW()
 		WHERE id = $1 AND org_id = $2
-		AND status IN ('pending', 'queued', 'planning', 'applying', 'awaiting_approval')
+		AND status IN ('pending', 'queued', 'planning', 'planned', 'applying', 'awaiting_approval')
 		RETURNING `+runColumns,
 		id, orgID,
 	)

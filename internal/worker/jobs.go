@@ -48,8 +48,8 @@ type RunJobWorker struct {
 	queries     *repository.Queries
 	executor    executor.Executor
 	streamer    logstream.Streamer
-	storage     *storage.S3Storage    // nil in dev without MinIO
-	encryptor   *secrets.Encryptor    // nil if encryption not configured
+	storage     *storage.S3Storage // nil in dev without MinIO
+	encryptor   *secrets.Encryptor // nil if encryption not configured
 	riverClient *river.Client[pgx.Tx]
 	db          *pgxpool.Pool
 }
@@ -226,30 +226,32 @@ func (w *RunJobWorker) Work(ctx context.Context, job *river.Job[RunJobArgs]) err
 	})
 
 	if err != nil {
-		// Save partial state if the executor captured it (e.g. failed apply with some resources created)
-		if result != nil && result.StateFile != nil && w.storage != nil {
+		// Save partial state if the executor captured it (e.g. failed apply with some resources created).
+		// Terragrunt mode: no local StateFile, but `state pull` populates StateJSON.
+		if result != nil && (result.StateFile != nil || result.StateJSON != nil) && w.storage != nil {
 			latestSV, _ := w.queries.GetLatestStateVersion(ctx, repository.GetLatestStateVersionParams{
 				WorkspaceID: args.WorkspaceID, OrgID: args.OrgID,
 			})
 			nextSerial := latestSV.Serial + 1
 
-			if _, storeErr := w.storage.PutRawState(ctx, args.WorkspaceID, int(nextSerial), result.StateFile); storeErr != nil {
-				logger.Error("failed to upload partial raw state", "error", storeErr)
+			if result.StateFile != nil {
+				if _, storeErr := w.storage.PutRawState(ctx, args.WorkspaceID, int(nextSerial), result.StateFile); storeErr != nil {
+					logger.Error("failed to upload partial raw state", "error", storeErr)
+				}
 			}
 
-			browseState := result.StateJSON
-			if len(browseState) == 0 {
-				browseState = result.StateFile
-			}
-			if stateURL, storeErr := w.storage.PutState(ctx, args.WorkspaceID, int(nextSerial), browseState); storeErr != nil {
-				logger.Error("failed to upload partial state", "error", storeErr)
-			} else {
-				w.queries.CreateStateVersion(ctx, repository.CreateStateVersionParams{
-					ID: ulid.Make().String(), WorkspaceID: args.WorkspaceID, OrgID: args.OrgID,
-					RunID: args.RunID, Serial: nextSerial, StateURL: stateURL,
-					ResourceCount: 0, ResourceSummary: "partial (errored)",
-				})
-				logger.Info("saved partial state from failed run", "serial", nextSerial)
+			browseState := selectBrowseState(result.StateFile, result.StateJSON)
+			if len(browseState) > 0 {
+				if stateURL, storeErr := w.storage.PutState(ctx, args.WorkspaceID, int(nextSerial), browseState); storeErr != nil {
+					logger.Error("failed to upload partial state", "error", storeErr)
+				} else {
+					w.queries.CreateStateVersion(ctx, repository.CreateStateVersionParams{
+						ID: ulid.Make().String(), WorkspaceID: args.WorkspaceID, OrgID: args.OrgID,
+						RunID: args.RunID, Serial: nextSerial, StateURL: stateURL,
+						ResourceCount: 0, ResourceSummary: "partial (errored)",
+					})
+					logger.Info("saved partial state from failed run", "serial", nextSerial)
+				}
 			}
 		}
 		return w.failRun(ctx, args, logger, err, logBuf.String())
@@ -304,39 +306,46 @@ func (w *RunJobWorker) Work(ctx context.Context, job *river.Job[RunJobArgs]) err
 		}
 	}
 
-	// Upload state to S3 after apply/destroy
-	if result.StateFile != nil && w.storage != nil {
+	// Upload state to S3 after apply/destroy. Terragrunt workspaces don't
+	// produce a local terraform.tfstate at the leaf (state lives in their
+	// remote backend), so StateFile is empty — fall through on StateJSON
+	// alone (which the worker captures via `state pull`).
+	if (result.StateFile != nil || result.StateJSON != nil) && w.storage != nil {
 		latestSV, _ := w.queries.GetLatestStateVersion(ctx, repository.GetLatestStateVersionParams{
 			WorkspaceID: args.WorkspaceID, OrgID: args.OrgID,
 		})
 		nextSerial := latestSV.Serial + 1
 
-		// Store raw state (may be encrypted) for restoration on next run
-		if _, err := w.storage.PutRawState(ctx, args.WorkspaceID, int(nextSerial), result.StateFile); err != nil {
-			logger.Error("failed to upload raw state", "error", err)
+		// Store raw state (may be encrypted) for restoration on next run.
+		// Only present in plain-tofu mode; terragrunt-managed state isn't
+		// restored from tofui (terragrunt owns its backend).
+		if result.StateFile != nil {
+			if _, err := w.storage.PutRawState(ctx, args.WorkspaceID, int(nextSerial), result.StateFile); err != nil {
+				logger.Error("failed to upload raw state", "error", err)
+			}
 		}
 
-		// Store decrypted JSON for the resource browser (fall back to raw if no decrypted version)
-		browseState := result.StateJSON
-		if len(browseState) == 0 {
-			browseState = result.StateFile
-		}
+		// Store decrypted JSON for the resource browser + pipeline output
+		// import (fall back to raw if no decrypted version).
+		browseState := selectBrowseState(result.StateFile, result.StateJSON)
 
-		stateURL, err := w.storage.PutState(ctx, args.WorkspaceID, int(nextSerial), browseState)
-		if err != nil {
-			logger.Error("failed to upload state", "error", err)
-		} else {
-			if _, err := w.queries.CreateStateVersion(ctx, repository.CreateStateVersionParams{
-				ID:              ulid.Make().String(),
-				WorkspaceID:     args.WorkspaceID,
-				OrgID:           args.OrgID,
-				RunID:           args.RunID,
-				Serial:          nextSerial,
-				StateURL:        stateURL,
-				ResourceCount:   result.ResourcesAdded + result.ResourcesChanged,
-				ResourceSummary: fmt.Sprintf("+%d ~%d -%d", result.ResourcesAdded, result.ResourcesChanged, result.ResourcesDeleted),
-			}); err != nil {
-				logger.Error("failed to create state version", "error", err)
+		if len(browseState) > 0 {
+			stateURL, err := w.storage.PutState(ctx, args.WorkspaceID, int(nextSerial), browseState)
+			if err != nil {
+				logger.Error("failed to upload state", "error", err)
+			} else {
+				if _, err := w.queries.CreateStateVersion(ctx, repository.CreateStateVersionParams{
+					ID:              ulid.Make().String(),
+					WorkspaceID:     args.WorkspaceID,
+					OrgID:           args.OrgID,
+					RunID:           args.RunID,
+					Serial:          nextSerial,
+					StateURL:        stateURL,
+					ResourceCount:   result.ResourcesAdded + result.ResourcesChanged,
+					ResourceSummary: fmt.Sprintf("+%d ~%d -%d", result.ResourcesAdded, result.ResourcesChanged, result.ResourcesDeleted),
+				}); err != nil {
+					logger.Error("failed to create state version", "error", err)
+				}
 			}
 		}
 	}
@@ -451,6 +460,22 @@ func (w *RunJobWorker) isRunCancelled(ctx context.Context, runID, orgID string) 
 
 // postPlanAction determines the status after a plan completes.
 // auto_apply wins over requires_approval. "queued" triggers auto-apply enqueue.
+// selectBrowseState returns the bytes that should be uploaded as the
+// resource-browser / pipeline-output state for the run, or nil when there
+// is nothing to capture. In plain-tofu mode the executor produces both
+// StateFile (raw on-disk state) and StateJSON (decrypted JSON for the
+// browser). In terragrunt mode, state lives in the remote backend — there
+// is no leaf-side StateFile to capture, but `tofu state pull` populates
+// StateJSON. The browse path prefers StateJSON when present; raw
+// StateFile is the fallback so plain-tofu runs without StateJSON still
+// land a row.
+func selectBrowseState(stateFile, stateJSON []byte) []byte {
+	if len(stateJSON) > 0 {
+		return stateJSON
+	}
+	return stateFile
+}
+
 func postPlanAction(autoApply, requiresApproval bool) string {
 	if autoApply {
 		return "queued"
