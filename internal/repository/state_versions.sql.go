@@ -106,3 +106,15 @@ func (q *Queries) GetLatestStateVersion(ctx context.Context, arg GetLatestStateV
 	)
 	return scanStateVersion(row)
 }
+
+// DeleteStateVersion removes a single state-version row, scoped by
+// workspace and org. Returns pgx.ErrNoRows when there's no matching row
+// so the handler can surface a clean 404. The caller is responsible for
+// removing the corresponding S3 objects (see storage.DeleteStateObjects).
+func (q *Queries) DeleteStateVersion(ctx context.Context, arg GetStateVersionBySerialParams) (StateVersion, error) {
+	row := q.db.QueryRow(ctx,
+		`DELETE FROM state_versions WHERE workspace_id = $1 AND org_id = $2 AND serial = $3 RETURNING `+stateVersionColumns,
+		arg.WorkspaceID, arg.OrgID, arg.Serial,
+	)
+	return scanStateVersion(row)
+}

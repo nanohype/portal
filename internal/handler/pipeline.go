@@ -22,14 +22,14 @@ func NewPipelineHandler(pipelineSvc *service.PipelineService, auditSvc *service.
 }
 
 type CreatePipelineRequest struct {
-	Name        string                          `json:"name"`
-	Description string                          `json:"description"`
+	Name        string                             `json:"name"`
+	Description string                             `json:"description"`
 	Stages      []service.CreatePipelineStageInput `json:"stages"`
 }
 
 type UpdatePipelineRequest struct {
-	Name        string                          `json:"name"`
-	Description string                          `json:"description"`
+	Name        string                             `json:"name"`
+	Description string                             `json:"description"`
 	Stages      []service.CreatePipelineStageInput `json:"stages"`
 }
 

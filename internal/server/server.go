@@ -139,7 +139,7 @@ func (s *Server) setupRouter() {
 	runHandler := handler.NewRunHandler(s.runSvc, workspaceSvc, streamer, auditSvc, wsOrigins, store)
 	variableHandler := handler.NewVariableHandler(queries, encryptor, auditSvc, workspaceSvc, store)
 	teamHandler := handler.NewTeamHandler(queries, auditSvc)
-	stateHandler := handler.NewStateHandler(queries, store)
+	stateHandler := handler.NewStateHandler(queries, store, auditSvc)
 	s.approvalHandler = handler.NewApprovalHandler(queries, s.db, auditSvc)
 	auditHandler := handler.NewAuditHandler(queries)
 	healthHandler := handler.NewHealthHandler(s.db, s.cfg.Environment)
@@ -283,6 +283,7 @@ func (s *Server) setupRouter() {
 							r.Get("/diff", stateHandler.Diff)
 							r.Get("/{stateID}", stateHandler.Get)
 							r.Get("/{stateID}/download", stateHandler.Download)
+							r.With(auth.RequireRole("admin")).Delete("/serial/{serial}", stateHandler.Delete)
 						})
 
 						// Team access

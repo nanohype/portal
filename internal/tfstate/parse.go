@@ -8,12 +8,12 @@ import (
 
 // TFState represents the top-level structure of an OpenTofu/Terraform state file.
 type TFState struct {
-	Version          int                        `json:"version"`
-	TerraformVersion string                     `json:"terraform_version"`
-	Serial           int                        `json:"serial"`
-	Lineage          string                     `json:"lineage"`
-	Outputs          map[string]TFStateOutput   `json:"outputs"`
-	Resources        []TFStateResource          `json:"resources"`
+	Version          int                      `json:"version"`
+	TerraformVersion string                   `json:"terraform_version"`
+	Serial           int                      `json:"serial"`
+	Lineage          string                   `json:"lineage"`
+	Outputs          map[string]TFStateOutput `json:"outputs"`
+	Resources        []TFStateResource        `json:"resources"`
 }
 
 // TFStateOutput represents an output value in the state file.
@@ -38,14 +38,14 @@ type TFStateResource struct {
 	Type      string            `json:"type"`
 	Name      string            `json:"name"`
 	Provider  string            `json:"provider"`
-	Instances []TFStateInstance  `json:"instances"`
+	Instances []TFStateInstance `json:"instances"`
 }
 
 // TFStateInstance represents a single instance of a resource.
 type TFStateInstance struct {
-	SchemaVersion int                    `json:"schema_version"`
-	Attributes    map[string]interface{} `json:"attributes"`
-	AttributesFlat map[string]string     `json:"attributes_flat"`
+	SchemaVersion  int                    `json:"schema_version"`
+	Attributes     map[string]interface{} `json:"attributes"`
+	AttributesFlat map[string]string      `json:"attributes_flat"`
 }
 
 // Resource is a simplified representation returned by the API.

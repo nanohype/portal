@@ -219,3 +219,26 @@ func TestMergeVariables_DeepMergeTags(t *testing.T) {
 func boolPtr(b bool) *bool {
 	return &b
 }
+
+func TestSelectBrowseState(t *testing.T) {
+	tests := []struct {
+		name      string
+		stateFile []byte
+		stateJSON []byte
+		want      []byte
+	}{
+		{"plain tofu — both present, JSON wins", []byte("raw"), []byte(`{"k":1}`), []byte(`{"k":1}`)},
+		{"plain tofu — only raw", []byte("raw"), nil, []byte("raw")},
+		{"terragrunt — only JSON from state pull", nil, []byte(`{"k":2}`), []byte(`{"k":2}`)},
+		{"nothing captured (e.g. plan-only)", nil, nil, nil},
+		{"empty slices treated as missing", []byte{}, []byte{}, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := selectBrowseState(tt.stateFile, tt.stateJSON)
+			if string(got) != string(tt.want) {
+				t.Errorf("selectBrowseState(file=%q, json=%q) = %q, want %q", tt.stateFile, tt.stateJSON, got, tt.want)
+			}
+		})
+	}
+}

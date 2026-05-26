@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api } from "@/api/client";
 import type { StateVersion, StateDiff } from "@/api/types";
@@ -10,7 +10,8 @@ import { Spinner } from "@/components/ui/spinner";
 import { ResourceBrowser } from "./ResourceBrowser";
 import { StateDiffViewer } from "./StateDiffViewer";
 import { formatRelativeTime } from "@/lib/utils";
-import { Database, Download, Layers, Search, GitCompare } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
+import { Database, Download, Layers, Search, GitCompare, Trash2 } from "lucide-react";
 
 interface Props {
   workspaceId: string;
@@ -39,6 +40,26 @@ export function StateExplorer({ workspaceId }: Props) {
   const [compareMode, setCompareMode] = useState(false);
   const [fromSerial, setFromSerial] = useState<number | "">("");
   const [toSerial, setToSerial] = useState<number | "">("");
+  const { user } = useAuth();
+  const canDrop = user?.role === "owner" || user?.role === "admin";
+  const qc = useQueryClient();
+
+  const dropMutation = useMutation({
+    mutationFn: async (serial: number) => {
+      const token = localStorage.getItem("tofui_token");
+      const res = await fetch(`/api/v1/workspaces/${workspaceId}/state/serial/${serial}`, {
+        method: "DELETE",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    },
+    onSuccess: () => {
+      toast.success("State version dropped");
+      qc.invalidateQueries({ queryKey: ["state-versions", workspaceId] });
+      qc.invalidateQueries({ queryKey: ["state-current", workspaceId] });
+    },
+    onError: (e) => toast.error(`Failed to drop state version: ${(e as Error).message}`),
+  });
 
   const { data: versions, isLoading, isError } = useQuery({
     queryKey: ["state-versions", workspaceId],
@@ -244,6 +265,24 @@ export function StateExplorer({ workspaceId }: Props) {
                 >
                   <Download className="w-3.5 h-3.5" />
                 </button>
+                {canDrop && (
+                  <button
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          `Drop state version #${sv.serial}? This removes the DB row and S3 objects. Use only when the version is known-broken (e.g. partial-errored, undecryptable). Cannot be undone.`,
+                        )
+                      ) {
+                        dropMutation.mutate(sv.serial);
+                      }
+                    }}
+                    disabled={dropMutation.isPending}
+                    className="p-1.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors cursor-pointer disabled:opacity-50"
+                    title="Drop this state version (admin)"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
             </div>
           ))}

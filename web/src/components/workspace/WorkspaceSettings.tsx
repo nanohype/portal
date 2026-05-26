@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -90,7 +90,7 @@ export function WorkspaceSettings({ workspace }: Props) {
   const {
     register,
     handleSubmit,
-    watch,
+    control,
     setValue,
     formState: { errors, isDirty },
   } = useForm<FormValues>({
@@ -108,6 +108,8 @@ export function WorkspaceSettings({ workspace }: Props) {
       vcs_trigger_enabled: workspace.vcs_trigger_enabled,
     },
   });
+
+  const environment = useWatch({ control, name: "environment" });
 
   const updateMutation = useMutation({
     mutationFn: async (data: FormValues) => {
@@ -192,7 +194,7 @@ export function WorkspaceSettings({ workspace }: Props) {
           <div>
             <label className="block text-sm font-medium mb-1.5">Environment</label>
             <Select
-              value={watch("environment")}
+              value={environment}
               onChange={(e) => setValue("environment", e.target.value as FormValues["environment"], { shouldDirty: true })}
             >
               <option value="development">Development</option>

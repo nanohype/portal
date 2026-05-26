@@ -17,7 +17,9 @@ function parseTags(value: string): Record<string, string> {
       }
       return result;
     }
-  } catch {}
+  } catch {
+    // fall through to return {}
+  }
   return {};
 }
 

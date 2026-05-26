@@ -11,15 +11,15 @@ import (
 type Action string
 
 const (
-	ActionViewWorkspace  Action = "view_workspace"
-	ActionCreateRun      Action = "create_run"
-	ActionApplyRun       Action = "apply_run"
-	ActionApplyProd      Action = "apply_prod"
-	ActionDestroyRun     Action = "destroy_run"
-	ActionManageState    Action = "manage_state"
-	ActionManageVars     Action = "manage_vars"
-	ActionManageTeams    Action = "manage_teams"
-	ActionManageOrg      Action = "manage_org"
+	ActionViewWorkspace   Action = "view_workspace"
+	ActionCreateRun       Action = "create_run"
+	ActionApplyRun        Action = "apply_run"
+	ActionApplyProd       Action = "apply_prod"
+	ActionDestroyRun      Action = "destroy_run"
+	ActionManageState     Action = "manage_state"
+	ActionManageVars      Action = "manage_vars"
+	ActionManageTeams     Action = "manage_teams"
+	ActionManageOrg       Action = "manage_org"
 	ActionDeleteWorkspace Action = "delete_workspace"
 )
 

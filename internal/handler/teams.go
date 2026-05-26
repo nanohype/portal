@@ -31,13 +31,13 @@ type CreateTeamRequest struct {
 }
 
 type AddTeamMemberRequest struct {
-	UserID     string `json:"user_id"`
-	Role       string `json:"role"`
+	UserID        string `json:"user_id"`
+	Role          string `json:"role"`
 	CloudIdentity string `json:"cloud_identity"`
 }
 
 type UpdateTeamMemberRequest struct {
-	Role       string `json:"role"`
+	Role          string `json:"role"`
 	CloudIdentity string `json:"cloud_identity"`
 }
 
@@ -192,10 +192,10 @@ func (h *TeamHandler) AddMember(w http.ResponseWriter, r *http.Request) {
 	}
 
 	member, err := h.queries.AddTeamMember(r.Context(), repository.AddTeamMemberParams{
-		ID:         ulid.Make().String(),
-		TeamID:     teamID,
-		UserID:     req.UserID,
-		Role:       req.Role,
+		ID:            ulid.Make().String(),
+		TeamID:        teamID,
+		UserID:        req.UserID,
+		Role:          req.Role,
 		CloudIdentity: req.CloudIdentity,
 	})
 	if err != nil {
@@ -240,9 +240,9 @@ func (h *TeamHandler) UpdateMember(w http.ResponseWriter, r *http.Request) {
 	}
 
 	member, err := h.queries.UpdateTeamMember(r.Context(), repository.UpdateTeamMemberParams{
-		TeamID:     teamID,
-		UserID:     userID,
-		Role:       req.Role,
+		TeamID:        teamID,
+		UserID:        userID,
+		Role:          req.Role,
 		CloudIdentity: req.CloudIdentity,
 	})
 	if err != nil {

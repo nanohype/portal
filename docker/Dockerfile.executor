@@ -1,6 +1,7 @@
-FROM alpine:3.20
+FROM alpine:3.22
 
 ARG TOFU_VERSION=1.11.0
+ARG TERRAGRUNT_VERSION=0.84.0
 
 RUN apk add --no-cache \
     ca-certificates \
@@ -16,6 +17,12 @@ RUN curl -fsSL "https://github.com/opentofu/opentofu/releases/download/v${TOFU_V
     rm /tmp/tofu.zip && \
     chmod +x /usr/local/bin/tofu && \
     tofu version
+
+# Install Terragrunt (wraps tofu; workspaces with terragrunt.hcl auto-route here)
+RUN curl -fsSL "https://github.com/gruntwork-io/terragrunt/releases/download/v${TERRAGRUNT_VERSION}/terragrunt_linux_amd64" \
+    -o /usr/local/bin/terragrunt && \
+    chmod +x /usr/local/bin/terragrunt && \
+    terragrunt --version
 
 # Create non-root user
 RUN addgroup -S tofu && adduser -S tofu -G tofu

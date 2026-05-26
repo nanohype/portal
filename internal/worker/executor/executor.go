@@ -1,6 +1,24 @@
 package executor
 
-import "context"
+import (
+	"context"
+	"os"
+	"path/filepath"
+)
+
+// DetectBinary returns the binary the worker should invoke for a workspace
+// rooted at workDir. When a terragrunt.hcl is present at the root, the run
+// is driven by terragrunt (which walks parent dirs and renders terraform at
+// run time); otherwise tofu drives the run directly.
+//
+// Precedence: terragrunt.hcl wins if both a terragrunt.hcl and *.tf are
+// present — terragrunt is the higher-level wrapper and it owns the run.
+func DetectBinary(workDir string) string {
+	if _, err := os.Stat(filepath.Join(workDir, "terragrunt.hcl")); err == nil {
+		return "terragrunt"
+	}
+	return "tofu"
+}
 
 // Variable represents an OpenTofu or environment variable.
 type Variable struct {

@@ -20,8 +20,8 @@ type runState struct {
 // MemoryStreamer is an in-memory fan-out streamer for development.
 // It buffers all published messages so late-joining subscribers get a replay.
 type MemoryStreamer struct {
-	mu    sync.Mutex
-	runs  map[string]*runState
+	mu   sync.Mutex
+	runs map[string]*runState
 }
 
 func NewMemoryStreamer() *MemoryStreamer {

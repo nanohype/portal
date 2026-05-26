@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import type { CreateWorkspaceRequest } from "@/api/types";
@@ -61,7 +61,7 @@ export function CreateWorkspaceDialog({
     register,
     handleSubmit,
     reset,
-    watch,
+    control,
     setValue,
     formState: { errors },
   } = useForm<CreateWorkspaceRequest>({
@@ -76,6 +76,8 @@ export function CreateWorkspaceDialog({
       requires_approval: false,
     },
   });
+
+  const environment = useWatch({ control, name: "environment" });
 
   const handleClose = () => {
     reset();
@@ -225,7 +227,7 @@ export function CreateWorkspaceDialog({
                 Environment
               </label>
               <Select
-                value={watch("environment")}
+                value={environment}
                 onChange={(e) => setValue("environment", e.target.value as CreateWorkspaceRequest["environment"])}
               >
                 <option value="development">Development</option>

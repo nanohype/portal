@@ -18,6 +18,7 @@ export function useRunStream({
   const wsRef = useRef<WebSocket | null>(null);
   const retriesRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const connectRef = useRef<() => void>(() => {});
   const [isConnected, setIsConnected] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
 
@@ -54,7 +55,7 @@ export function useRunStream({
       if (retriesRef.current < MAX_RETRIES) {
         const delay = 1000 * Math.pow(2, retriesRef.current);
         retriesRef.current++;
-        reconnectTimerRef.current = setTimeout(connect, delay);
+        reconnectTimerRef.current = setTimeout(() => connectRef.current(), delay);
       } else {
         setIsComplete(true);
       }
@@ -66,6 +67,7 @@ export function useRunStream({
   }, [runId, workspaceId, enabled, onData]);
 
   useEffect(() => {
+    connectRef.current = connect;
     connect();
     return () => {
       if (reconnectTimerRef.current) {
