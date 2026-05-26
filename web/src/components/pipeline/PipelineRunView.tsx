@@ -18,6 +18,8 @@ import {
   Pause,
   SkipForward,
   ExternalLink,
+  Check,
+  X,
 } from "lucide-react";
 
 function stageStatusIcon(status: string) {
@@ -156,6 +158,39 @@ export function PipelineRunView({
     onError: () => toast.error("Failed to cancel pipeline run"),
   });
 
+  // Inline approve/reject for stages parked in awaiting_approval. Hits the
+  // same /workspaces/{ws}/runs/{run}/approvals endpoint ApprovalPanel uses.
+  const approveMutation = useMutation({
+    mutationFn: async ({
+      workspaceId,
+      stageRunId,
+      status,
+    }: {
+      workspaceId: string;
+      stageRunId: string;
+      status: "approved" | "rejected";
+    }) => {
+      const { data, error } = await api.POST(
+        "/workspaces/{workspaceId}/runs/{runId}/approvals",
+        {
+          params: { path: { workspaceId, runId: stageRunId } },
+          body: { status, comment: "" },
+        }
+      );
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({
+        queryKey: ["pipeline-run", pipelineId, runId],
+      });
+      toast.success(
+        vars.status === "approved" ? "Stage approved" : "Stage rejected"
+      );
+    },
+    onError: () => toast.error("Failed to submit approval"),
+  });
+
   if (isLoading) {
     return (
       <div className="flex justify-center py-20">
@@ -258,10 +293,15 @@ export function PipelineRunView({
             const isActive =
               stage.status === "running" ||
               stage.status === "importing_outputs";
+            const isAwaitingApproval =
+              stage.status === "awaiting_approval" && !!stage.run_id;
+            const isPending =
+              approveMutation.isPending &&
+              approveMutation.variables?.stageRunId === stage.run_id;
             return (
               <div
                 key={stage.id}
-                className={`relative flex items-start gap-3 animate-fade-up ${isActive ? "animate-glow-pulse" : ""}`}
+                className="relative flex items-start gap-3 animate-fade-up"
                 style={{ animationDelay: `${i * 50}ms` }}
               >
                 {/* Status dot */}
@@ -281,7 +321,7 @@ export function PipelineRunView({
 
                 {/* Card */}
                 <div
-                  className={`flex-1 border rounded-lg px-4 py-3 transition-all duration-200 ${stageBorderStyle(stage.status)}`}
+                  className={`flex-1 border rounded-lg px-4 py-3 transition-all duration-200 ${stageBorderStyle(stage.status)} ${isActive ? "animate-glow-pulse" : ""}`}
                 >
                   <div className="flex items-center justify-between">
                     <div>
@@ -303,6 +343,42 @@ export function PipelineRunView({
                       >
                         {stage.auto_apply ? "auto" : "manual"}
                       </Badge>
+                      {isAwaitingApproval && (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              approveMutation.mutate({
+                                workspaceId: stage.workspace_id,
+                                stageRunId: stage.run_id!,
+                                status: "approved",
+                              })
+                            }
+                            disabled={isPending}
+                            className="text-success hover:text-success hover:bg-success/10 hover:border-success/40 h-7 px-2"
+                          >
+                            <Check className="w-3 h-3" />
+                            Approve
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              approveMutation.mutate({
+                                workspaceId: stage.workspace_id,
+                                stageRunId: stage.run_id!,
+                                status: "rejected",
+                              })
+                            }
+                            disabled={isPending}
+                            className="text-destructive hover:text-destructive hover:bg-destructive/10 hover:border-destructive/40 h-7 px-2"
+                          >
+                            <X className="w-3 h-3" />
+                            Reject
+                          </Button>
+                        </>
+                      )}
                       {stage.run_id && (
                         <Link
                           href={`/workspaces/${stage.workspace_id}/runs/${stage.run_id}`}
