@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/stxkxs/tofui/internal/handler/respond"
+	"github.com/nanohype/portal/internal/handler/respond"
 )
 
 type contextKey string

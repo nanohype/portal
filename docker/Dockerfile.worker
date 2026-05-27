@@ -11,8 +11,8 @@ RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /worker ./cmd/worker
 
 FROM alpine:3.22
 RUN apk add --no-cache ca-certificates git
-RUN addgroup -S tofui && adduser -S tofui -G tofui
+RUN addgroup -S portal && adduser -S portal -G portal
 COPY --from=builder /worker /usr/local/bin/worker
 
-USER tofui
+USER portal
 ENTRYPOINT ["worker"]

@@ -3,18 +3,18 @@ kind: Deployment
 metadata:
   name: {{ .Release.Name }}-worker
   labels:
-    app.kubernetes.io/name: tofui-worker
+    app.kubernetes.io/name: portal-worker
     app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
   replicas: {{ .Values.replicaCount.worker }}
   selector:
     matchLabels:
-      app.kubernetes.io/name: tofui-worker
+      app.kubernetes.io/name: portal-worker
       app.kubernetes.io/instance: {{ .Release.Name }}
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: tofui-worker
+        app.kubernetes.io/name: portal-worker
         app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
       securityContext:

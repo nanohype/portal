@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/stxkxs/tofui/internal/auth"
-	"github.com/stxkxs/tofui/internal/handler/respond"
-	"github.com/stxkxs/tofui/internal/repository"
+	"github.com/nanohype/portal/internal/auth"
+	"github.com/nanohype/portal/internal/handler/respond"
+	"github.com/nanohype/portal/internal/repository"
 )
 
 type AuditHandler struct {

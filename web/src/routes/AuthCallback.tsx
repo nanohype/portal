@@ -9,7 +9,7 @@ export function AuthCallbackPage() {
 
     if (token) {
       // Store token — user will be fetched by useAuth hook
-      localStorage.setItem("tofui_token", token);
+      localStorage.setItem("portal_token", token);
       useAuthStore.setState({ token, isAuthenticated: true });
       window.location.href = "/";
     } else {

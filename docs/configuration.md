@@ -42,7 +42,7 @@ To use GitHub sign-in locally, set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `S3_ENDPOINT` | `localhost:9000` | S3-compatible endpoint |
-| `S3_BUCKET` | `tofui` | Bucket name for state, logs, plans, and config archives |
+| `S3_BUCKET` | `portal` | Bucket name for state, logs, plans, and config archives |
 | `S3_ACCESS_KEY` | `minioadmin` | Access key |
 | `S3_SECRET_KEY` | `minioadmin` | Secret key |
 | `S3_USE_SSL` | `false` | Use HTTPS for S3 connections |
@@ -79,9 +79,9 @@ To use GitHub sign-in locally, set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `EXECUTOR_TYPE` | `local` | `local` runs tofu on the worker host. `kubernetes` runs tofu in ephemeral pods. |
-| `EXECUTOR_NAMESPACE` | `tofui` | Kubernetes namespace for executor pods (K8s executor only) |
-| `EXECUTOR_IMAGE` | `tofui-executor:tofu-1.11` | Default container image for executor pods |
-| `EXECUTOR_IMAGE_PREFIX` | `tofui-executor` | Image name prefix. When a workspace specifies a tofu version, the pod uses `{prefix}:tofu-{version}` as the image tag. |
+| `EXECUTOR_NAMESPACE` | `portal` | Kubernetes namespace for executor pods (K8s executor only) |
+| `EXECUTOR_IMAGE` | `portal-executor:tofu-1.11` | Default container image for executor pods |
+| `EXECUTOR_IMAGE_PREFIX` | `portal-executor` | Image name prefix. When a workspace specifies a tofu version, the pod uses `{prefix}:tofu-{version}` as the image tag. |
 
 ## Production Requirements
 

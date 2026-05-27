@@ -3,18 +3,18 @@ kind: Deployment
 metadata:
   name: {{ .Release.Name }}-server
   labels:
-    app.kubernetes.io/name: tofui-server
+    app.kubernetes.io/name: portal-server
     app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
   replicas: {{ .Values.replicaCount.server }}
   selector:
     matchLabels:
-      app.kubernetes.io/name: tofui-server
+      app.kubernetes.io/name: portal-server
       app.kubernetes.io/instance: {{ .Release.Name }}
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: tofui-server
+        app.kubernetes.io/name: portal-server
         app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
       securityContext:
@@ -59,7 +59,7 @@ kind: Service
 metadata:
   name: {{ .Release.Name }}-server
   labels:
-    app.kubernetes.io/name: tofui-server
+    app.kubernetes.io/name: portal-server
     app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
   type: ClusterIP
@@ -68,5 +68,5 @@ spec:
       targetPort: 8080
       protocol: TCP
   selector:
-    app.kubernetes.io/name: tofui-server
+    app.kubernetes.io/name: portal-server
     app.kubernetes.io/instance: {{ .Release.Name }}

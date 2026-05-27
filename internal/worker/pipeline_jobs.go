@@ -10,8 +10,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
-	"github.com/stxkxs/tofui/internal/repository"
-	"github.com/stxkxs/tofui/internal/storage"
+	"github.com/nanohype/portal/internal/repository"
+	"github.com/nanohype/portal/internal/storage"
 )
 
 // PipelineStageJobArgs is the River job argument for processing a pipeline stage.

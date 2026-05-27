@@ -11,10 +11,10 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/stxkxs/tofui/internal/auth"
-	"github.com/stxkxs/tofui/internal/handler/respond"
-	"github.com/stxkxs/tofui/internal/repository"
-	"github.com/stxkxs/tofui/internal/service"
+	"github.com/nanohype/portal/internal/auth"
+	"github.com/nanohype/portal/internal/handler/respond"
+	"github.com/nanohype/portal/internal/repository"
+	"github.com/nanohype/portal/internal/service"
 )
 
 type AccountHandler struct {

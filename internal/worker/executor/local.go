@@ -29,7 +29,7 @@ var planSummaryRegex = regexp.MustCompile(`Plan: (\d+) to add, (\d+) to change, 
 func (e *LocalExecutor) Execute(ctx context.Context, params ExecuteParams) (*ExecuteResult, error) {
 	logger := slog.With("run_id", params.RunID, "operation", params.Operation)
 
-	workDir, err := os.MkdirTemp("", fmt.Sprintf("tofui-run-%s-", params.RunID))
+	workDir, err := os.MkdirTemp("", fmt.Sprintf("portal-run-%s-", params.RunID))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create work dir: %w", err)
 	}
@@ -64,15 +64,15 @@ func (e *LocalExecutor) Execute(ctx context.Context, params ExecuteParams) (*Exe
 	binary := DetectBinary(tfDir)
 	if binary == "terragrunt" {
 		params.LogCallback([]byte("Detected terragrunt.hcl — using terragrunt wrapper.\r\n"))
-		params.LogCallback([]byte("[tofui] TG_NON_INTERACTIVE=true — terragrunt prompts auto-confirmed.\r\n"))
-		params.LogCallback([]byte("[tofui] TG_BACKEND_BOOTSTRAP=true — remote state bucket will be auto-created if missing.\r\n\r\n"))
+		params.LogCallback([]byte("[portal] TG_NON_INTERACTIVE=true — terragrunt prompts auto-confirmed.\r\n"))
+		params.LogCallback([]byte("[portal] TG_BACKEND_BOOTSTRAP=true — remote state bucket will be auto-created if missing.\r\n\r\n"))
 	}
 
 	// Restore previous state if available. Skipped in terragrunt mode —
 	// terragrunt's state lives in the remote backend (S3/GCS/Azure), so a
 	// local terraform.tfstate file is meaningless and can actively confuse
 	// `tofu init` (e.g. when the cached blob was encrypted by a prior
-	// tofui state-encryption run that has since been disabled, init
+	// portal state-encryption run that has since been disabled, init
 	// prompts for migration input and fails under TF_INPUT=false).
 	if len(params.PreviousState) > 0 && binary != "terragrunt" {
 		statePath := filepath.Join(tfDir, "terraform.tfstate")
@@ -86,13 +86,13 @@ func (e *LocalExecutor) Execute(ctx context.Context, params ExecuteParams) (*Exe
 	// Write encryption override if state encryption is enabled. Skipped for
 	// terragrunt — terragrunt's source-copy mechanism pulls the leaf's .tf
 	// files into the rendered cache dir alongside the module source, so the
-	// override would silently encrypt the user's remote state with tofui's
+	// override would silently encrypt the user's remote state with portal's
 	// derived passphrase. That breaks terragrunt `dependency` blocks (which
 	// invoke `tofu output -json` in sibling workspaces without the override)
-	// and conflates tofui-managed encryption with the user's own backend
+	// and conflates portal-managed encryption with the user's own backend
 	// encryption setup (typically S3 SSE-KMS configured in root.hcl).
 	if params.StateEncryptionPassphrase != "" && binary != "terragrunt" {
-		overridePath := filepath.Join(tfDir, "tofui_encryption_override.tf")
+		overridePath := filepath.Join(tfDir, "portal_encryption_override.tf")
 		content := GenerateEncryptionOverride(params.StateEncryptionPassphrase)
 		if err := os.WriteFile(overridePath, []byte(content), 0600); err != nil {
 			return nil, fmt.Errorf("failed to write encryption override: %w", err)
@@ -101,21 +101,21 @@ func (e *LocalExecutor) Execute(ctx context.Context, params ExecuteParams) (*Exe
 	}
 
 	// Write variables file if any. Skipped for terragrunt — its `inputs = {}`
-	// block is the source of truth and tofui shouldn't interfere with it.
+	// block is the source of truth and portal shouldn't interfere with it.
 	if binary != "terragrunt" {
 		if err := e.writeVariables(tfDir, params.Variables); err != nil {
 			return nil, fmt.Errorf("failed to write variables: %w", err)
 		}
 	}
 
-	// Build environment with env variables, filtering out tofui-internal vars
+	// Build environment with env variables, filtering out portal-internal vars
 	// that could interfere with provider SDKs (e.g. S3_ENDPOINT confusing the AWS SDK)
 	var env []string
 	for _, e := range os.Environ() {
 		key := strings.SplitN(e, "=", 2)[0]
 		switch key {
 		case "S3_ENDPOINT", "S3_ACCESS_KEY", "S3_SECRET_KEY", "S3_BUCKET", "S3_USE_SSL", "S3_REGION":
-			continue // skip tofui MinIO config
+			continue // skip portal MinIO config
 		default:
 			env = append(env, e)
 		}
@@ -135,7 +135,7 @@ func (e *LocalExecutor) Execute(ctx context.Context, params ExecuteParams) (*Exe
 
 	// Use plugin cache to avoid re-downloading providers every run
 	if os.Getenv("TF_PLUGIN_CACHE_DIR") == "" {
-		cacheDir := filepath.Join(os.TempDir(), "tofui-plugin-cache")
+		cacheDir := filepath.Join(os.TempDir(), "portal-plugin-cache")
 		os.MkdirAll(cacheDir, 0755)
 		env = append(env, "TF_PLUGIN_CACHE_DIR="+cacheDir)
 	}
@@ -145,7 +145,7 @@ func (e *LocalExecutor) Execute(ctx context.Context, params ExecuteParams) (*Exe
 			env = append(env, fmt.Sprintf("%s=%s", v.Key, v.Value))
 		case "terraform":
 			// terraform-category vars always go in as TF_VAR_* env entries.
-			// In tofu mode, tofui.auto.tfvars (written by writeVariables()
+			// In tofu mode, portal.auto.tfvars (written by writeVariables()
 			// above) takes precedence over TF_VAR_ — the env entries are
 			// redundant but harmless. In terragrunt mode the file is not
 			// written, so TF_VAR_ is the only source; terragrunt's own
@@ -242,7 +242,7 @@ func (e *LocalExecutor) Execute(ctx context.Context, params ExecuteParams) (*Exe
 			params.LogCallback([]byte(fmt.Sprintf("Importing %s = %s...\r\n", res.Address, res.ID)))
 			importArgs := []string{"import", "-no-color"}
 			if e.hasVarFile(tfDir) {
-				importArgs = append(importArgs, "-var-file=tofui.auto.tfvars")
+				importArgs = append(importArgs, "-var-file=portal.auto.tfvars")
 			}
 			importArgs = append(importArgs, res.Address, res.ID)
 			if err := e.runTool(ctx, binary, tfDir, importArgs, env, params.LogCallback); err != nil {
@@ -269,19 +269,19 @@ func (e *LocalExecutor) Execute(ctx context.Context, params ExecuteParams) (*Exe
 	case "plan":
 		tfArgs = []string{"plan", "-no-color", "-detailed-exitcode", "-out=planfile"}
 		if e.hasVarFile(tfDir) {
-			tfArgs = append(tfArgs, "-var-file=tofui.auto.tfvars")
+			tfArgs = append(tfArgs, "-var-file=portal.auto.tfvars")
 		}
 		params.LogCallback([]byte(fmt.Sprintf("\033[1m$ %s plan\033[0m\r\n", binary)))
 	case "apply":
 		tfArgs = []string{"apply", "-no-color", "-auto-approve"}
 		if e.hasVarFile(tfDir) {
-			tfArgs = append(tfArgs, "-var-file=tofui.auto.tfvars")
+			tfArgs = append(tfArgs, "-var-file=portal.auto.tfvars")
 		}
 		params.LogCallback([]byte(fmt.Sprintf("\033[1m$ %s apply\033[0m\r\n", binary)))
 	case "destroy":
 		tfArgs = []string{"destroy", "-no-color", "-auto-approve"}
 		if e.hasVarFile(tfDir) {
-			tfArgs = append(tfArgs, "-var-file=tofui.auto.tfvars")
+			tfArgs = append(tfArgs, "-var-file=portal.auto.tfvars")
 		}
 		params.LogCallback([]byte(fmt.Sprintf("\033[1m$ %s destroy\033[0m\r\n", binary)))
 	default:
@@ -406,11 +406,11 @@ func (e *LocalExecutor) writeVariables(tfDir string, vars []Variable) error {
 		return nil
 	}
 	content := strings.Join(tfVars, "\n") + "\n"
-	return os.WriteFile(filepath.Join(tfDir, "tofui.auto.tfvars"), []byte(content), 0600)
+	return os.WriteFile(filepath.Join(tfDir, "portal.auto.tfvars"), []byte(content), 0600)
 }
 
 func (e *LocalExecutor) hasVarFile(tfDir string) bool {
-	_, err := os.Stat(filepath.Join(tfDir, "tofui.auto.tfvars"))
+	_, err := os.Stat(filepath.Join(tfDir, "portal.auto.tfvars"))
 	return err == nil
 }
 

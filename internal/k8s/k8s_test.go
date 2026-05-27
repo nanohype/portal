@@ -26,7 +26,7 @@ func generateTestCA(t *testing.T) []byte {
 	}
 	tmpl := &x509.Certificate{
 		SerialNumber:          big.NewInt(1),
-		Subject:               pkix.Name{CommonName: "tofui-test-ca"},
+		Subject:               pkix.Name{CommonName: "portal-test-ca"},
 		NotBefore:             time.Now(),
 		NotAfter:              time.Now().Add(time.Hour),
 		KeyUsage:              x509.KeyUsageCertSign,

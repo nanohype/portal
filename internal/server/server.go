@@ -11,14 +11,14 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/stxkxs/tofui/internal/auth"
-	"github.com/stxkxs/tofui/internal/domain"
-	"github.com/stxkxs/tofui/internal/handler"
-	"github.com/stxkxs/tofui/internal/logstream"
-	"github.com/stxkxs/tofui/internal/repository"
-	"github.com/stxkxs/tofui/internal/secrets"
-	"github.com/stxkxs/tofui/internal/service"
-	"github.com/stxkxs/tofui/internal/storage"
+	"github.com/nanohype/portal/internal/auth"
+	"github.com/nanohype/portal/internal/domain"
+	"github.com/nanohype/portal/internal/handler"
+	"github.com/nanohype/portal/internal/logstream"
+	"github.com/nanohype/portal/internal/repository"
+	"github.com/nanohype/portal/internal/secrets"
+	"github.com/nanohype/portal/internal/service"
+	"github.com/nanohype/portal/internal/storage"
 )
 
 type Server struct {
@@ -245,7 +245,7 @@ func (s *Server) setupRouter() {
 					})
 				})
 
-				// Clusters (Kubernetes clusters tofui watches, admin-managed)
+				// Clusters (Kubernetes clusters portal watches, admin-managed)
 				r.Route("/clusters", func(r chi.Router) {
 					r.Get("/", clusterHandler.List)
 					r.With(auth.RequireRole("admin")).Post("/", clusterHandler.Create)

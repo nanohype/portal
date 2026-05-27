@@ -20,7 +20,7 @@ export function ConfigUpload({ workspaceId, currentConfigVersion }: Props) {
       const formData = new FormData();
       formData.append("file", file);
 
-      const token = localStorage.getItem("tofui_token");
+      const token = localStorage.getItem("portal_token");
       const res = await fetch(`/api/v1/workspaces/${workspaceId}/upload`, {
         method: "POST",
         headers: token ? { Authorization: `Bearer ${token}` } : {},

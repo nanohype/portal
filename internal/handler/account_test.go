@@ -29,7 +29,7 @@ func TestIsValidRoleARN(t *testing.T) {
 		in   string
 		want bool
 	}{
-		{"arn:aws:iam::351619759866:role/tofui-cross-account", true},
+		{"arn:aws:iam::351619759866:role/portal-cross-account", true},
 		{"arn:aws:iam::351619759866:role/path/role-name", true},
 		{"arn:aws-us-gov:iam::351619759866:role/gov-role", true},
 		{"arn:aws-cn:iam::351619759866:role/cn-role", true},
@@ -84,7 +84,7 @@ func TestAccountIDFromARN(t *testing.T) {
 		arn  string
 		want string
 	}{
-		{"arn:aws:iam::351619759866:role/tofui", "351619759866"},
+		{"arn:aws:iam::351619759866:role/portal", "351619759866"},
 		{"arn:aws-us-gov:iam::123456789012:role/gov", "123456789012"},
 		{"arn:aws:iam::351619759866:role/with/path/role", "351619759866"},
 		{"arn:aws:s3:::bucket-not-a-role", ""},
@@ -109,9 +109,9 @@ func TestCrossFieldARNAccountMatch(t *testing.T) {
 		arn       string
 		shouldMatch bool
 	}{
-		{"matches", "arn:aws:iam::351619759866:role/tofui", true},
-		{"mismatched account", "arn:aws:iam::999999999999:role/tofui", false},
-		{"off by one digit", "arn:aws:iam::351619759867:role/tofui", false},
+		{"matches", "arn:aws:iam::351619759866:role/portal", true},
+		{"mismatched account", "arn:aws:iam::999999999999:role/portal", false},
+		{"off by one digit", "arn:aws:iam::351619759867:role/portal", false},
 		{"junk arn", "not-an-arn", false},
 	}
 	for _, tc := range cases {

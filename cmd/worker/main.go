@@ -15,18 +15,18 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 
-	tofuaws "github.com/stxkxs/tofui/internal/aws"
-	"github.com/stxkxs/tofui/internal/domain"
-	tofugit "github.com/stxkxs/tofui/internal/git"
-	tofuhelm "github.com/stxkxs/tofui/internal/helm"
-	"github.com/stxkxs/tofui/internal/k8s"
-	"github.com/stxkxs/tofui/internal/logstream"
-	"github.com/stxkxs/tofui/internal/repository"
-	"github.com/stxkxs/tofui/internal/secrets"
-	"github.com/stxkxs/tofui/internal/service"
-	"github.com/stxkxs/tofui/internal/storage"
-	"github.com/stxkxs/tofui/internal/worker"
-	"github.com/stxkxs/tofui/internal/worker/executor"
+	tofuaws "github.com/nanohype/portal/internal/aws"
+	"github.com/nanohype/portal/internal/domain"
+	tofugit "github.com/nanohype/portal/internal/git"
+	tofuhelm "github.com/nanohype/portal/internal/helm"
+	"github.com/nanohype/portal/internal/k8s"
+	"github.com/nanohype/portal/internal/logstream"
+	"github.com/nanohype/portal/internal/repository"
+	"github.com/nanohype/portal/internal/secrets"
+	"github.com/nanohype/portal/internal/service"
+	"github.com/nanohype/portal/internal/storage"
+	"github.com/nanohype/portal/internal/worker"
+	"github.com/nanohype/portal/internal/worker/executor"
 	"path/filepath"
 	"sync"
 )
@@ -183,7 +183,7 @@ func main() {
 	river.AddWorker(workers, clusterTestWorker)
 
 	// Cluster watcher: walks each connected cluster's EAP CRDs periodically
-	// and reconciles tofui's tenant inventory. Worker = process one cluster;
+	// and reconciles portal's tenant inventory. Worker = process one cluster;
 	// dispatch tick (further below) fans out one job per cluster every 60s.
 	tenantSvc := service.NewTenantService(queries, dbPool)
 	tenantReconcile := func(ctx context.Context, orgID, clusterID string, observed []worker.TenantSnapshot) (int, int, error) {
@@ -223,7 +223,7 @@ func main() {
 		chartCache := tofuhelm.NewCache(eapRepo.Workdir())
 		renderFn := func(chartName, releaseName, namespace string, values map[string]interface{}) (string, error) {
 			// Pull fresh chart on every render so chart-author edits land
-			// without a tofui restart. Cheap (~few hundred ms when nothing
+			// without a portal restart. Cheap (~few hundred ms when nothing
 			// changed); the chartCache.Reset call discards in-memory parses
 			// so the next Load re-reads.
 			if err := eapRepo.CloneOrPull(context.Background(), cfg.EAPChartsRepoRef); err != nil {

@@ -9,9 +9,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/stxkxs/tofui/internal/auth"
-	"github.com/stxkxs/tofui/internal/handler/respond"
-	"github.com/stxkxs/tofui/internal/service"
+	"github.com/nanohype/portal/internal/auth"
+	"github.com/nanohype/portal/internal/handler/respond"
+	"github.com/nanohype/portal/internal/service"
 )
 
 // TenantHandler exposes read endpoints + the write-via-git endpoints. The
@@ -332,7 +332,7 @@ func (h *TenantHandler) RevokeAccess(w http.ResponseWriter, r *http.Request) {
 	respond.NoContent(w)
 }
 
-// Operations returns the per-tenant operation log: every create/delete tofui
+// Operations returns the per-tenant operation log: every create/delete portal
 // has attempted against this tenant, with status + commit SHA + error.
 func (h *TenantHandler) Operations(w http.ResponseWriter, r *http.Request) {
 	userCtx := auth.GetUser(r.Context())

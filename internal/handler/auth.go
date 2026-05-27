@@ -16,10 +16,10 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/github"
 
-	"github.com/stxkxs/tofui/internal/auth"
-	"github.com/stxkxs/tofui/internal/domain"
-	"github.com/stxkxs/tofui/internal/handler/respond"
-	"github.com/stxkxs/tofui/internal/repository"
+	"github.com/nanohype/portal/internal/auth"
+	"github.com/nanohype/portal/internal/domain"
+	"github.com/nanohype/portal/internal/handler/respond"
+	"github.com/nanohype/portal/internal/repository"
 )
 
 type AuthHandler struct {
@@ -238,7 +238,7 @@ func (h *AuthHandler) DevLogin(w http.ResponseWriter, r *http.Request) {
 	user, err := h.queries.UpsertUserByEmail(ctx, repository.UpsertUserByEmailParams{
 		ID:        ulid.Make().String(),
 		OrgID:     org.ID,
-		Email:     "dev@tofui.local",
+		Email:     "dev@portal.local",
 		Name:      "Dev User",
 		AvatarURL: "",
 		Role:      role,

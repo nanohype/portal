@@ -6,7 +6,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/oklog/ulid/v2"
 
-	"github.com/stxkxs/tofui/internal/repository"
+	"github.com/nanohype/portal/internal/repository"
 )
 
 // TeamAccessService is the write + read API for tenant_team_access and
@@ -53,7 +53,7 @@ func (s *TeamAccessService) RevokeTenant(ctx context.Context, orgID, clusterID, 
 }
 
 // RevokeAllForTenant clears all access rows for a tenant. Called when the
-// tenant is deleted via tofui so stale access rows don't accumulate.
+// tenant is deleted via portal so stale access rows don't accumulate.
 func (s *TeamAccessService) RevokeAllForTenant(ctx context.Context, orgID, clusterID, tenantName string) error {
 	return s.queries.RevokeAllTenantTeamAccess(ctx, repository.RevokeAllTenantTeamAccessParams{
 		OrgID:      orgID,

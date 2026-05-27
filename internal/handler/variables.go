@@ -19,14 +19,14 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/oklog/ulid/v2"
 
-	"github.com/stxkxs/tofui/internal/auth"
-	"github.com/stxkxs/tofui/internal/handler/respond"
-	"github.com/stxkxs/tofui/internal/repository"
-	"github.com/stxkxs/tofui/internal/secrets"
-	"github.com/stxkxs/tofui/internal/service"
-	"github.com/stxkxs/tofui/internal/storage"
-	"github.com/stxkxs/tofui/internal/tfparse"
-	"github.com/stxkxs/tofui/internal/tfstate"
+	"github.com/nanohype/portal/internal/auth"
+	"github.com/nanohype/portal/internal/handler/respond"
+	"github.com/nanohype/portal/internal/repository"
+	"github.com/nanohype/portal/internal/secrets"
+	"github.com/nanohype/portal/internal/service"
+	"github.com/nanohype/portal/internal/storage"
+	"github.com/nanohype/portal/internal/tfparse"
+	"github.com/nanohype/portal/internal/tfstate"
 )
 
 type VariableHandler struct {
@@ -242,7 +242,7 @@ type DiscoverVariableResponse struct {
 	Default      *string `json:"default,omitempty"`
 	Required     bool    `json:"required"`
 	Configured   bool    `json:"configured"`
-	ConfiguredBy string  `json:"configured_by,omitempty"` // "terragrunt" | "tofui"
+	ConfiguredBy string  `json:"configured_by,omitempty"` // "terragrunt" | "portal"
 }
 
 func (h *VariableHandler) Discover(w http.ResponseWriter, r *http.Request) {
@@ -255,7 +255,7 @@ func (h *VariableHandler) Discover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tmpDir, err := os.MkdirTemp("", "tofui-discover-*")
+	tmpDir, err := os.MkdirTemp("", "portal-discover-*")
 	if err != nil {
 		respond.Error(w, http.StatusInternalServerError, "failed to create temp directory")
 		return
@@ -303,7 +303,7 @@ func (h *VariableHandler) Discover(w http.ResponseWriter, r *http.Request) {
 		parseDir = filepath.Join(tmpDir, ws.WorkingDir)
 	}
 
-	// Load existing tofui-managed workspace variables for cross-reference.
+	// Load existing portal-managed workspace variables for cross-reference.
 	existing, err := h.queries.ListWorkspaceVariables(r.Context(), repository.ListWorkspaceVariablesParams{
 		WorkspaceID: workspaceID, OrgID: userCtx.OrgID,
 	})
@@ -342,7 +342,7 @@ func (h *VariableHandler) Discover(w http.ResponseWriter, r *http.Request) {
 			Configured:  configuredKeys[d.Name],
 		}
 		if result[i].Configured {
-			result[i].ConfiguredBy = "tofui"
+			result[i].ConfiguredBy = "portal"
 		}
 	}
 
@@ -363,7 +363,7 @@ type renderedTerragrunt struct {
 // underlying module's variables.tf. It returns the merged result, falling
 // back to leaf-only parsing if render fails or the module source is
 // remote.
-func discoverTerragrunt(ctx context.Context, leafDir string, tofuiConfigured map[string]bool) []DiscoverVariableResponse {
+func discoverTerragrunt(ctx context.Context, leafDir string, portalConfigured map[string]bool) []DiscoverVariableResponse {
 	rendered, err := runTerragruntRender(ctx, leafDir)
 	if err != nil {
 		slog.Warn("terragrunt render failed; falling back to leaf-only discovery", "dir", leafDir, "error", err)
@@ -382,7 +382,7 @@ func discoverTerragrunt(ctx context.Context, leafDir string, tofuiConfigured map
 		}
 	}
 
-	return mergeDiscovered(moduleVars, rendered.Inputs, tofuiConfigured)
+	return mergeDiscovered(moduleVars, rendered.Inputs, portalConfigured)
 }
 
 func runTerragruntRender(ctx context.Context, leafDir string) (*renderedTerragrunt, error) {
@@ -439,16 +439,16 @@ func discoverTerragruntLeafOnly(leafDir string) []DiscoverVariableResponse {
 }
 
 // mergeDiscovered combines the module's variable schema (from
-// variables.tf) with terragrunt's resolved inputs and tofui's existing
+// variables.tf) with terragrunt's resolved inputs and portal's existing
 // workspace_variables. Every module variable is returned with its source
 // of truth recorded in ConfiguredBy: "terragrunt" when terragrunt's
-// resolved inputs supply the value, "tofui" when a workspace_variable is
+// resolved inputs supply the value, "portal" when a workspace_variable is
 // set, or empty (and Configured=false) when no value exists anywhere.
 //
 // Resolved-input keys with no matching module variable are appended as
 // extra entries (configured_by=terragrunt) so the user can still see
 // what terragrunt is passing in.
-func mergeDiscovered(moduleVars []tfparse.DiscoveredVariable, resolved map[string]any, tofuiConfigured map[string]bool) []DiscoverVariableResponse {
+func mergeDiscovered(moduleVars []tfparse.DiscoveredVariable, resolved map[string]any, portalConfigured map[string]bool) []DiscoverVariableResponse {
 	seen := make(map[string]bool, len(moduleVars))
 	out := make([]DiscoverVariableResponse, 0, len(moduleVars)+len(resolved))
 
@@ -466,9 +466,9 @@ func mergeDiscovered(moduleVars []tfparse.DiscoveredVariable, resolved map[strin
 			if def := formatHCL(val); def != "" {
 				entry.Default = &def
 			}
-		} else if tofuiConfigured[v.Name] {
+		} else if portalConfigured[v.Name] {
 			entry.Configured = true
-			entry.ConfiguredBy = "tofui"
+			entry.ConfiguredBy = "portal"
 		}
 		seen[v.Name] = true
 		out = append(out, entry)

@@ -58,7 +58,7 @@ func (q *Queries) RevokeTenantTeamAccess(ctx context.Context, arg RevokeTenantTe
 }
 
 // RevokeAllTenantTeamAccess clears access rows when a tenant is deleted
-// via tofui. Called by the handler's delete path so stale access rows
+// via portal. Called by the handler's delete path so stale access rows
 // don't linger after a tenant goes away.
 type RevokeAllTenantTeamAccessParams struct {
 	OrgID      string `json:"org_id"`

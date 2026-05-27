@@ -58,7 +58,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
             <div className="w-6 h-6 rounded-[5px] bg-primary/10 flex items-center justify-center">
               <Box className="w-3 h-3 text-primary" />
             </div>
-            <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-dim">tofui</span>
+            <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-dim">portal</span>
           </Link>
 
           {/* Nav */}

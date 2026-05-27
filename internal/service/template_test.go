@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stxkxs/tofui/internal/repository"
+	"github.com/nanohype/portal/internal/repository"
 )
 
 // helper: build a template with reasonable test defaults

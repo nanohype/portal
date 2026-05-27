@@ -9,7 +9,7 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 
-	"github.com/stxkxs/tofui/internal/domain"
+	"github.com/nanohype/portal/internal/domain"
 )
 
 type S3Storage struct {

@@ -1,6 +1,6 @@
 openapi: "3.1.0"
 info:
-  title: Tofui API
+  title: Portal API
   version: "1.0.0"
   description: OpenTofu Lifecycle Management API
 
@@ -2143,7 +2143,7 @@ components:
           description: 12-digit AWS account number
         assume_role_arn:
           type: string
-          description: ARN of the IAM role tofui assumes into in this account
+          description: ARN of the IAM role portal assumes into in this account
         external_id_set:
           type: boolean
           description: Whether an external ID is configured for the assume-role trust
@@ -2261,7 +2261,7 @@ components:
       properties:
         account_id:
           type: string
-          description: Parent account (tofui-internal ULID)
+          description: Parent account (portal-internal ULID)
         name: { type: string }
         description: { type: string }
         environment:

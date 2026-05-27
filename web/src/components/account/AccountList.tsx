@@ -51,7 +51,7 @@ export function AccountList() {
         <div>
           <h1 className="text-lg font-semibold tracking-tight">Accounts</h1>
           <p className="text-[12px] text-muted-foreground mt-1">
-            AWS accounts tofui can operate against
+            AWS accounts portal can operate against
           </p>
         </div>
         {isAdmin && (
@@ -69,7 +69,7 @@ export function AccountList() {
           </div>
           <h2 className="text-sm font-semibold mb-1">No accounts yet</h2>
           <p className="text-xs text-muted-foreground mb-5 max-w-[300px]">
-            Register an AWS account so tofui can manage clusters and resources
+            Register an AWS account so portal can manage clusters and resources
             inside it.
           </p>
           {isAdmin && (

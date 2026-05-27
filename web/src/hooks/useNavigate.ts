@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 
 // Custom event for client-side navigation
-const NAV_EVENT = "tofui:navigate";
+const NAV_EVENT = "portal:navigate";
 
 export function navigate(to: string) {
   window.history.pushState({}, "", to);

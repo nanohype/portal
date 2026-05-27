@@ -13,11 +13,11 @@ import (
 	"github.com/oklog/ulid/v2"
 	"github.com/riverqueue/river"
 
-	"github.com/stxkxs/tofui/internal/logstream"
-	"github.com/stxkxs/tofui/internal/repository"
-	"github.com/stxkxs/tofui/internal/secrets"
-	"github.com/stxkxs/tofui/internal/storage"
-	"github.com/stxkxs/tofui/internal/worker/executor"
+	"github.com/nanohype/portal/internal/logstream"
+	"github.com/nanohype/portal/internal/repository"
+	"github.com/nanohype/portal/internal/secrets"
+	"github.com/nanohype/portal/internal/storage"
+	"github.com/nanohype/portal/internal/worker/executor"
 )
 
 type ImportResource struct {
@@ -318,7 +318,7 @@ func (w *RunJobWorker) Work(ctx context.Context, job *river.Job[RunJobArgs]) err
 
 		// Store raw state (may be encrypted) for restoration on next run.
 		// Only present in plain-tofu mode; terragrunt-managed state isn't
-		// restored from tofui (terragrunt owns its backend).
+		// restored from portal (terragrunt owns its backend).
 		if result.StateFile != nil {
 			if _, err := w.storage.PutRawState(ctx, args.WorkspaceID, int(nextSerial), result.StateFile); err != nil {
 				logger.Error("failed to upload raw state", "error", err)

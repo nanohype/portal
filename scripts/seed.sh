@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# seed.sh — bootstrap a fresh tofui dev instance with:
+# seed.sh — bootstrap a fresh portal dev instance with:
 #   1. Org-level AWS provider variables (env-category; non-sensitive)
 #   2. Four landing-zone leaf workspaces (the eks-gitops prereqs):
 #        lz-network → lz-cluster → lz-cluster-bootstrap → lz-cluster-addons
@@ -11,11 +11,11 @@
 #
 # Idempotent: skips workspaces/vars/pipelines that already exist by name.
 #
-# Requires: curl, jq, tar; tofui server reachable; ENVIRONMENT=development
+# Requires: curl, jq, tar; portal server reachable; ENVIRONMENT=development
 # so the /auth/dev login endpoint is enabled.
 #
 # Configure via env vars (defaults match the typical stxkxs setup):
-#   TOFUI_API           default http://localhost:8080
+#   PORTAL_API           default http://localhost:8080
 #   LANDING_ZONE_PATH   default $HOME/codes/nanohype/landing-zone
 #   LZ_ACCOUNT          default workload-prod
 #   LZ_REGION           default us-west-2
@@ -29,7 +29,7 @@
 
 set -euo pipefail
 
-API=${TOFUI_API:-http://localhost:8080}
+API=${PORTAL_API:-http://localhost:8080}
 LZ_PATH=${LANDING_ZONE_PATH:-$HOME/codes/nanohype/landing-zone}
 ACCOUNT=${LZ_ACCOUNT:-workload-prod}
 REGION=${LZ_REGION:-us-west-2}
@@ -88,7 +88,7 @@ seed_var AWS_DEFAULT_REGION "$REGION"  false env "Region fallback for AWS provid
 # ─── 2. Workspaces (landing-zone leaves) ───────────────────────────
 echo
 echo "==> Packing landing-zone tree from $LZ_PATH"
-ARCHIVE=$(mktemp -t tofui-lz.XXXXXX).tar.gz
+ARCHIVE=$(mktemp -t portal-lz.XXXXXX).tar.gz
 trap 'rm -f "$ARCHIVE"' EXIT
 # Exclude regenerable / oversized junk:
 #   .terraform           — provider plugins; re-downloaded by `tofu init`
