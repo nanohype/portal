@@ -516,6 +516,26 @@ export interface CreateTenantRequest {
   name: string;
   values: Record<string, unknown>;
   template_id?: string;
+  owning_team_id?: string;
+}
+
+export interface TenantTeamAccess {
+  id: string;
+  org_id: string;
+  cluster_id: string;
+  tenant_name: string;
+  team_id: string;
+  granted_by: string;
+  granted_at: string;
+}
+
+export interface TemplateTeamAccess {
+  id: string;
+  org_id: string;
+  template_id: string;
+  team_id: string;
+  granted_by: string;
+  granted_at: string;
 }
 
 export interface Template {
@@ -810,8 +830,55 @@ export interface paths {
       };
     };
   };
+  "/templates/{templateID}/access": {
+    get: {
+      parameters: { path: { templateID: string } };
+      responses: {
+        200: { content: { "application/json": TemplateTeamAccess[] } };
+      };
+    };
+    post: {
+      parameters: { path: { templateID: string } };
+      requestBody: { content: { "application/json": { team_id: string } } };
+      responses: {
+        201: { content: { "application/json": TemplateTeamAccess } };
+      };
+    };
+  };
+  "/templates/{templateID}/access/{teamId}": {
+    delete: {
+      parameters: { path: { templateID: string; teamId: string } };
+      responses: {
+        204: { content: never };
+      };
+    };
+  };
+  "/tenants/{tenantId}/access": {
+    get: {
+      parameters: { path: { tenantId: string } };
+      responses: {
+        200: { content: { "application/json": TenantTeamAccess[] } };
+      };
+    };
+    post: {
+      parameters: { path: { tenantId: string } };
+      requestBody: { content: { "application/json": { team_id: string } } };
+      responses: {
+        201: { content: { "application/json": TenantTeamAccess } };
+      };
+    };
+  };
+  "/tenants/{tenantId}/access/{teamId}": {
+    delete: {
+      parameters: { path: { tenantId: string; teamId: string } };
+      responses: {
+        204: { content: never };
+      };
+    };
+  };
   "/teams": {
     get: {
+      parameters: { query?: { member_of?: "me" } };
       responses: {
         200: { content: { "application/json": Team[] } };
       };

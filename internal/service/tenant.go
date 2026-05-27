@@ -39,12 +39,16 @@ type TenantSnapshot struct {
 	Status json.RawMessage
 }
 
-func (s *TenantService) List(ctx context.Context, orgID, clusterID string, page, perPage int) ([]repository.Tenant, int64, error) {
+// List returns tenants visible to the caller. teamIDs=nil for admin (no
+// scoping); non-nil slice (possibly empty) for non-admin — empty means
+// "user belongs to no teams" → zero rows.
+func (s *TenantService) List(ctx context.Context, orgID, clusterID string, teamIDs []string, page, perPage int) ([]repository.Tenant, int64, error) {
 	offset := int32((page - 1) * perPage)
 
 	tenants, err := s.queries.ListTenants(ctx, repository.ListTenantsParams{
 		OrgID:     orgID,
 		ClusterID: clusterID,
+		TeamIDs:   teamIDs,
 		Limit:     int32(perPage),
 		Offset:    offset,
 	})
@@ -53,7 +57,7 @@ func (s *TenantService) List(ctx context.Context, orgID, clusterID string, page,
 	}
 
 	count, err := s.queries.CountTenants(ctx, repository.CountTenantsParams{
-		OrgID: orgID, ClusterID: clusterID,
+		OrgID: orgID, ClusterID: clusterID, TeamIDs: teamIDs,
 	})
 	if err != nil {
 		return nil, 0, err

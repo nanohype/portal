@@ -600,6 +600,120 @@ paths:
                 items:
                   $ref: "#/components/schemas/TenantOperation"
 
+  /tenants/{tenantId}/access:
+    get:
+      operationId: listTenantAccess
+      summary: List team-access grants for a tenant
+      tags: [tenants]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+      responses:
+        "200":
+          description: Access grants
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TenantTeamAccess"
+    post:
+      operationId: grantTenantAccess
+      summary: Grant a team access to a tenant (admin only)
+      tags: [tenants]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [team_id]
+              properties:
+                team_id: { type: string }
+      responses:
+        "201":
+          description: Grant created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantTeamAccess"
+
+  /tenants/{tenantId}/access/{teamId}:
+    delete:
+      operationId: revokeTenantAccess
+      summary: Revoke a team's access to a tenant (admin only)
+      tags: [tenants]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+        - $ref: "#/components/parameters/TeamId"
+      responses:
+        "204":
+          description: Revoked
+
+  /templates/{templateID}/access:
+    get:
+      operationId: listTemplateAccess
+      summary: List team-access grants for a template
+      tags: [templates]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TemplateId"
+      responses:
+        "200":
+          description: Access grants
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TemplateTeamAccess"
+    post:
+      operationId: grantTemplateAccess
+      summary: Grant a team access to a template (admin only)
+      tags: [templates]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TemplateId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [team_id]
+              properties:
+                team_id: { type: string }
+      responses:
+        "201":
+          description: Grant created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TemplateTeamAccess"
+
+  /templates/{templateID}/access/{teamId}:
+    delete:
+      operationId: revokeTemplateAccess
+      summary: Revoke a team's access to a template (admin only)
+      tags: [templates]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TemplateId"
+        - $ref: "#/components/parameters/TeamId"
+      responses:
+        "204":
+          description: Revoked
+
   /clusters/{clusterId}/test-connection:
     post:
       operationId: testClusterConnection
@@ -2238,6 +2352,39 @@ components:
         template_id:
           type: string
           description: Optional reference to a curated template
+        owning_team_id:
+          type: string
+          description: |
+            Team that owns the new tenant. Required for non-admins in more
+            than one team; auto-resolved when the user is in exactly one
+            team; optional for admins (omitting means admin-only visibility).
+
+    TenantTeamAccess:
+      type: object
+      required: [id, org_id, cluster_id, tenant_name, team_id, granted_by, granted_at]
+      properties:
+        id: { type: string }
+        org_id: { type: string }
+        cluster_id: { type: string }
+        tenant_name: { type: string }
+        team_id: { type: string }
+        granted_by: { type: string }
+        granted_at:
+          type: string
+          format: date-time
+
+    TemplateTeamAccess:
+      type: object
+      required: [id, org_id, template_id, team_id, granted_by, granted_at]
+      properties:
+        id: { type: string }
+        org_id: { type: string }
+        template_id: { type: string }
+        team_id: { type: string }
+        granted_by: { type: string }
+        granted_at:
+          type: string
+          format: date-time
 
     Template:
       type: object

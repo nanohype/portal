@@ -70,6 +70,21 @@ export function TenantCreateModal({
     enabled: open,
   });
 
+  // Teams the user can pick as the owning team for the new tenant. Admins
+  // see all org teams (optional pick = no ownership = admin-only visibility);
+  // non-admins see only their own teams (server rejects bad picks anyway).
+  const { data: pickableTeams } = useQuery({
+    queryKey: ["teams", isAdmin ? "all" : "mine"],
+    queryFn: async () => {
+      const { data, error } = await api.GET("/teams", {
+        params: isAdmin ? {} : { query: { member_of: "me" } },
+      });
+      if (error) throw error;
+      return data!;
+    },
+    enabled: open,
+  });
+
   // Mode: "template" (operators default) vs "scratch" (admin advanced).
   // When templates exist + user picks one, fields outside its
   // allowed_overrides are disabled and inherit template defaults.
@@ -77,6 +92,7 @@ export function TenantCreateModal({
   const [scratchMode, setScratchMode] = useState(false);
   const selected = templates?.find((t) => t.id === templateID);
 
+  const [owningTeamID, setOwningTeamID] = useState("");
   const [clusterID, setClusterID] = useState("");
   const [name, setName] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -90,6 +106,7 @@ export function TenantCreateModal({
   const reset = () => {
     setTemplateID("");
     setScratchMode(false);
+    setOwningTeamID("");
     setClusterID("");
     setName("");
     setDisplayName("");
@@ -127,6 +144,15 @@ export function TenantCreateModal({
     return selected.allowed_overrides.includes(path);
   };
 
+  // Auto-resolve owning team for the common case (operator in exactly one
+  // team). They still see the picker so they know what's happening, but it
+  // pre-selects so they don't have to click.
+  useEffect(() => {
+    if (!isAdmin && pickableTeams && pickableTeams.length === 1 && !owningTeamID) {
+      setOwningTeamID(pickableTeams[0].id);
+    }
+  }, [isAdmin, pickableTeams, owningTeamID]);
+
   // Build the payload's `values` differently in the two modes:
   // - Template mode: only send overrides for fields that differ from
   //   template defaults AND are in allowed_overrides. The server applies
@@ -156,12 +182,14 @@ export function TenantCreateModal({
         cluster_id: clusterID,
         name,
         template_id: selected.id,
+        owning_team_id: owningTeamID || undefined,
         values: overrides,
       };
     }
     return {
       cluster_id: clusterID,
       name,
+      owning_team_id: owningTeamID || undefined,
       values: {
         platform: {
           name,
@@ -197,11 +225,16 @@ export function TenantCreateModal({
   const nameInvalid = name !== "" && !K8S_NAME_RE.test(name);
   const budgetOverCap =
     selected && selected.max_budget_usd > 0 && monthlyUsd > selected.max_budget_usd;
+  const needsTeamPick =
+    !isAdmin && pickableTeams !== undefined && pickableTeams.length > 1 && owningTeamID === "";
+  const noTeams = !isAdmin && pickableTeams !== undefined && pickableTeams.length === 0;
   const canSubmit =
     clusterID !== "" &&
     K8S_NAME_RE.test(name) &&
     monthlyUsd > 0 &&
     !budgetOverCap &&
+    !needsTeamPick &&
+    !noTeams &&
     !mutation.isPending &&
     (scratchMode || templates?.length === 0 || selected !== undefined);
 
@@ -265,6 +298,38 @@ export function TenantCreateModal({
             <div className="bg-warning/10 text-warning text-[11px] rounded-md px-3 py-2">
               No templates have been defined yet. Ask an admin to set one up.
             </div>
+          )}
+
+          {noTeams && (
+            <div className="bg-warning/10 text-warning text-[11px] rounded-md px-3 py-2">
+              You must belong to a team before creating tenants. Ask an admin
+              to add you to one.
+            </div>
+          )}
+
+          {pickableTeams && pickableTeams.length > 0 && (
+            <Field
+              label={isAdmin ? "Owning team (optional)" : "Owning team"}
+              hint={
+                isAdmin
+                  ? "Leave blank for admin-only visibility."
+                  : pickableTeams.length === 1
+                  ? `Auto-assigned to your team: ${pickableTeams[0].name}`
+                  : undefined
+              }
+            >
+              <Select
+                value={owningTeamID}
+                onChange={(e) => setOwningTeamID(e.target.value)}
+              >
+                {isAdmin && <option value="">(no team — admin only)</option>}
+                {pickableTeams.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
           )}
 
           <Field label="Cluster">

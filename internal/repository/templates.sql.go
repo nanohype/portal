@@ -31,11 +31,44 @@ func (q *Queries) GetTemplate(ctx context.Context, arg GetTemplateParams) (Templ
 	return scanTemplate(row)
 }
 
-func (q *Queries) ListTemplates(ctx context.Context, orgID string) ([]Template, error) {
+type ListTemplatesParams struct {
+	OrgID string `json:"org_id"`
+	// TeamIDs scopes the result to templates granted to one of these teams.
+	// Nil = no team filter (admin); empty non-nil = "user has no teams" → zero rows.
+	TeamIDs []string `json:"team_ids"`
+}
+
+func (q *Queries) ListTemplates(ctx context.Context, arg ListTemplatesParams) ([]Template, error) {
+	if arg.TeamIDs != nil {
+		if len(arg.TeamIDs) == 0 {
+			return []Template{}, nil
+		}
+		rows, err := q.db.Query(ctx,
+			`SELECT DISTINCT `+templateColumnsPrefixed("t")+` FROM templates t
+			JOIN template_team_access tta ON tta.template_id = t.id
+			WHERE t.org_id = $1 AND tta.team_id = ANY($2::TEXT[])
+			ORDER BY t.name`,
+			arg.OrgID, arg.TeamIDs,
+		)
+		return scanTemplates(rows, err)
+	}
 	rows, err := q.db.Query(ctx,
 		`SELECT `+templateColumns+` FROM templates WHERE org_id = $1 ORDER BY name`,
-		orgID,
+		arg.OrgID,
 	)
+	return scanTemplates(rows, err)
+}
+
+func templateColumnsPrefixed(alias string) string {
+	return alias + ".id, " + alias + ".org_id, " + alias + ".name, " + alias + ".description, " + alias + ".persona, " + alias + ".default_values, " + alias + ".allowed_overrides, " + alias + ".max_budget_usd, " + alias + ".allowed_model_families, " + alias + ".required_compliance, " + alias + ".created_by, " + alias + ".created_at, " + alias + ".updated_at"
+}
+
+func scanTemplates(rows interface {
+	Next() bool
+	Scan(...interface{}) error
+	Err() error
+	Close()
+}, err error) ([]Template, error) {
 	if err != nil {
 		return nil, err
 	}

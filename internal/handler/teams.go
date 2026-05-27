@@ -58,6 +58,19 @@ func isValidRole(role string) bool {
 func (h *TeamHandler) List(w http.ResponseWriter, r *http.Request) {
 	userCtx := auth.GetUser(r.Context())
 
+	// `member_of=me` scopes the result to teams the caller belongs to.
+	// Used by the tenant create form so operators see only teams they
+	// can actually own a tenant under.
+	if r.URL.Query().Get("member_of") == "me" {
+		teams, err := h.queries.ListTeamsForUser(r.Context(), userCtx.UserID, userCtx.OrgID)
+		if err != nil {
+			respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to list teams")
+			return
+		}
+		respond.JSON(w, http.StatusOK, teams)
+		return
+	}
+
 	teams, err := h.queries.ListTeams(r.Context(), userCtx.OrgID)
 	if err != nil {
 		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to list teams")
