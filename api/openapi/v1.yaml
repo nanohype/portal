@@ -400,6 +400,48 @@ paths:
         "204":
           description: Deleted
 
+  /tenants:
+    get:
+      operationId: listTenants
+      summary: List tenants discovered by the cluster watcher
+      tags: [tenants]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - name: cluster_id
+          in: query
+          schema:
+            type: string
+          description: Filter by parent cluster
+      responses:
+        "200":
+          description: List of tenants
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantList"
+
+  /tenants/{tenantId}:
+    get:
+      operationId: getTenant
+      summary: Get tenant (includes full spec + status JSON blobs)
+      tags: [tenants]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+      responses:
+        "200":
+          description: Tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /clusters/{clusterId}/test-connection:
     post:
       operationId: testClusterConnection
@@ -1293,6 +1335,12 @@ components:
       required: true
       schema:
         type: string
+    TenantId:
+      name: tenantId
+      in: path
+      required: true
+      schema:
+        type: string
     Page:
       name: page
       in: query
@@ -1964,3 +2012,44 @@ components:
         ca_bundle: { type: string }
         sa_token: { type: string }
         region: { type: string }
+
+    Tenant:
+      type: object
+      required: [id, org_id, cluster_id, name, phase, spec, status, last_observed_at, created_at, updated_at]
+      properties:
+        id: { type: string }
+        org_id: { type: string }
+        cluster_id: { type: string }
+        name: { type: string }
+        phase:
+          type: string
+          description: Denormalized from .status.phase for fast filtering; "" when unknown
+        spec:
+          type: object
+          additionalProperties: true
+          description: Full Tenant .spec, as observed
+        status:
+          type: object
+          additionalProperties: true
+          description: Full Tenant .status, as observed
+        last_observed_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    TenantList:
+      type: object
+      required: [data, total, page, per_page]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Tenant"
+        total: { type: integer }
+        page: { type: integer }
+        per_page: { type: integer }
