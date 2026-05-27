@@ -1,3 +1,5 @@
+DROP TABLE IF EXISTS template_team_access;
+DROP TABLE IF EXISTS tenant_team_access;
 DROP TABLE IF EXISTS templates;
 DROP TABLE IF EXISTS tenant_operations;
 DROP TYPE IF EXISTS tenant_op_status;

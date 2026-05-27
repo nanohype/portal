@@ -506,3 +506,41 @@ CREATE INDEX idx_templates_org_id ON templates(org_id);
 -- historical operation log.
 ALTER TABLE tenant_operations
     ADD COLUMN template_id TEXT REFERENCES templates(id) ON DELETE SET NULL;
+
+-- Tenant team access. Records which teams own (and can see) a tenant.
+-- Keyed on (cluster_id, tenant_name) rather than tenants.id because tofui
+-- needs to record access at create time — before the watcher has observed
+-- the resulting Tenant CR and inserted the tenants row. The composite
+-- key matches tenants' own UNIQUE(cluster_id, name) constraint so list
+-- queries can JOIN cleanly.
+CREATE TABLE tenant_team_access (
+    id          TEXT PRIMARY KEY,
+    org_id      TEXT NOT NULL REFERENCES organizations(id),
+    cluster_id  TEXT NOT NULL REFERENCES clusters(id) ON DELETE CASCADE,
+    tenant_name TEXT NOT NULL,
+    team_id     TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    granted_by  TEXT NOT NULL REFERENCES users(id),
+    granted_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(cluster_id, tenant_name, team_id)
+);
+
+CREATE INDEX idx_tenant_team_access_org_id ON tenant_team_access(org_id);
+CREATE INDEX idx_tenant_team_access_team_id ON tenant_team_access(team_id);
+CREATE INDEX idx_tenant_team_access_cluster_tenant ON tenant_team_access(cluster_id, tenant_name);
+
+-- Template team access. Records which teams can instantiate from a template.
+-- Simple two-column join (template_id, team_id); the presence of a row
+-- means "this team can use this template". Admins ignore this table
+-- entirely (they see everything).
+CREATE TABLE template_team_access (
+    id          TEXT PRIMARY KEY,
+    org_id      TEXT NOT NULL REFERENCES organizations(id),
+    template_id TEXT NOT NULL REFERENCES templates(id) ON DELETE CASCADE,
+    team_id     TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    granted_by  TEXT NOT NULL REFERENCES users(id),
+    granted_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(template_id, team_id)
+);
+
+CREATE INDEX idx_template_team_access_org_id ON template_team_access(org_id);
+CREATE INDEX idx_template_team_access_team_id ON template_team_access(team_id);

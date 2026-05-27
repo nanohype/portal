@@ -1,11 +1,13 @@
 import { useState, useEffect } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api } from "@/api/client";
-import type { Template } from "@/api/types";
+import type { Team, Template, TemplateTeamAccess } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { formatRelativeTime } from "@/lib/utils";
+import { Trash2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -283,6 +285,8 @@ export function TemplateEditorDialog({
             />
           </Field>
 
+          {existing && <TemplateAccessSection templateID={existing.id} />}
+
           <div className="flex justify-end gap-2 pt-3 border-t border-border/40">
             <Button variant="ghost" size="sm" onClick={onClose}>
               Cancel
@@ -302,6 +306,134 @@ export function TemplateEditorDialog({
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function TemplateAccessSection({ templateID }: { templateID: string }) {
+  const queryClient = useQueryClient();
+  const [picker, setPicker] = useState("");
+
+  const { data: access } = useQuery({
+    queryKey: ["template", templateID, "access"],
+    queryFn: async () => {
+      const { data, error } = await api.GET(
+        "/templates/{templateID}/access",
+        { params: { path: { templateID } } },
+      );
+      if (error) throw error;
+      return data!;
+    },
+  });
+
+  const { data: teams } = useQuery({
+    queryKey: ["teams", "all"],
+    queryFn: async () => {
+      const { data, error } = await api.GET("/teams");
+      if (error) throw error;
+      return data!;
+    },
+  });
+
+  const grant = useMutation({
+    mutationFn: async (teamID: string) => {
+      const { data, error } = await api.POST(
+        "/templates/{templateID}/access",
+        { params: { path: { templateID } }, body: { team_id: teamID } },
+      );
+      if (error) throw error;
+      return data!;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["template", templateID, "access"],
+      });
+      toast.success("Access granted");
+      setPicker("");
+    },
+    onError: () => toast.error("Failed to grant access"),
+  });
+
+  const revoke = useMutation({
+    mutationFn: async (teamID: string) => {
+      const { error } = await api.DELETE(
+        "/templates/{templateID}/access/{teamId}",
+        { params: { path: { templateID, teamId: teamID } } },
+      );
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["template", templateID, "access"],
+      });
+      toast.success("Access revoked");
+    },
+    onError: () => toast.error("Failed to revoke access"),
+  });
+
+  const grantedIDs = new Set((access ?? []).map((a: TemplateTeamAccess) => a.team_id));
+  const ungranted = (teams ?? []).filter((t: Team) => !grantedIDs.has(t.id));
+  const teamName = (id: string) =>
+    (teams ?? []).find((t: Team) => t.id === id)?.name ?? id;
+
+  return (
+    <div className="border border-border/60 rounded-lg overflow-hidden">
+      <div className="px-4 py-2 text-xs font-medium border-b border-border/40 bg-accent/20">
+        Team Access ({access?.length ?? 0})
+      </div>
+      <div className="divide-y divide-border/30">
+        {(access ?? []).length === 0 ? (
+          <div className="px-4 py-2.5 text-[11px] text-muted-foreground">
+            No teams can use this template yet. Admins always see it.
+          </div>
+        ) : (
+          (access ?? []).map((a: TemplateTeamAccess) => (
+            <div
+              key={a.id}
+              className="px-4 py-2 text-xs flex items-center gap-3"
+            >
+              <span className="font-medium flex-1">{teamName(a.team_id)}</span>
+              <span className="text-[11px] text-muted-foreground/70">
+                {formatRelativeTime(a.granted_at)}
+              </span>
+              <button
+                onClick={() => {
+                  if (confirm(`Revoke access from ${teamName(a.team_id)}?`)) {
+                    revoke.mutate(a.team_id);
+                  }
+                }}
+                className="text-muted-foreground hover:text-destructive transition-colors cursor-pointer"
+                aria-label="Revoke"
+              >
+                <Trash2 className="w-3 h-3" />
+              </button>
+            </div>
+          ))
+        )}
+        {ungranted.length > 0 && (
+          <div className="px-4 py-2 bg-background/40 flex items-center gap-2">
+            <select
+              value={picker}
+              onChange={(e) => setPicker(e.target.value)}
+              className="text-xs border border-border/60 rounded-md bg-background px-2 py-1.5 flex-1"
+            >
+              <option value="">Grant access to a team…</option>
+              {ungranted.map((t: Team) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+            <Button
+              size="sm"
+              onClick={() => picker && grant.mutate(picker)}
+              disabled={!picker || grant.isPending}
+            >
+              Grant
+            </Button>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
