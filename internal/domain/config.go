@@ -29,7 +29,7 @@ type Config struct {
 
 	// S3/MinIO
 	S3Endpoint  string `env:"S3_ENDPOINT" envDefault:"localhost:9000"`
-	S3Bucket    string `env:"S3_BUCKET" envDefault:"tofui"`
+	S3Bucket    string `env:"S3_BUCKET" envDefault:"portal"`
 	S3AccessKey string `env:"S3_ACCESS_KEY" envDefault:"minioadmin"`
 	S3SecretKey string `env:"S3_SECRET_KEY" envDefault:"minioadmin"`
 	S3UseSSL    bool   `env:"S3_USE_SSL" envDefault:"false"`
@@ -55,19 +55,19 @@ type Config struct {
 
 	// Executor
 	ExecutorType        string `env:"EXECUTOR_TYPE" envDefault:"local"` // "local" or "kubernetes"
-	ExecutorNamespace   string `env:"EXECUTOR_NAMESPACE" envDefault:"tofui"`
-	ExecutorImage       string `env:"EXECUTOR_IMAGE" envDefault:"tofui-executor:tofu-1.11"`
-	ExecutorImagePrefix string `env:"EXECUTOR_IMAGE_PREFIX" envDefault:"tofui-executor"`
+	ExecutorNamespace   string `env:"EXECUTOR_NAMESPACE" envDefault:"portal"`
+	ExecutorImage       string `env:"EXECUTOR_IMAGE" envDefault:"portal-executor:tofu-1.11"`
+	ExecutorImagePrefix string `env:"EXECUTOR_IMAGE_PREFIX" envDefault:"portal-executor"`
 
 	// GitOps (tenant write path). When TenantsRepoURL is empty the worker
 	// surfaces "not configured" on any tenant_apply attempt — keeps dev
 	// machines without SSH keys from blowing up on startup.
-	GitCacheDir       string `env:"GITOPS_CACHE_DIR" envDefault:"/tmp/tofui/git"`
+	GitCacheDir       string `env:"GITOPS_CACHE_DIR" envDefault:"/tmp/portal/git"`
 	TenantsRepoURL    string `env:"GITOPS_TENANTS_REPO_URL"`
 	TenantsRepoRef    string `env:"GITOPS_TENANTS_REPO_REF" envDefault:"main"`
 	GitSSHKeyPath     string `env:"GITOPS_SSH_KEY_PATH"`
-	GitAuthorName     string `env:"GITOPS_AUTHOR_NAME" envDefault:"tofui"`
-	GitAuthorEmail    string `env:"GITOPS_AUTHOR_EMAIL" envDefault:"tofui@local"`
+	GitAuthorName     string `env:"GITOPS_AUTHOR_NAME" envDefault:"portal"`
+	GitAuthorEmail    string `env:"GITOPS_AUTHOR_EMAIL" envDefault:"portal@local"`
 	EAPChartsRepoURL  string `env:"EAP_CHARTS_REPO_URL"`
 	EAPChartsRepoRef  string `env:"EAP_CHARTS_REPO_REF" envDefault:"main"`
 }

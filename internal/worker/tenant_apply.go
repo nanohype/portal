@@ -14,8 +14,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
-	"github.com/stxkxs/tofui/internal/git"
-	"github.com/stxkxs/tofui/internal/repository"
+	"github.com/nanohype/portal/internal/git"
+	"github.com/nanohype/portal/internal/repository"
 )
 
 // TenantApplyJobArgs is the River job that drives the tenants-repo write
@@ -152,13 +152,13 @@ func (w *TenantApplyJobWorker) Work(ctx context.Context, job *river.Job[TenantAp
 		if err := w.tenantsRepo.WriteFile(relPath, []byte(manifest)); err != nil {
 			return w.fail(ctx, op.ID, op.OrgID, logger, fmt.Errorf("write manifest: %w", err))
 		}
-		commitMsg = fmt.Sprintf("tenant: create %s on %s\n\nWritten by tofui on behalf of %s (operation %s).",
+		commitMsg = fmt.Sprintf("tenant: create %s on %s\n\nWritten by portal on behalf of %s (operation %s).",
 			op.TenantName, cluster.Name, op.CreatedBy, op.ID)
 	case "delete":
 		if err := w.tenantsRepo.RemoveFile(relPath); err != nil {
 			return w.fail(ctx, op.ID, op.OrgID, logger, fmt.Errorf("remove manifest: %w", err))
 		}
-		commitMsg = fmt.Sprintf("tenant: delete %s from %s\n\nDeleted by tofui on behalf of %s (operation %s).",
+		commitMsg = fmt.Sprintf("tenant: delete %s from %s\n\nDeleted by portal on behalf of %s (operation %s).",
 			op.TenantName, cluster.Name, op.CreatedBy, op.ID)
 	default:
 		return w.fail(ctx, op.ID, op.OrgID, logger, fmt.Errorf("unknown operation kind: %s", op.Operation))

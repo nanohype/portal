@@ -11,9 +11,9 @@ RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /server ./cmd/server
 
 FROM alpine:3.22
 RUN apk add --no-cache ca-certificates
-RUN addgroup -S tofui && adduser -S tofui -G tofui
+RUN addgroup -S portal && adduser -S portal -G portal
 COPY --from=builder /server /usr/local/bin/server
 
-USER tofui
+USER portal
 EXPOSE 8080
 ENTRYPOINT ["server"]

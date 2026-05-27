@@ -9,17 +9,17 @@ task docker:build
 ```
 
 This builds:
-- `tofui/server` — API server
-- `tofui/worker` — Job worker
-- `tofui/web` — nginx serving the React SPA
-- `tofui/migrate` — one-shot migration runner
+- `portal/server` — API server
+- `portal/worker` — Job worker
+- `portal/web` — nginx serving the React SPA
+- `portal/migrate` — one-shot migration runner
 
-Images use multi-stage Alpine builds and run as a non-root `tofui` user.
+Images use multi-stage Alpine builds and run as a non-root `portal` user.
 
 If using the Kubernetes executor, also build the executor image:
 
 ```bash
-docker build -f docker/Dockerfile.executor -t tofui-executor:tofu-1.11 .
+docker build -f docker/Dockerfile.executor -t portal-executor:tofu-1.11 .
 ```
 
 ## Docker Compose (Single Server)
@@ -29,7 +29,7 @@ For simple deployments, use docker-compose with production overrides:
 ```yaml
 services:
   server:
-    image: tofui/server:latest
+    image: portal/server:latest
     ports: ["8080:8080"]
     environment:
       DATABASE_URL: postgres://tofui:${DB_PASSWORD}@postgres:5432/tofui?sslmode=disable
@@ -43,12 +43,12 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       WEBHOOK_SECRET: ${WEBHOOK_SECRET}
       ENVIRONMENT: production
-      SERVER_BASE_URL: https://tofui.example.com
-      WEB_URL: https://tofui.example.com
+      SERVER_BASE_URL: https://portal.example.com
+      WEB_URL: https://portal.example.com
     depends_on: [postgres, redis, minio]
 
   worker:
-    image: tofui/worker:latest
+    image: portal/worker:latest
     environment:
       DATABASE_URL: postgres://tofui:${DB_PASSWORD}@postgres:5432/tofui?sslmode=disable
       REDIS_URL: redis://redis:6379
@@ -60,12 +60,12 @@ services:
     depends_on: [postgres, redis, minio]
 
   web:
-    image: tofui/web:latest
+    image: portal/web:latest
     ports: ["443:443"]
     depends_on: [server]
 
   migrate:
-    image: tofui/migrate:latest
+    image: portal/migrate:latest
     environment:
       DATABASE_URL: postgres://tofui:${DB_PASSWORD}@postgres:5432/tofui?sslmode=disable
     command: ["-direction", "up"]
@@ -114,11 +114,11 @@ GITHUB_CLIENT_SECRET=<from-github>
 
 ```bash
 # Add bitnami dependency charts
-cd deploy/helm/tofui
+cd deploy/helm/portal
 helm dependency build
 
 # Install with production values
-helm install tofui . -f values-production.yaml
+helm install portal . -f values-production.yaml
 ```
 
 ### Production Values
@@ -128,15 +128,15 @@ Create a `values-production.yaml`:
 ```yaml
 config:
   environment: "production"
-  serverBaseURL: "https://tofui.example.com"
-  webURL: "https://tofui.example.com"
+  serverBaseURL: "https://portal.example.com"
+  webURL: "https://portal.example.com"
   jwtSecret: "<random-string>"
   encryptionKey: "<exactly-32-bytes>"
   githubClientID: "<from-github>"
   githubClientSecret: "<from-github>"
   webhookSecret: "<random-string>"
   executorType: "kubernetes"
-  executorNamespace: "tofui"
+  executorNamespace: "portal"
   logLevel: "info"
 
 postgresql:
@@ -152,7 +152,7 @@ ingress:
   enabled: true
   className: nginx
   hosts:
-    - host: tofui.example.com
+    - host: portal.example.com
       paths:
         - path: /
           pathType: Prefix
@@ -186,16 +186,16 @@ Requirements:
 2. Build executor images for each tofu version you need:
    ```bash
    # The executor image needs: tofu, git, sh
-   docker build -f docker/Dockerfile.executor -t tofui-executor:tofu-1.11 .
+   docker build -f docker/Dockerfile.executor -t portal-executor:tofu-1.11 .
    ```
-3. Set `EXECUTOR_IMAGE_PREFIX` to match your registry path (default: `tofui-executor`)
+3. Set `EXECUTOR_IMAGE_PREFIX` to match your registry path (default: `portal-executor`)
 
 The worker resolves the image as `{EXECUTOR_IMAGE_PREFIX}:tofu-{workspace.tofu_version}`.
 
 ### Upgrading
 
 ```bash
-helm upgrade tofui deploy/helm/tofui -f values-production.yaml
+helm upgrade portal deploy/helm/portal -f values-production.yaml
 ```
 
 The migration Job runs automatically on upgrade.
@@ -214,7 +214,7 @@ The migration Job runs automatically on upgrade.
 - [ ] `ENCRYPTION_KEY` is exactly 32 random bytes
 - [ ] `WEBHOOK_SECRET` is set and matches GitHub webhook config
 - [ ] S3 credentials are not the default `minioadmin`
-- [ ] Database password is not the default `tofui`
+- [ ] Database password is not the default `portal`
 - [ ] HTTPS is terminated at the ingress/load balancer
 - [ ] GitHub OAuth callback URL points to your production domain
 - [ ] `WEB_URL` and `SERVER_BASE_URL` use your production domain

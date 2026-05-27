@@ -245,7 +245,7 @@ export function CatalogPage() {
       <div className="mb-6">
         <h1 className="text-lg font-semibold tracking-tight">Catalog</h1>
         <p className="text-[12px] text-muted-foreground mt-1">
-          Everything tofui knows you can see, in one place.
+          Everything portal knows you can see, in one place.
         </p>
       </div>
 

@@ -13,8 +13,8 @@ func TestWsOriginPatterns(t *testing.T) {
 	}{
 		{
 			name:    "production URL",
-			origins: []string{"https://tofui.example.com"},
-			want:    []string{"tofui.example.com"},
+			origins: []string{"https://portal.example.com"},
+			want:    []string{"portal.example.com"},
 		},
 		{
 			name:    "dev URLs with port",

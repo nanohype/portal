@@ -1,4 +1,4 @@
-module github.com/stxkxs/tofui
+module github.com/nanohype/portal
 
 go 1.26.0
 

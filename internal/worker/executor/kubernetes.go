@@ -29,8 +29,8 @@ type KubernetesExecutor struct {
 
 type KubernetesExecutorConfig struct {
 	Namespace   string // K8s namespace for executor pods
-	Image       string // Base executor image (e.g. "tofui-executor:tofu-1.11")
-	ImagePrefix string // Image prefix for per-version images (e.g. "tofui-executor")
+	Image       string // Base executor image (e.g. "portal-executor:tofu-1.11")
+	ImagePrefix string // Image prefix for per-version images (e.g. "portal-executor")
 }
 
 func NewKubernetesExecutor(cfg KubernetesExecutorConfig) (*KubernetesExecutor, error) {
@@ -46,16 +46,16 @@ func NewKubernetesExecutor(cfg KubernetesExecutorConfig) (*KubernetesExecutor, e
 
 	ns := cfg.Namespace
 	if ns == "" {
-		ns = "tofui"
+		ns = "portal"
 	}
 	image := cfg.Image
 	if image == "" {
-		image = "tofui-executor:tofu-1.11"
+		image = "portal-executor:tofu-1.11"
 	}
 
 	imagePrefix := cfg.ImagePrefix
 	if imagePrefix == "" {
-		imagePrefix = "tofui-executor"
+		imagePrefix = "portal-executor"
 	}
 
 	return &KubernetesExecutor{
@@ -69,7 +69,7 @@ func NewKubernetesExecutor(cfg KubernetesExecutorConfig) (*KubernetesExecutor, e
 func (e *KubernetesExecutor) Execute(ctx context.Context, params ExecuteParams) (*ExecuteResult, error) {
 	logger := slog.With("run_id", params.RunID, "operation", params.Operation)
 
-	podName := fmt.Sprintf("tofui-run-%s", params.RunID)
+	podName := fmt.Sprintf("portal-run-%s", params.RunID)
 
 	// Build OpenTofu command script
 	script := e.buildScript(params)
@@ -78,8 +78,8 @@ func (e *KubernetesExecutor) Execute(ctx context.Context, params ExecuteParams) 
 	envVars := []corev1.EnvVar{
 		{Name: "TF_IN_AUTOMATION", Value: "true"},
 		{Name: "TF_INPUT", Value: "false"},
-		{Name: "TOFUI_RUN_ID", Value: params.RunID},
-		{Name: "TOFUI_OPERATION", Value: params.Operation},
+		{Name: "PORTAL_RUN_ID", Value: params.RunID},
+		{Name: "PORTAL_OPERATION", Value: params.Operation},
 		// Terragrunt-specific defaults. Harmless for tofu runs (tofu
 		// ignores TG_*-prefixed env vars). See local.go for rationale.
 		{Name: "TG_NON_INTERACTIVE", Value: "true"},
@@ -92,7 +92,7 @@ func (e *KubernetesExecutor) Execute(ctx context.Context, params ExecuteParams) 
 		case "terraform":
 			// Mirror the local executor: terraform vars are always passed
 			// as TF_VAR_* env so they flow into both tofu mode (redundant
-			// with tofui.auto.tfvars; file wins via precedence) and
+			// with portal.auto.tfvars; file wins via precedence) and
 			// terragrunt mode (only source; terragrunt's own inputs win
 			// for any key it sets).
 			envVars = append(envVars, corev1.EnvVar{Name: "TF_VAR_" + v.Key, Value: v.Value})
@@ -126,10 +126,10 @@ func (e *KubernetesExecutor) Execute(ctx context.Context, params ExecuteParams) 
 		"run.sh": script,
 	}
 	if tfvarsContent != "" {
-		cmData["tofui.auto.tfvars"] = tfvarsContent
+		cmData["portal.auto.tfvars"] = tfvarsContent
 	}
 	if encryptionOverride != "" {
-		cmData["tofui_encryption_override.tf"] = encryptionOverride
+		cmData["portal_encryption_override.tf"] = encryptionOverride
 	}
 	if len(params.PreviousState) > 0 {
 		cmData["terraform.tfstate"] = string(params.PreviousState)
@@ -140,8 +140,8 @@ func (e *KubernetesExecutor) Execute(ctx context.Context, params ExecuteParams) 
 			Name:      podName,
 			Namespace: e.namespace,
 			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "tofui",
-				"tofui/run-id":                 params.RunID,
+				"app.kubernetes.io/managed-by": "portal",
+				"portal/run-id":                 params.RunID,
 			},
 		},
 		Data: cmData,
@@ -204,8 +204,8 @@ func (e *KubernetesExecutor) Execute(ctx context.Context, params ExecuteParams) 
 
 	// For plan: extract JSON plan between markers
 	if params.Operation == "plan" {
-		jsonMarker := "===TOFUI_PLAN_JSON_BEGIN==="
-		jsonEndMarker := "===TOFUI_PLAN_JSON_END==="
+		jsonMarker := "===PORTAL_PLAN_JSON_BEGIN==="
+		jsonEndMarker := "===PORTAL_PLAN_JSON_END==="
 		if idx := strings.Index(output, jsonMarker); idx != -1 {
 			jsonData := output[idx+len(jsonMarker):]
 			if endIdx := strings.Index(jsonData, jsonEndMarker); endIdx != -1 {
@@ -219,8 +219,8 @@ func (e *KubernetesExecutor) Execute(ctx context.Context, params ExecuteParams) 
 
 	// For apply/destroy: extract raw state and decrypted state JSON from markers
 	if params.Operation == "apply" || params.Operation == "destroy" {
-		stateMarker := "===TOFUI_STATE_BEGIN==="
-		stateEndMarker := "===TOFUI_STATE_END==="
+		stateMarker := "===PORTAL_STATE_BEGIN==="
+		stateEndMarker := "===PORTAL_STATE_END==="
 		if idx := strings.Index(output, stateMarker); idx != -1 {
 			stateData := output[idx+len(stateMarker):]
 			if endIdx := strings.Index(stateData, stateEndMarker); endIdx != -1 {
@@ -230,8 +230,8 @@ func (e *KubernetesExecutor) Execute(ctx context.Context, params ExecuteParams) 
 			}
 		}
 
-		jsonMarker := "===TOFUI_STATE_JSON_BEGIN==="
-		jsonEndMarker := "===TOFUI_STATE_JSON_END==="
+		jsonMarker := "===PORTAL_STATE_JSON_BEGIN==="
+		jsonEndMarker := "===PORTAL_STATE_JSON_END==="
 		if idx := strings.Index(result.Output, jsonMarker); idx != -1 {
 			jsonData := result.Output[idx+len(jsonMarker):]
 			if endIdx := strings.Index(jsonData, jsonEndMarker); endIdx != -1 {
@@ -267,15 +267,15 @@ func (e *KubernetesExecutor) buildScript(params ExecuteParams) string {
 	sb.WriteString("if [ -f terragrunt.hcl ]; then\n")
 	sb.WriteString("  BIN=terragrunt\n")
 	sb.WriteString("  echo 'Detected terragrunt.hcl — using terragrunt wrapper.'\n")
-	sb.WriteString("  echo '[tofui] TG_NON_INTERACTIVE=true — terragrunt prompts auto-confirmed.'\n")
-	sb.WriteString("  echo '[tofui] TG_BACKEND_BOOTSTRAP=true — remote state bucket will be auto-created if missing.'\n")
+	sb.WriteString("  echo '[portal] TG_NON_INTERACTIVE=true — terragrunt prompts auto-confirmed.'\n")
+	sb.WriteString("  echo '[portal] TG_BACKEND_BOOTSTRAP=true — remote state bucket will be auto-created if missing.'\n")
 	sb.WriteString("else\n")
 	sb.WriteString("  BIN=tofu\n")
 	sb.WriteString("fi\n\n")
 
 	// Copy tfvars if present. Skipped in terragrunt mode — terragrunt's
 	// `inputs = {}` block is the source of truth.
-	sb.WriteString("if [ \"$BIN\" = \"tofu\" ] && [ -f /config/tofui.auto.tfvars ]; then cp /config/tofui.auto.tfvars .; fi\n\n")
+	sb.WriteString("if [ \"$BIN\" = \"tofu\" ] && [ -f /config/portal.auto.tfvars ]; then cp /config/portal.auto.tfvars .; fi\n\n")
 
 	// Restore previous state if present. Skipped in terragrunt mode —
 	// state lives in the remote backend; a local file just confuses init.
@@ -287,10 +287,10 @@ func (e *KubernetesExecutor) buildScript(params ExecuteParams) string {
 	// Copy encryption override if present. Skipped in terragrunt mode —
 	// terragrunt's source copy pulls leaf .tf files into the rendered cache,
 	// so the override would silently encrypt the user's remote state with
-	// tofui's per-workspace passphrase and break `dependency` blocks across
+	// portal's per-workspace passphrase and break `dependency` blocks across
 	// sibling workspaces.
-	sb.WriteString("if [ \"$BIN\" = \"tofu\" ] && [ -f /config/tofui_encryption_override.tf ]; then\n")
-	sb.WriteString("  cp /config/tofui_encryption_override.tf .\n")
+	sb.WriteString("if [ \"$BIN\" = \"tofu\" ] && [ -f /config/portal_encryption_override.tf ]; then\n")
+	sb.WriteString("  cp /config/portal_encryption_override.tf .\n")
 	sb.WriteString("  echo 'State encryption enabled (AES-GCM).'\n")
 	sb.WriteString("fi\n\n")
 
@@ -303,7 +303,7 @@ func (e *KubernetesExecutor) buildScript(params ExecuteParams) string {
 	sb.WriteString("$BIN validate -no-color\n\n")
 
 	// Operation
-	sb.WriteString("if [ -f tofui.auto.tfvars ]; then VAR_FILE='-var-file=tofui.auto.tfvars'; fi\n\n")
+	sb.WriteString("if [ -f portal.auto.tfvars ]; then VAR_FILE='-var-file=portal.auto.tfvars'; fi\n\n")
 
 	switch params.Operation {
 	case "test":
@@ -327,36 +327,36 @@ func (e *KubernetesExecutor) buildScript(params ExecuteParams) string {
 		sb.WriteString("if [ \"$PLAN_EXIT\" -eq 1 ]; then echo 'Plan failed with errors'; exit 1; fi\n")
 		sb.WriteString("\n# Output JSON plan for capture\n")
 		sb.WriteString("if [ -f planfile ]; then\n")
-		sb.WriteString("  echo '===TOFUI_PLAN_JSON_BEGIN==='\n")
+		sb.WriteString("  echo '===PORTAL_PLAN_JSON_BEGIN==='\n")
 		sb.WriteString("  $BIN show -json planfile\n")
-		sb.WriteString("  echo '===TOFUI_PLAN_JSON_END==='\n")
+		sb.WriteString("  echo '===PORTAL_PLAN_JSON_END==='\n")
 		sb.WriteString("fi\n")
 	case "apply":
 		sb.WriteString("echo \"\\$ $BIN apply\"\n")
 		sb.WriteString("$BIN apply -no-color -auto-approve $VAR_FILE\n")
 		sb.WriteString("\n# Output raw state (may be encrypted) for restoration\n")
 		sb.WriteString("if [ -f terraform.tfstate ]; then\n")
-		sb.WriteString("  echo '===TOFUI_STATE_BEGIN==='\n")
+		sb.WriteString("  echo '===PORTAL_STATE_BEGIN==='\n")
 		sb.WriteString("  cat terraform.tfstate\n")
-		sb.WriteString("  echo '===TOFUI_STATE_END==='\n")
+		sb.WriteString("  echo '===PORTAL_STATE_END==='\n")
 		sb.WriteString("fi\n")
 		sb.WriteString("# Output decrypted state for resource browsing\n")
-		sb.WriteString("echo '===TOFUI_STATE_JSON_BEGIN==='\n")
+		sb.WriteString("echo '===PORTAL_STATE_JSON_BEGIN==='\n")
 		sb.WriteString("$BIN state pull\n")
-		sb.WriteString("echo '===TOFUI_STATE_JSON_END==='\n")
+		sb.WriteString("echo '===PORTAL_STATE_JSON_END==='\n")
 	case "destroy":
 		sb.WriteString("echo \"\\$ $BIN destroy\"\n")
 		sb.WriteString("$BIN destroy -no-color -auto-approve $VAR_FILE\n")
 		sb.WriteString("\n# Output raw state for restoration\n")
 		sb.WriteString("if [ -f terraform.tfstate ]; then\n")
-		sb.WriteString("  echo '===TOFUI_STATE_BEGIN==='\n")
+		sb.WriteString("  echo '===PORTAL_STATE_BEGIN==='\n")
 		sb.WriteString("  cat terraform.tfstate\n")
-		sb.WriteString("  echo '===TOFUI_STATE_END==='\n")
+		sb.WriteString("  echo '===PORTAL_STATE_END==='\n")
 		sb.WriteString("fi\n")
 		sb.WriteString("# Output decrypted state for resource browsing\n")
-		sb.WriteString("echo '===TOFUI_STATE_JSON_BEGIN==='\n")
+		sb.WriteString("echo '===PORTAL_STATE_JSON_BEGIN==='\n")
 		sb.WriteString("$BIN state pull\n")
-		sb.WriteString("echo '===TOFUI_STATE_JSON_END==='\n")
+		sb.WriteString("echo '===PORTAL_STATE_JSON_END==='\n")
 	}
 
 	return sb.String()
@@ -401,11 +401,11 @@ func (e *KubernetesExecutor) buildPod(name string, params ExecuteParams, envVars
 			Name:      name,
 			Namespace: e.namespace,
 			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "tofui",
+				"app.kubernetes.io/managed-by": "portal",
 				"app.kubernetes.io/component":  "executor",
-				"tofui/run-id":                 params.RunID,
-				"tofui/workspace-id":           params.WorkspaceID,
-				"tofui/operation":              params.Operation,
+				"portal/run-id":                 params.RunID,
+				"portal/workspace-id":           params.WorkspaceID,
+				"portal/operation":              params.Operation,
 			},
 		},
 		Spec: corev1.PodSpec{

@@ -10,9 +10,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
-	"github.com/stxkxs/tofui/internal/aws"
-	"github.com/stxkxs/tofui/internal/k8s"
-	"github.com/stxkxs/tofui/internal/repository"
+	"github.com/nanohype/portal/internal/aws"
+	"github.com/nanohype/portal/internal/k8s"
+	"github.com/nanohype/portal/internal/repository"
 )
 
 // ClusterConnectionTestJobArgs is the River job arg for verifying that

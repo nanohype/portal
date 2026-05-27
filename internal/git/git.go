@@ -1,8 +1,8 @@
-// Package git wraps go-git for the two things tofui needs to do with git:
+// Package git wraps go-git for the two things portal needs to do with git:
 // keep a local clone in sync with a remote (used for the EAP chart cache),
 // and write files + commit + push (used for the tenants GitOps repo).
 //
-// Authentication is SSH-only — tofui's git identity comes from a private
+// Authentication is SSH-only — portal's git identity comes from a private
 // key file pointed at by the worker's config. HTTPS auth would mean storing
 // PATs in DB, which is operationally worse.
 package git
@@ -23,7 +23,7 @@ import (
 )
 
 // Author identifies a commit. Each tenant operation's commit records the
-// tofui user who triggered it via the standard Co-authored-by trailer.
+// portal user who triggered it via the standard Co-authored-by trailer.
 type Author struct {
 	Name  string
 	Email string

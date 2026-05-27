@@ -7,7 +7,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/oklog/ulid/v2"
 
-	"github.com/stxkxs/tofui/internal/repository"
+	"github.com/nanohype/portal/internal/repository"
 )
 
 // ErrWorkspaceHasRuns is returned when a workspace cannot be deleted because it has runs.

@@ -4,7 +4,34 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is this project?
 
-Tofui is a self-hosted OpenTofu lifecycle management UI (like Terraform Cloud / Spacelift). Go backend (API server + job worker) and React frontend. Supports workspace pipelines for sequential multi-workspace deployments, three-tier variable inheritance (org/pipeline/workspace), and deep-merge for tag variables.
+Portal is a self-hosted operations portal for the nanohype stack. It started
+as an OpenTofu lifecycle management UI (Terraform Cloud / Spacelift
+alternative) and grew into a unified portal that also manages AWS accounts,
+EKS clusters, and EAP tenants. Go backend (API server + job worker) and
+React frontend.
+
+Capability layers (each can be used independently):
+
+1. **OpenTofu lifecycle.** Workspaces, pipelines, runs, plan diff, state
+   versions, variable inheritance (org/pipeline/workspace, deep-merge for
+   tags), VCS webhooks, terragrunt auto-detection.
+2. **AWS account surface.** Account entities with stored assume-role creds.
+   Foundation for cross-account operations.
+3. **EKS cluster surface.** Cluster entities with slim creds (api endpoint
+   + CA + service-account token, encrypted). Async connection-test job.
+4. **EAP tenant surface (read).** Periodic per-cluster watcher walks the
+   `agents.stxkxs.io/v1alpha1` Tenant CRDs and reconciles a DB inventory.
+5. **EAP tenant surface (write).** UI form → helm-renders the EAP
+   `charts/tenant` chart → commits to a tenants GitOps repo → ArgoCD
+   reconciles. Operations are tracked in a tenant_operations log.
+6. **Curated templates.** Admins define default tenant values + caps;
+   operators instantiate from them. Server-side enforcement of budget
+   caps + model-family intersection + required-compliance flags.
+7. **Team-scoped self-service.** tenant_team_access and
+   template_team_access pivot tables. Non-admins see only their teams'
+   entities; admins see everything and manage the grants.
+8. **Unified catalog.** Frontend-only aggregation page that surfaces
+   every entity a user can see in one searchable + filterable grid.
 
 ## Quick Reference
 
@@ -101,7 +128,7 @@ a "wrapper" flag.
     first init (no-op once it exists). Without this, the first `init`
     against a fresh backend errors with "S3 bucket does not exist".
 
-  Both are surfaced in the run log so users see what tofui is silently
+  Both are surfaced in the run log so users see what portal is silently
   doing on their behalf.
 
 - **Variables.**
@@ -112,11 +139,11 @@ a "wrapper" flag.
     doesn't set are picked up cleanly from the env.
   - `env`-category vars → plain process env (`AWS_PROFILE`, `AWS_REGION`,
     etc.).
-  - `tofui.auto.tfvars` is **not** written in terragrunt mode — it'd land
+  - `portal.auto.tfvars` is **not** written in terragrunt mode — it'd land
     in the leaf, not the rendered cache dir, so it'd be ignored anyway.
 
-- **State encryption is skipped.** tofui's per-workspace AES-GCM override
-  (`tofui_encryption_override.tf`, derived passphrase from
+- **State encryption is skipped.** portal's per-workspace AES-GCM override
+  (`portal_encryption_override.tf`, derived passphrase from
   `secrets.Encryptor.DerivePassphrase("state:"+workspaceID)`) is disabled
   for terragrunt workspaces. Terragrunt copies the leaf's `.tf` files into
   the rendered cache alongside the module source, so an override at the
@@ -142,7 +169,7 @@ a "wrapper" flag.
   `variables.tf` via `tfparse.ParseDirectory` for the canonical schema and
   merges via `mergeDiscovered`: every module variable is returned, marked
   `configured_by: "terragrunt"` for keys terragrunt resolves,
-  `configured_by: "tofui"` for keys present in workspace_variables, or
+  `configured_by: "portal"` for keys present in workspace_variables, or
   unconfigured (editable via Add). Falls back to leaf-only
   `tfparse.ParseTerragruntInputs` when render fails or the module source
   is remote.
@@ -180,5 +207,5 @@ All schema is consolidated in `migrations/000001_initial_schema.up.sql`. For dev
 - Don't put AWS credentials as `terraform` category variables — use `env` category
 - Don't import `service` from `worker` — use function types to avoid import cycles
 - Don't truncate text in the UI — always show full content
-- Don't expect tofui-managed variables to override terragrunt's `inputs = {}` block — they go in as `TF_VAR_*` which is lower precedence than terragrunt's `-var`. The Discover UI marks terragrunt-owned keys as `configured_by: terragrunt` so users see they can't override. To change those values, edit the terragrunt.hcl itself.
+- Don't expect portal-managed variables to override terragrunt's `inputs = {}` block — they go in as `TF_VAR_*` which is lower precedence than terragrunt's `-var`. The Discover UI marks terragrunt-owned keys as `configured_by: terragrunt` so users see they can't override. To change those values, edit the terragrunt.hcl itself.
 - Don't upload only the leaf for a terragrunt workspace; the archive must contain the parent tree (`root.hcl`, `_envcommon/`, etc.) so `find_in_parent_folders` resolves.

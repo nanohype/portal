@@ -91,7 +91,7 @@ export function ClusterList() {
         <div>
           <h1 className="text-lg font-semibold tracking-tight">Clusters</h1>
           <p className="text-[12px] text-muted-foreground mt-1">
-            Kubernetes clusters tofui watches
+            Kubernetes clusters portal watches
           </p>
         </div>
         {isAdmin && (
@@ -115,7 +115,7 @@ export function ClusterList() {
           <p className="text-xs text-muted-foreground mb-5 max-w-[320px]">
             {!accounts || accounts.length === 0
               ? "Add an Account first — every cluster belongs to one."
-              : "Register a Kubernetes cluster so tofui can watch its workloads."}
+              : "Register a Kubernetes cluster so portal can watch its workloads."}
           </p>
           {isAdmin && accounts && accounts.length > 0 && (
             <Button size="sm" onClick={() => setShowCreate(true)}>

@@ -18,7 +18,7 @@ interface Props {
 }
 
 async function downloadState(workspaceId: string, stateId: string) {
-  const token = localStorage.getItem("tofui_token");
+  const token = localStorage.getItem("portal_token");
   const res = await fetch(`/api/v1/workspaces/${workspaceId}/state/${stateId}/download`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
@@ -46,7 +46,7 @@ export function StateExplorer({ workspaceId }: Props) {
 
   const dropMutation = useMutation({
     mutationFn: async (serial: number) => {
-      const token = localStorage.getItem("tofui_token");
+      const token = localStorage.getItem("portal_token");
       const res = await fetch(`/api/v1/workspaces/${workspaceId}/state/serial/${serial}`, {
         method: "DELETE",
         headers: token ? { Authorization: `Bearer ${token}` } : {},

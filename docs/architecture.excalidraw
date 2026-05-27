@@ -1,7 +1,7 @@
 {
   "type": "excalidraw",
   "version": 2,
-  "source": "tofui",
+  "source": "portal",
   "elements": [
     {
       "id": "web-box",
@@ -366,7 +366,7 @@
       "y": 15,
       "width": 280,
       "height": 35,
-      "text": "tofui architecture",
+      "text": "portal architecture",
       "fontSize": 24,
       "fontFamily": 3,
       "textAlign": "center",

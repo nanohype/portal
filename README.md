@@ -1,8 +1,15 @@
-# tofui
+# portal
 
-Self-hosted OpenTofu lifecycle management UI. An alternative to Terraform Cloud and Spacelift.
+Self-hosted operations portal. Manages OpenTofu workspaces, AWS accounts,
+EKS clusters, and EAP tenants from one UI with one audit trail.
 
-Plan, apply, and manage OpenTofu workspaces through a web interface with pipelines, variable inheritance, team access controls, approval workflows, audit logging, and VCS-driven runs.
+Plan, apply, and manage OpenTofu workspaces through a web interface with
+pipelines, variable inheritance, team access controls, approval workflows,
+audit logging, and VCS-driven runs — the Terraform Cloud / Spacelift
+alternative tier. On top of that: a multi-account AWS surface, EKS cluster
+watching, EAP tenant CRUD via GitOps + Helm + ArgoCD, curated tenant
+templates, team-scoped self-service, and a unified catalog across every
+entity.
 
 ## Quick Start
 
@@ -10,7 +17,7 @@ Prerequisites: Go 1.26+, Node.js 20+, Docker, [Task](https://taskfile.dev)
 
 ```bash
 # Clone and set up
-git clone https://github.com/stxkxs/tofui.git && cd tofui
+git clone https://github.com/nanohype/portal.git && cd portal
 task setup
 
 # Start everything

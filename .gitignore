@@ -1,7 +1,7 @@
 # Go binaries
-/tofui-server
-/tofui-worker
-/tofui-migrate
+/portal-server
+/portal-worker
+/portal-migrate
 /server
 /worker
 /migrate

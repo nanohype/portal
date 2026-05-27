@@ -3,7 +3,7 @@ kind: Job
 metadata:
   name: {{ .Release.Name }}-migrate
   labels:
-    app.kubernetes.io/name: tofui-migrate
+    app.kubernetes.io/name: portal-migrate
     app.kubernetes.io/instance: {{ .Release.Name }}
   annotations:
     "helm.sh/hook": pre-install,pre-upgrade
@@ -14,7 +14,7 @@ spec:
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: tofui-migrate
+        app.kubernetes.io/name: portal-migrate
     spec:
       restartPolicy: OnFailure
       securityContext:

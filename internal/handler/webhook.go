@@ -5,10 +5,10 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/stxkxs/tofui/internal/handler/respond"
-	"github.com/stxkxs/tofui/internal/repository"
-	"github.com/stxkxs/tofui/internal/service"
-	"github.com/stxkxs/tofui/internal/vcs"
+	"github.com/nanohype/portal/internal/handler/respond"
+	"github.com/nanohype/portal/internal/repository"
+	"github.com/nanohype/portal/internal/service"
+	"github.com/nanohype/portal/internal/vcs"
 )
 
 type WebhookHandler struct {

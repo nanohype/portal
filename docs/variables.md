@@ -1,6 +1,6 @@
 # Variables
 
-Variables provide configuration values to OpenTofu runs. Tofui supports three scopes with clear inheritance and a special deep-merge behavior for tags.
+Variables provide configuration values to OpenTofu runs. Portal supports three scopes with clear inheritance and a special deep-merge behavior for tags.
 
 ## Scopes
 
@@ -59,9 +59,9 @@ Variables with keys matching `tags`, `default_tags`, `extra_tags`, or any key en
 
 | Scope | Value |
 |-------|-------|
-| org | `{"team": "platform", "managed_by": "tofui"}` |
+| org | `{"team": "platform", "managed_by": "portal"}` |
 | workspace | `{"app": "network", "team": "networking"}` |
-| **merged result** | `{"team": "networking", "managed_by": "tofui", "app": "network"}` |
+| **merged result** | `{"team": "networking", "managed_by": "portal", "app": "network"}` |
 
 Workspace keys win on conflict (`team` is overridden), but both scopes contribute keys that don't conflict (`managed_by` and `app` are both present).
 

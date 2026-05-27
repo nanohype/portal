@@ -1,4 +1,4 @@
--- Tofui schema
+-- Portal schema
 -- Uses ULIDs for sortable unique IDs, stored as TEXT
 
 -- Custom types
@@ -355,7 +355,7 @@ CREATE TABLE pipeline_variables (
 
 CREATE INDEX idx_pipeline_variables_pipeline_id ON pipeline_variables(pipeline_id);
 
--- AWS accounts. Stores the assume-role configuration tofui needs to operate
+-- AWS accounts. Stores the assume-role configuration portal needs to operate
 -- against each managed AWS account. Foundation for the multi-cluster portal:
 -- Cluster (and later Tenant) will FK into this table. Data-layer only in
 -- this slice — we store credentials but do not yet call AWS APIs with them.
@@ -377,7 +377,7 @@ CREATE TABLE accounts (
 
 CREATE INDEX idx_accounts_org_id ON accounts(org_id);
 
--- Kubernetes clusters tofui watches. One row per managed EKS cluster.
+-- Kubernetes clusters portal watches. One row per managed EKS cluster.
 -- Lives inside an account (FK ON DELETE RESTRICT — accounts can't be
 -- removed while clusters reference them). We store the minimum needed to
 -- talk to the API server: endpoint + CA + service-account token. Kubeconfig
@@ -417,9 +417,9 @@ CREATE INDEX idx_clusters_org_id ON clusters(org_id);
 CREATE INDEX idx_clusters_account_id ON clusters(account_id);
 
 -- Tenants: EAP Tenant CRDs (agents.stxkxs.io/v1alpha1) discovered by the
--- per-cluster watcher. Read-only inventory at this stage — tofui populates
+-- per-cluster watcher. Read-only inventory at this stage — portal populates
 -- and prunes these rows from what the K8s API actually shows; users can't
--- create/edit tenants from tofui yet (that's phase 2c, via git).
+-- create/edit tenants from portal yet (that's phase 2c, via git).
 --
 -- Schema choice: we denormalize `name` and `phase` for fast filtering, then
 -- blob the full .spec and .status as JSONB so we survive CRD schema evolution
@@ -442,7 +442,7 @@ CREATE TABLE tenants (
 CREATE INDEX idx_tenants_org_id ON tenants(org_id);
 CREATE INDEX idx_tenants_cluster_id ON tenants(cluster_id);
 
--- Tenant operations: append-only log of every write tofui has made to the
+-- Tenant operations: append-only log of every write portal has made to the
 -- tenants GitOps repo on behalf of a user. The operation row is created
 -- pending → enqueues the TenantApplyJob → worker writes the commit and
 -- transitions the row to `committed` (with the SHA) or `failed` (with the
@@ -508,7 +508,7 @@ ALTER TABLE tenant_operations
     ADD COLUMN template_id TEXT REFERENCES templates(id) ON DELETE SET NULL;
 
 -- Tenant team access. Records which teams own (and can see) a tenant.
--- Keyed on (cluster_id, tenant_name) rather than tenants.id because tofui
+-- Keyed on (cluster_id, tenant_name) rather than tenants.id because portal
 -- needs to record access at create time — before the watcher has observed
 -- the resulting Tenant CR and inserted the tenants row. The composite
 -- key matches tenants' own UNIQUE(cluster_id, name) constraint so list

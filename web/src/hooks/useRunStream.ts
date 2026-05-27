@@ -25,7 +25,7 @@ export function useRunStream({
   const connect = useCallback(() => {
     if (!enabled || !runId) return;
 
-    const token = localStorage.getItem("tofui_token");
+    const token = localStorage.getItem("portal_token");
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const host = window.location.host;
     const url = `${protocol}//${host}/api/v1/workspaces/${workspaceId}/runs/${runId}/logs/ws?token=${token}`;
