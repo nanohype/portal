@@ -11,11 +11,11 @@ import (
 	"time"
 )
 
-const tenantOperationColumns = `id, org_id, cluster_id, tenant_name, operation, status, git_commit_sha, error, values_json, created_by, created_at, completed_at`
+const tenantOperationColumns = `id, org_id, cluster_id, tenant_name, operation, status, git_commit_sha, error, values_json, template_id, created_by, created_at, completed_at`
 
 func scanTenantOperation(row interface{ Scan(...interface{}) error }) (TenantOperation, error) {
 	var op TenantOperation
-	err := row.Scan(&op.ID, &op.OrgID, &op.ClusterID, &op.TenantName, &op.Operation, &op.Status, &op.GitCommitSHA, &op.Error, &op.ValuesJSON, &op.CreatedBy, &op.CreatedAt, &op.CompletedAt)
+	err := row.Scan(&op.ID, &op.OrgID, &op.ClusterID, &op.TenantName, &op.Operation, &op.Status, &op.GitCommitSHA, &op.Error, &op.ValuesJSON, &op.TemplateID, &op.CreatedBy, &op.CreatedAt, &op.CompletedAt)
 	return op, err
 }
 
@@ -72,15 +72,16 @@ type CreateTenantOperationParams struct {
 	TenantName string          `json:"tenant_name"`
 	Operation  string          `json:"operation"`
 	ValuesJSON json.RawMessage `json:"values_json"`
+	TemplateID *string         `json:"template_id"`
 	CreatedBy  string          `json:"created_by"`
 }
 
 func (q *Queries) CreateTenantOperation(ctx context.Context, arg CreateTenantOperationParams) (TenantOperation, error) {
 	row := q.db.QueryRow(ctx,
-		`INSERT INTO tenant_operations (id, org_id, cluster_id, tenant_name, operation, values_json, created_by)
-		VALUES ($1, $2, $3, $4, $5::tenant_op_kind, $6, $7)
+		`INSERT INTO tenant_operations (id, org_id, cluster_id, tenant_name, operation, values_json, template_id, created_by)
+		VALUES ($1, $2, $3, $4, $5::tenant_op_kind, $6, $7, $8)
 		RETURNING `+tenantOperationColumns,
-		arg.ID, arg.OrgID, arg.ClusterID, arg.TenantName, arg.Operation, arg.ValuesJSON, arg.CreatedBy,
+		arg.ID, arg.OrgID, arg.ClusterID, arg.TenantName, arg.Operation, arg.ValuesJSON, arg.TemplateID, arg.CreatedBy,
 	)
 	return scanTenantOperation(row)
 }

@@ -133,18 +133,23 @@ func nonNullJSON(b json.RawMessage) json.RawMessage {
 // transitions it. Idempotency lives at the worker — repeated create
 // commits with identical content are no-ops because git status will be
 // clean and Commit() returns ("", nil) in that case.
-func (s *TenantService) EnqueueCreate(ctx context.Context, orgID, clusterID, name, createdBy string, values map[string]interface{}) (repository.TenantOperation, error) {
-	return s.enqueue(ctx, orgID, clusterID, name, "create", createdBy, values)
+//
+// `templateID` is optional — when non-empty it gets recorded on the
+// operation row so audit history shows which curated template the tenant
+// came from. The handler is responsible for ApplyToValues-ing the template
+// before reaching this layer; the service trusts the values it gets.
+func (s *TenantService) EnqueueCreate(ctx context.Context, orgID, clusterID, name, templateID, createdBy string, values map[string]interface{}) (repository.TenantOperation, error) {
+	return s.enqueue(ctx, orgID, clusterID, name, "create", templateID, createdBy, values)
 }
 
 // EnqueueDelete is the symmetric operation: records intent to remove a
 // tenant and schedules the worker job to delete its file from the tenants
 // repo and commit.
 func (s *TenantService) EnqueueDelete(ctx context.Context, orgID, clusterID, name, createdBy string) (repository.TenantOperation, error) {
-	return s.enqueue(ctx, orgID, clusterID, name, "delete", createdBy, nil)
+	return s.enqueue(ctx, orgID, clusterID, name, "delete", "", createdBy, nil)
 }
 
-func (s *TenantService) enqueue(ctx context.Context, orgID, clusterID, name, kind, createdBy string, values map[string]interface{}) (repository.TenantOperation, error) {
+func (s *TenantService) enqueue(ctx context.Context, orgID, clusterID, name, kind, templateID, createdBy string, values map[string]interface{}) (repository.TenantOperation, error) {
 	if s.riverClient == nil {
 		return repository.TenantOperation{}, fmt.Errorf("river client not configured")
 	}
@@ -159,6 +164,10 @@ func (s *TenantService) enqueue(ctx context.Context, orgID, clusterID, name, kin
 		raw = json.RawMessage("{}")
 	}
 
+	var tmplPtr *string
+	if templateID != "" {
+		tmplPtr = &templateID
+	}
 	op, err := s.queries.CreateTenantOperation(ctx, repository.CreateTenantOperationParams{
 		ID:         ulid.Make().String(),
 		OrgID:      orgID,
@@ -166,6 +175,7 @@ func (s *TenantService) enqueue(ctx context.Context, orgID, clusterID, name, kin
 		TenantName: name,
 		Operation:  kind,
 		ValuesJSON: raw,
+		TemplateID: tmplPtr,
 		CreatedBy:  createdBy,
 	})
 	if err != nil {

@@ -264,7 +264,24 @@ type TenantOperation struct {
 	GitCommitSHA  string          `json:"git_commit_sha"`
 	Error         string          `json:"error"`
 	ValuesJSON    json.RawMessage `json:"values_json"`
+	TemplateID    *string         `json:"template_id"`
 	CreatedBy     string          `json:"created_by"`
 	CreatedAt     time.Time       `json:"created_at"`
 	CompletedAt   *time.Time      `json:"completed_at"`
+}
+
+type Template struct {
+	ID                   string          `json:"id"`
+	OrgID                string          `json:"org_id"`
+	Name                 string          `json:"name"`
+	Description          string          `json:"description"`
+	Persona              string          `json:"persona"`
+	DefaultValues        json.RawMessage `json:"default_values"`
+	AllowedOverrides     json.RawMessage `json:"allowed_overrides"`
+	MaxBudgetUSD         int32           `json:"max_budget_usd"`
+	AllowedModelFamilies json.RawMessage `json:"allowed_model_families"`
+	RequiredCompliance   json.RawMessage `json:"required_compliance"`
+	CreatedBy            string          `json:"created_by"`
+	CreatedAt            time.Time       `json:"created_at"`
+	UpdatedAt            time.Time       `json:"updated_at"`
 }

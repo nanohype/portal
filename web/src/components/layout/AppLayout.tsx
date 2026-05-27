@@ -86,6 +86,11 @@ export function AppLayout({ children }: { children: ReactNode }) {
               Tenants
             </NavLink>
             {isAdmin && (
+              <NavLink href="/templates" active={path.startsWith("/templates")}>
+                Templates
+              </NavLink>
+            )}
+            {isAdmin && (
               <NavLink href="/users" active={path === "/users"}>
                 Users
               </NavLink>
