@@ -19,12 +19,13 @@ import (
 // jobs that render the chart, commit to the tenants repo, and let ArgoCD
 // reconcile. Each write creates a `tenant_operations` row the UI can show.
 type TenantHandler struct {
-	svc      *service.TenantService
-	auditSvc *service.AuditService
+	svc         *service.TenantService
+	templateSvc *service.TemplateService
+	auditSvc    *service.AuditService
 }
 
-func NewTenantHandler(svc *service.TenantService, auditSvc *service.AuditService) *TenantHandler {
-	return &TenantHandler{svc: svc, auditSvc: auditSvc}
+func NewTenantHandler(svc *service.TenantService, templateSvc *service.TemplateService, auditSvc *service.AuditService) *TenantHandler {
+	return &TenantHandler{svc: svc, templateSvc: templateSvc, auditSvc: auditSvc}
 }
 
 // k8sNameRe is the RFC 1123 label rule: lowercase alphanumeric + hyphen,
@@ -34,9 +35,10 @@ func NewTenantHandler(svc *service.TenantService, auditSvc *service.AuditService
 var k8sNameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 
 type CreateTenantRequest struct {
-	ClusterID string                 `json:"cluster_id"`
-	Name      string                 `json:"name"`
-	Values    map[string]interface{} `json:"values"`
+	ClusterID  string                 `json:"cluster_id"`
+	Name       string                 `json:"name"`
+	Values     map[string]interface{} `json:"values"`
+	TemplateID string                 `json:"template_id,omitempty"` // optional; when set, values are template overrides
 }
 
 func (h *TenantHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -100,11 +102,31 @@ func (h *TenantHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Values == nil {
-		respond.Error(w, http.StatusBadRequest, "values is required")
-		return
+		req.Values = map[string]interface{}{}
 	}
 
-	op, err := h.svc.EnqueueCreate(r.Context(), userCtx.OrgID, req.ClusterID, req.Name, userCtx.UserID, req.Values)
+	// When a template is referenced, the request `values` represents
+	// operator overrides. The template service merges them with the
+	// template's defaults and enforces caps before we persist the
+	// operation row — failed validation produces a clean 400 with no
+	// orphan state. When no template, the operator (admin in expert
+	// mode) supplies the full values blob directly.
+	finalValues := req.Values
+	if req.TemplateID != "" {
+		t, err := h.templateSvc.Get(r.Context(), req.TemplateID, userCtx.OrgID)
+		if err != nil {
+			respond.Error(w, http.StatusBadRequest, "template_id does not reference a known template")
+			return
+		}
+		merged, err := h.templateSvc.ApplyToValues(t, req.Values)
+		if err != nil {
+			respond.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		finalValues = merged
+	}
+
+	op, err := h.svc.EnqueueCreate(r.Context(), userCtx.OrgID, req.ClusterID, req.Name, req.TemplateID, userCtx.UserID, finalValues)
 	if err != nil {
 		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to enqueue tenant create")
 		return
