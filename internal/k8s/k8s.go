@@ -1,6 +1,6 @@
 // Package k8s builds Kubernetes API clients from the slim per-cluster
-// credentials tofui stores: API endpoint, CA bundle, and a service-account
-// bearer token. This is the shape tofui talks to ARBITRARY EKS clusters with
+// credentials portal stores: API endpoint, CA bundle, and a service-account
+// bearer token. This is the shape portal talks to ARBITRARY EKS clusters with
 // — distinct from the worker's in-cluster executor, which uses
 // rest.InClusterConfig() against the single cluster the worker runs in.
 package k8s

@@ -99,7 +99,7 @@ export function TenantList() {
         <div>
           <h1 className="text-lg font-semibold tracking-tight">Tenants</h1>
           <p className="text-[12px] text-muted-foreground mt-1">
-            EAP tenants discovered by tofui's cluster watcher (refreshed
+            EAP tenants discovered by portal's cluster watcher (refreshed
             every 60s)
           </p>
         </div>

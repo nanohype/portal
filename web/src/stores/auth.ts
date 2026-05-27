@@ -11,12 +11,12 @@ interface AuthState {
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
-  token: localStorage.getItem("tofui_token"),
+  token: localStorage.getItem("portal_token"),
   user: null,
-  isAuthenticated: !!localStorage.getItem("tofui_token"),
+  isAuthenticated: !!localStorage.getItem("portal_token"),
 
   setAuth: (token, user) => {
-    localStorage.setItem("tofui_token", token);
+    localStorage.setItem("portal_token", token);
     set({ token, user, isAuthenticated: true });
   },
 
@@ -25,7 +25,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   logout: () => {
-    localStorage.removeItem("tofui_token");
+    localStorage.removeItem("portal_token");
     set({ token: null, user: null, isAuthenticated: false });
   },
 }));

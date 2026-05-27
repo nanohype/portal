@@ -281,7 +281,7 @@ export interface DiscoveredVariable {
   default?: string;
   required: boolean;
   configured: boolean;
-  configured_by?: "terragrunt" | "tofui";
+  configured_by?: "terragrunt" | "portal";
 }
 
 export interface Pipeline {

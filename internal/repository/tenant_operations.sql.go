@@ -38,7 +38,7 @@ type ListTenantOperationsByTenantParams struct {
 	TenantName string `json:"tenant_name"`
 }
 
-// ListTenantOperationsByTenant returns every operation tofui has attempted
+// ListTenantOperationsByTenant returns every operation portal has attempted
 // against a given tenant, newest first. Used by the UI Operations panel.
 func (q *Queries) ListTenantOperationsByTenant(ctx context.Context, arg ListTenantOperationsByTenantParams) ([]TenantOperation, error) {
 	rows, err := q.db.Query(ctx,

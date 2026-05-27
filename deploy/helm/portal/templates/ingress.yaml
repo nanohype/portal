@@ -4,7 +4,7 @@ kind: Ingress
 metadata:
   name: {{ .Release.Name }}-ingress
   labels:
-    app.kubernetes.io/name: tofui
+    app.kubernetes.io/name: portal
     app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
   {{- if .Values.ingress.className }}

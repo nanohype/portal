@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/stxkxs/tofui/internal/handler/respond"
+	"github.com/nanohype/portal/internal/handler/respond"
 )
 
 // Action represents a permission-checked action.

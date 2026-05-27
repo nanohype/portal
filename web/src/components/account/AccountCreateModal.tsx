@@ -112,7 +112,7 @@ export function AccountCreateModal({
         <DialogHeader>
           <DialogTitle>New Account</DialogTitle>
           <DialogDescription>
-            Register an AWS account by giving tofui an assume-role to use.
+            Register an AWS account by giving portal an assume-role to use.
           </DialogDescription>
         </DialogHeader>
 
@@ -153,7 +153,7 @@ export function AccountCreateModal({
             <Input
               value={assumeRoleARN}
               onChange={(e) => setAssumeRoleARN(e.target.value)}
-              placeholder="arn:aws:iam::123456789012:role/tofui-cross-account"
+              placeholder="arn:aws:iam::123456789012:role/portal-cross-account"
               className="font-mono"
             />
           </Field>

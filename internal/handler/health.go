@@ -7,7 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/stxkxs/tofui/internal/handler/respond"
+	"github.com/nanohype/portal/internal/handler/respond"
 )
 
 type HealthHandler struct {

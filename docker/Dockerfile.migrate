@@ -11,10 +11,10 @@ RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /migrate ./cmd/migrate
 
 FROM alpine:3.22
 RUN apk add --no-cache ca-certificates
-RUN addgroup -S tofui && adduser -S tofui -G tofui
+RUN addgroup -S portal && adduser -S portal -G portal
 COPY --from=builder /migrate /usr/local/bin/migrate
 COPY migrations /migrations
 
-USER tofui
+USER portal
 ENTRYPOINT ["migrate"]
 CMD ["-direction", "up", "-path", "file:///migrations"]

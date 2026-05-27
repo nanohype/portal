@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/stxkxs/tofui/internal/domain"
+	"github.com/nanohype/portal/internal/domain"
 )
 
 func TestOAuthStateVerification(t *testing.T) {

@@ -1,6 +1,6 @@
 # Architecture
 
-Tofui runs as three processes backed by three data stores.
+Portal runs as three processes backed by three data stores.
 
 ![Architecture Diagram](architecture.svg)
 
@@ -149,12 +149,12 @@ See [docs/variables.md](docs/variables.md) for details.
 
 ## Team Cloud Identities
 
-Team members have an optional `cloud_identity` field for mapping tofui users to cloud provider principals:
+Team members have an optional `cloud_identity` field for mapping portal users to cloud provider principals:
 - AWS: IAM Role ARN
 - GCP: Service account email
 - Azure: Principal ID
 
-This is a data field on the team member record — tofui stores it but doesn't automatically inject it into runs. Use it as reference when building access entry variables for your cluster workspaces.
+This is a data field on the team member record — portal stores it but doesn't automatically inject it into runs. Use it as reference when building access entry variables for your cluster workspaces.
 
 ## VCS Webhook Flow
 

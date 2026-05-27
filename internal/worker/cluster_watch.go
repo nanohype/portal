@@ -12,8 +12,8 @@ import (
 	"github.com/riverqueue/river"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/stxkxs/tofui/internal/k8s"
-	"github.com/stxkxs/tofui/internal/repository"
+	"github.com/nanohype/portal/internal/k8s"
+	"github.com/nanohype/portal/internal/repository"
 )
 
 // ClusterWatchJobArgs walks one cluster's EAP custom resources (currently

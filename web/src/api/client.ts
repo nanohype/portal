@@ -10,7 +10,7 @@ export const api = createClient<paths>({
 // Add auth token to requests
 api.use({
   onRequest({ request }) {
-    const token = localStorage.getItem("tofui_token");
+    const token = localStorage.getItem("portal_token");
     if (token) {
       request.headers.set("Authorization", `Bearer ${token}`);
     }
@@ -18,7 +18,7 @@ api.use({
   },
   onResponse({ response }) {
     if (response.status === 401) {
-      localStorage.removeItem("tofui_token");
+      localStorage.removeItem("portal_token");
       window.location.href = "/login";
     }
     return response;

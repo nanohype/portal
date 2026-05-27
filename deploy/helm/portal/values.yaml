@@ -7,19 +7,19 @@ replicaCount:
 # -- Container images
 image:
   server:
-    repository: tofui/server
+    repository: portal/server
     tag: latest
     pullPolicy: IfNotPresent
   worker:
-    repository: tofui/worker
+    repository: portal/worker
     tag: latest
     pullPolicy: IfNotPresent
   web:
-    repository: tofui/web
+    repository: portal/web
     tag: latest
     pullPolicy: IfNotPresent
   migrate:
-    repository: tofui/migrate
+    repository: portal/migrate
     tag: latest
     pullPolicy: IfNotPresent
 
@@ -47,8 +47,8 @@ config:
 
   # Executor — "local" runs tofu on the worker host, "kubernetes" uses ephemeral pods
   executorType: "local"
-  executorNamespace: "tofui"                  # K8s namespace for executor pods
-  executorImage: "tofui-executor:tofu-1.11"   # Default executor image
+  executorNamespace: "portal"                  # K8s namespace for executor pods
+  executorImage: "portal-executor:tofu-1.11"   # Default executor image
 
   # Worker
   workerConcurrency: "10"
@@ -65,9 +65,9 @@ config:
 postgresql:
   enabled: true
   auth:
-    username: tofui
-    password: tofui          # Change in production
-    database: tofui
+    username: portal
+    password: portal          # Change in production
+    database: portal
   primary:
     persistence:
       size: 1Gi
@@ -88,7 +88,7 @@ minio:
   auth:
     rootUser: minioadmin      # Change in production
     rootPassword: minioadmin  # Change in production
-  defaultBuckets: tofui
+  defaultBuckets: portal
   persistence:
     size: 1Gi
 
@@ -97,14 +97,14 @@ ingress:
   enabled: false
   className: nginx
   hosts:
-    - host: tofui.local
+    - host: portal.local
       paths:
         - path: /
           pathType: Prefix
   # tls:
-  #   - secretName: tofui-tls
+  #   - secretName: portal-tls
   #     hosts:
-  #       - tofui.example.com
+  #       - portal.example.com
 
 # -- Resource limits
 resources:

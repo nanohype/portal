@@ -1,7 +1,7 @@
-// Package aws wraps the AWS SDK v2 to give tofui a single way to assume into
+// Package aws wraps the AWS SDK v2 to give portal a single way to assume into
 // the per-account roles configured via the Account entity.
 //
-// tofui's own identity comes from the default credential chain:
+// portal's own identity comes from the default credential chain:
 // AWS_PROFILE / shared config locally, IRSA in-cluster. From that base
 // identity, AssumeRoleConfig produces an aws.Config that authenticates as the
 // configured cross-account role — that's what all downstream AWS calls use.
@@ -17,13 +17,13 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 )
 
-// Provider holds tofui's base AWS identity. One instance per server/worker
+// Provider holds portal's base AWS identity. One instance per server/worker
 // process; reused across all Account-driven assume-role calls.
 type Provider struct {
 	base aws.Config
 }
 
-// NewProvider loads tofui's base credentials from the default chain. This
+// NewProvider loads portal's base credentials from the default chain. This
 // works both locally (env vars / AWS_PROFILE / shared config) and inside the
 // cluster (IRSA, EKS Pod Identity, EC2 instance profile) without code paths
 // branching on environment.
@@ -50,7 +50,7 @@ func (p *Provider) AssumeRoleConfig(ctx context.Context, roleARN, externalID, re
 
 	stsClient := sts.NewFromConfig(p.base)
 	creds := stscreds.NewAssumeRoleProvider(stsClient, roleARN, func(o *stscreds.AssumeRoleOptions) {
-		o.RoleSessionName = "tofui"
+		o.RoleSessionName = "portal"
 		if externalID != "" {
 			o.ExternalID = aws.String(externalID)
 		}

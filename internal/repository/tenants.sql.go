@@ -200,7 +200,7 @@ type DeleteTenantsByClusterAndNamesParams struct {
 
 // DeleteTenantsByClusterAndNames hard-deletes tenant rows that the watcher
 // no longer sees in a cluster. K8s is the source of truth — if the tenant
-// is gone from the cluster, it shouldn't be in tofui either. Audit
+// is gone from the cluster, it shouldn't be in portal either. Audit
 // history lives in audit_logs.
 func (q *Queries) DeleteTenantsByClusterAndNames(ctx context.Context, arg DeleteTenantsByClusterAndNamesParams) error {
 	if len(arg.Names) == 0 {

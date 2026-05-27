@@ -11,10 +11,10 @@ import (
 	"github.com/oklog/ulid/v2"
 	"github.com/riverqueue/river"
 
-	"github.com/stxkxs/tofui/internal/repository"
-	"github.com/stxkxs/tofui/internal/storage"
-	"github.com/stxkxs/tofui/internal/tfstate"
-	"github.com/stxkxs/tofui/internal/worker"
+	"github.com/nanohype/portal/internal/repository"
+	"github.com/nanohype/portal/internal/storage"
+	"github.com/nanohype/portal/internal/tfstate"
+	"github.com/nanohype/portal/internal/worker"
 )
 
 type PipelineService struct {

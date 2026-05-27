@@ -10,9 +10,9 @@ import (
 	"github.com/oklog/ulid/v2"
 	"github.com/riverqueue/river"
 
-	"github.com/stxkxs/tofui/internal/logstream"
-	"github.com/stxkxs/tofui/internal/repository"
-	"github.com/stxkxs/tofui/internal/worker"
+	"github.com/nanohype/portal/internal/logstream"
+	"github.com/nanohype/portal/internal/repository"
+	"github.com/nanohype/portal/internal/worker"
 )
 
 type RunService struct {

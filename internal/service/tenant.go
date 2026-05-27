@@ -11,8 +11,8 @@ import (
 	"github.com/oklog/ulid/v2"
 	"github.com/riverqueue/river"
 
-	"github.com/stxkxs/tofui/internal/repository"
-	"github.com/stxkxs/tofui/internal/worker"
+	"github.com/nanohype/portal/internal/repository"
+	"github.com/nanohype/portal/internal/worker"
 )
 
 type TenantService struct {
@@ -73,7 +73,7 @@ func (s *TenantService) Get(ctx context.Context, id, orgID string) (repository.T
 // Reconcile is the load-bearing watcher method. Given the freshly-observed
 // set of tenants in a cluster, it upserts every observed row and deletes any
 // DB row whose name no longer appears in the observed set. K8s is the source
-// of truth; tofui's row state converges to it on each watch tick.
+// of truth; portal's row state converges to it on each watch tick.
 //
 // Returns the number of upserts + deletes performed so the watcher can log
 // useful telemetry.
@@ -131,7 +131,7 @@ func nonNullJSON(b json.RawMessage) json.RawMessage {
 	return b
 }
 
-// EnqueueCreate records a "tofui wants this tenant to exist" intent and
+// EnqueueCreate records a "portal wants this tenant to exist" intent and
 // schedules the worker job that will render the chart + commit to git. The
 // returned TenantOperation row carries id=pending until the worker
 // transitions it. Idempotency lives at the worker — repeated create

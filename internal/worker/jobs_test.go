@@ -5,7 +5,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/stxkxs/tofui/internal/worker/executor"
+	"github.com/nanohype/portal/internal/worker/executor"
 )
 
 func TestPostPlanAction(t *testing.T) {
@@ -176,9 +176,9 @@ func TestMergeVariables_DeepMergeTags(t *testing.T) {
 		},
 		{
 			name:      "default_tags also merges",
-			org:       []executor.Variable{v("default_tags", `{"managed_by":"tofui"}`, "terraform")},
+			org:       []executor.Variable{v("default_tags", `{"managed_by":"portal"}`, "terraform")},
 			pipeline:  []executor.Variable{v("default_tags", `{"pipeline":"landing-zone"}`, "terraform")},
-			wantValue: `{"managed_by":"tofui","pipeline":"landing-zone"}`,
+			wantValue: `{"managed_by":"portal","pipeline":"landing-zone"}`,
 		},
 		{
 			name:      "custom_tags suffix merges",

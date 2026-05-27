@@ -7,7 +7,7 @@ import (
 
 	"github.com/oklog/ulid/v2"
 
-	"github.com/stxkxs/tofui/internal/repository"
+	"github.com/nanohype/portal/internal/repository"
 )
 
 type AuditEntry struct {

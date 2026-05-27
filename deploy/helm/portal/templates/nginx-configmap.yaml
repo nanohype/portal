@@ -3,7 +3,7 @@ kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-nginx
   labels:
-    app.kubernetes.io/name: tofui
+    app.kubernetes.io/name: portal
     app.kubernetes.io/instance: {{ .Release.Name }}
 data:
   default.conf: |

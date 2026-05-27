@@ -3,7 +3,7 @@ package handler
 import (
 	"testing"
 
-	"github.com/stxkxs/tofui/internal/tfparse"
+	"github.com/nanohype/portal/internal/tfparse"
 )
 
 func strPtr(s string) *string { return &s }
@@ -18,7 +18,7 @@ func findByName(entries []DiscoverVariableResponse, name string) (DiscoverVariab
 }
 
 // TestMergeDiscovered exercises every provenance combination of the
-// module-schema × terragrunt-resolved × tofui-configured cube. Each module
+// module-schema × terragrunt-resolved × portal-configured cube. Each module
 // variable should be returned with its source recorded in ConfiguredBy;
 // resolved-input keys with no matching module variable are appended.
 func TestMergeDiscovered(t *testing.T) {
@@ -40,11 +40,11 @@ func TestMergeDiscovered(t *testing.T) {
 		// expected to appear as an "extra" entry.
 		"unknown_extra": "from-terragrunt",
 	}
-	tofuiConfigured := map[string]bool{
+	portalConfigured := map[string]bool{
 		"vpc_cidr": true, // user added this via the UI
 	}
 
-	got := mergeDiscovered(moduleVars, resolved, tofuiConfigured)
+	got := mergeDiscovered(moduleVars, resolved, portalConfigured)
 
 	cases := []struct {
 		name             string
@@ -58,8 +58,8 @@ func TestMergeDiscovered(t *testing.T) {
 		{"region", true, "terragrunt", strPtr(`"us-west-2"`)},
 		{"nat_gateways", true, "terragrunt", strPtr("3")},
 		{"cluster_name", true, "terragrunt", strPtr(`"eks"`)},
-		// tofui-configured: ConfiguredBy=tofui; default stays as module default.
-		{"vpc_cidr", true, "tofui", strPtr(`"10.0.0.0/16"`)},
+		// portal-configured: ConfiguredBy=portal; default stays as module default.
+		{"vpc_cidr", true, "portal", strPtr(`"10.0.0.0/16"`)},
 		// Unconfigured: no badge; default stays as module default.
 		{"max_azs", false, "", strPtr("3")},
 		{"tags", false, "", strPtr("{}")},

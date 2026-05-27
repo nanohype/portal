@@ -47,7 +47,7 @@ tasks:
       workspaces (network → cluster → cluster-bootstrap → cluster-addons)
       + an `eks-gitops-prereqs` pipeline. Idempotent.
       Configure via env: LANDING_ZONE_PATH, LZ_ACCOUNT, LZ_REGION, LZ_ENV,
-      AWS_PROFILE_NAME, TOFU_VERSION, TOFUI_API.
+      AWS_PROFILE_NAME, TOFU_VERSION, PORTAL_API.
     cmds:
       - ./scripts/seed.sh
 
@@ -64,12 +64,12 @@ tasks:
   db:up:
     desc: Start PostgreSQL (Docker)
     cmds:
-      - docker run -d --name tofui-postgres -p 5432:5432 -e POSTGRES_USER=tofui -e POSTGRES_PASSWORD=tofui -e POSTGRES_DB=tofui postgres:16-alpine 2>/dev/null || docker start tofui-postgres
+      - docker run -d --name portal-postgres -p 5432:5432 -e POSTGRES_USER=tofui -e POSTGRES_PASSWORD=tofui -e POSTGRES_DB=tofui postgres:16-alpine 2>/dev/null || docker start portal-postgres
 
   db:down:
     desc: Stop PostgreSQL
     cmds:
-      - docker stop tofui-postgres
+      - docker stop portal-postgres
 
   db:migrate:
     desc: Run database migrations
@@ -88,7 +88,7 @@ tasks:
   db:reset:
     desc: Reset database (drop and recreate)
     cmds:
-      - docker exec tofui-postgres psql -U tofui -c "DROP DATABASE IF EXISTS tofui; CREATE DATABASE tofui;"
+      - docker exec portal-postgres psql -U tofui -c "DROP DATABASE IF EXISTS tofui; CREATE DATABASE tofui;"
       - task: db:migrate
 
   # === Redis ===
@@ -96,14 +96,14 @@ tasks:
   redis:up:
     desc: Start Redis (Docker)
     cmds:
-      - docker run -d --name tofui-redis -p 6379:6379 redis:7-alpine 2>/dev/null || docker start tofui-redis
+      - docker run -d --name portal-redis -p 6379:6379 redis:7-alpine 2>/dev/null || docker start portal-redis
 
   # === MinIO ===
 
   minio:up:
     desc: Start MinIO (Docker)
     cmds:
-      - docker run -d --name tofui-minio -p 9000:9000 -p 9001:9001 -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin minio/minio server /data --console-address ":9001" 2>/dev/null || docker start tofui-minio
+      - docker run -d --name portal-minio -p 9000:9000 -p 9001:9001 -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin minio/minio server /data --console-address ":9001" 2>/dev/null || docker start portal-minio
 
   # === Infrastructure ===
 
@@ -117,7 +117,7 @@ tasks:
   infra:down:
     desc: Stop all infrastructure
     cmds:
-      - docker stop tofui-postgres tofui-redis tofui-minio 2>/dev/null || true
+      - docker stop portal-postgres portal-redis portal-minio 2>/dev/null || true
 
   # === Code Generation ===
 
@@ -158,27 +158,27 @@ tasks:
   docker:build:
     desc: Build all Docker images
     cmds:
-      - docker build -f docker/Dockerfile.server -t tofui/server:latest .
-      - docker build -f docker/Dockerfile.worker -t tofui/worker:latest .
-      - docker build -f docker/Dockerfile.web -t tofui/web:latest .
-      - docker build -f docker/Dockerfile.migrate -t tofui/migrate:latest .
+      - docker build -f docker/Dockerfile.server -t portal/server:latest .
+      - docker build -f docker/Dockerfile.worker -t portal/worker:latest .
+      - docker build -f docker/Dockerfile.web -t portal/web:latest .
+      - docker build -f docker/Dockerfile.migrate -t portal/migrate:latest .
 
   # === Helm ===
 
   helm:install:
     desc: Install Helm chart on local cluster
     cmds:
-      - helm install tofui deploy/helm/tofui
+      - helm install portal deploy/helm/portal
 
   helm:upgrade:
     desc: Upgrade Helm chart
     cmds:
-      - helm upgrade tofui deploy/helm/tofui
+      - helm upgrade portal deploy/helm/portal
 
   helm:uninstall:
     desc: Uninstall Helm chart
     cmds:
-      - helm uninstall tofui
+      - helm uninstall portal
 
   # === Quality ===
 
@@ -220,7 +220,7 @@ tasks:
         WS_ID="${ARGS[1]}"
         if [ -z "$DIR" ] || [ -z "$WS_ID" ]; then echo "Usage: task upload -- /path/to/tf/dir WORKSPACE_ID"; exit 1; fi
         if [ ! -d "$DIR" ]; then echo "Error: $DIR is not a directory"; exit 1; fi
-        TMPFILE=$(mktemp /tmp/tofui-upload-XXXXXX.tar.gz)
+        TMPFILE=$(mktemp /tmp/portal-upload-XXXXXX.tar.gz)
         tar czf "$TMPFILE" -C "$DIR" .
         echo "Uploading $(du -h "$TMPFILE" | cut -f1) to workspace $WS_ID..."
         TOKEN=$(curl -s http://localhost:8080/api/v1/auth/dev -o /dev/null -w '%{redirect_url}' | grep -o 'token=[^&]*' | cut -d= -f2)

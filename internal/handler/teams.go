@@ -9,10 +9,10 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/oklog/ulid/v2"
 
-	"github.com/stxkxs/tofui/internal/auth"
-	"github.com/stxkxs/tofui/internal/handler/respond"
-	"github.com/stxkxs/tofui/internal/repository"
-	"github.com/stxkxs/tofui/internal/service"
+	"github.com/nanohype/portal/internal/auth"
+	"github.com/nanohype/portal/internal/handler/respond"
+	"github.com/nanohype/portal/internal/repository"
+	"github.com/nanohype/portal/internal/service"
 )
 
 var slugRegex = regexp.MustCompile("[^a-z0-9-]")

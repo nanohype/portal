@@ -15,8 +15,8 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 
-	"github.com/stxkxs/tofui/internal/domain"
-	"github.com/stxkxs/tofui/internal/server"
+	"github.com/nanohype/portal/internal/domain"
+	"github.com/nanohype/portal/internal/server"
 )
 
 func main() {
