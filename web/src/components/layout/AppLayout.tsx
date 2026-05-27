@@ -63,6 +63,9 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
           {/* Nav */}
           <nav className="flex items-center gap-1" aria-label="Primary">
+            <NavLink href="/catalog" active={path === "/catalog"}>
+              Catalog
+            </NavLink>
             <NavLink href="/" active={path === "/" || path.startsWith("/workspaces")}>
               Workspaces
             </NavLink>

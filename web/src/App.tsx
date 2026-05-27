@@ -19,6 +19,7 @@ import { ClusterDetail } from "@/components/cluster/ClusterDetail";
 import { TenantList } from "@/components/tenant/TenantList";
 import { TenantDetail } from "@/components/tenant/TenantDetail";
 import { TemplateList } from "@/components/template/TemplateList";
+import { CatalogPage } from "@/components/catalog/CatalogPage";
 import { OrgSettings } from "@/components/settings/OrgSettings";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocation, navigate } from "@/hooks/useNavigate";
@@ -76,6 +77,7 @@ function resolveRoute(location: string) {
   if (path === "/tenants") return { page: "tenants" as const };
 
   if (path === "/templates") return { page: "templates" as const };
+  if (path === "/catalog") return { page: "catalog" as const };
 
   if (path === "/teams") return { page: "teams" as const };
   if (path === "/users") return { page: "users" as const };
@@ -163,6 +165,7 @@ export function App() {
           <TenantDetail tenantId={route.tenantId!} />
         )}
         {route.page === "templates" && <TemplateList />}
+        {route.page === "catalog" && <CatalogPage />}
         {route.page === "teams" && <TeamsPage />}
         {route.page === "users" && <UsersPage />}
         {route.page === "audit-logs" && <AuditLogPage />}
