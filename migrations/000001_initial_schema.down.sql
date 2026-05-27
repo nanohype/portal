@@ -1,3 +1,6 @@
+DROP TABLE IF EXISTS tenant_operations;
+DROP TYPE IF EXISTS tenant_op_status;
+DROP TYPE IF EXISTS tenant_op_kind;
 DROP TABLE IF EXISTS tenants;
 DROP TABLE IF EXISTS clusters;
 DROP TYPE IF EXISTS cluster_connection_status;

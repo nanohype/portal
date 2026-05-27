@@ -511,6 +511,30 @@ export interface Tenant {
   updated_at: string;
 }
 
+export interface CreateTenantRequest {
+  cluster_id: string;
+  name: string;
+  values: Record<string, unknown>;
+}
+
+export type TenantOperationKind = "create" | "delete";
+export type TenantOperationStatus = "pending" | "committed" | "failed";
+
+export interface TenantOperation {
+  id: string;
+  org_id: string;
+  cluster_id: string;
+  tenant_name: string;
+  operation: TenantOperationKind;
+  status: TenantOperationStatus;
+  git_commit_sha: string;
+  error: string;
+  values_json: Record<string, unknown>;
+  created_by: string;
+  created_at: string;
+  completed_at: string | null;
+}
+
 // openapi-fetch compatible paths type
 export interface paths {
   "/users": {
@@ -683,12 +707,32 @@ export interface paths {
         200: { content: { "application/json": ListResponse<Tenant> } };
       };
     };
+    post: {
+      requestBody: { content: { "application/json": CreateTenantRequest } };
+      responses: {
+        202: { content: { "application/json": TenantOperation } };
+      };
+    };
   };
   "/tenants/{tenantId}": {
     get: {
       parameters: { path: { tenantId: string } };
       responses: {
         200: { content: { "application/json": Tenant } };
+      };
+    };
+    delete: {
+      parameters: { path: { tenantId: string } };
+      responses: {
+        202: { content: { "application/json": TenantOperation } };
+      };
+    };
+  };
+  "/tenants/{tenantId}/operations": {
+    get: {
+      parameters: { path: { tenantId: string } };
+      responses: {
+        200: { content: { "application/json": TenantOperation[] } };
       };
     };
   };

@@ -58,6 +58,18 @@ type Config struct {
 	ExecutorNamespace   string `env:"EXECUTOR_NAMESPACE" envDefault:"tofui"`
 	ExecutorImage       string `env:"EXECUTOR_IMAGE" envDefault:"tofui-executor:tofu-1.11"`
 	ExecutorImagePrefix string `env:"EXECUTOR_IMAGE_PREFIX" envDefault:"tofui-executor"`
+
+	// GitOps (tenant write path). When TenantsRepoURL is empty the worker
+	// surfaces "not configured" on any tenant_apply attempt — keeps dev
+	// machines without SSH keys from blowing up on startup.
+	GitCacheDir       string `env:"GITOPS_CACHE_DIR" envDefault:"/tmp/tofui/git"`
+	TenantsRepoURL    string `env:"GITOPS_TENANTS_REPO_URL"`
+	TenantsRepoRef    string `env:"GITOPS_TENANTS_REPO_REF" envDefault:"main"`
+	GitSSHKeyPath     string `env:"GITOPS_SSH_KEY_PATH"`
+	GitAuthorName     string `env:"GITOPS_AUTHOR_NAME" envDefault:"tofui"`
+	GitAuthorEmail    string `env:"GITOPS_AUTHOR_EMAIL" envDefault:"tofui@local"`
+	EAPChartsRepoURL  string `env:"EAP_CHARTS_REPO_URL"`
+	EAPChartsRepoRef  string `env:"EAP_CHARTS_REPO_REF" envDefault:"main"`
 }
 
 // Validate checks that the configuration is safe for the target environment.

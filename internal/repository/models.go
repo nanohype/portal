@@ -253,3 +253,18 @@ type Tenant struct {
 	CreatedAt      time.Time       `json:"created_at"`
 	UpdatedAt      time.Time       `json:"updated_at"`
 }
+
+type TenantOperation struct {
+	ID            string          `json:"id"`
+	OrgID         string          `json:"org_id"`
+	ClusterID     string          `json:"cluster_id"`
+	TenantName    string          `json:"tenant_name"`
+	Operation     string          `json:"operation"`
+	Status        string          `json:"status"`
+	GitCommitSHA  string          `json:"git_commit_sha"`
+	Error         string          `json:"error"`
+	ValuesJSON    json.RawMessage `json:"values_json"`
+	CreatedBy     string          `json:"created_by"`
+	CreatedAt     time.Time       `json:"created_at"`
+	CompletedAt   *time.Time      `json:"completed_at"`
+}
