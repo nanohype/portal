@@ -31,6 +31,7 @@ type Server struct {
 	runSvc          *service.RunService
 	pipelineSvc     *service.PipelineService
 	clusterSvc      *service.ClusterService
+	tenantSvc       *service.TenantService
 }
 
 func New(cfg *domain.Config, db *pgxpool.Pool, logger *slog.Logger) *Server {
@@ -62,6 +63,10 @@ func (s *Server) PipelineService() *service.PipelineService {
 
 func (s *Server) ClusterService() *service.ClusterService {
 	return s.clusterSvc
+}
+
+func (s *Server) TenantService() *service.TenantService {
+	return s.tenantSvc
 }
 
 func (s *Server) ApprovalHandler() *handler.ApprovalHandler {
@@ -141,8 +146,8 @@ func (s *Server) setupRouter() {
 	accountHandler := handler.NewAccountHandler(accountSvc, auditSvc)
 	s.clusterSvc = service.NewClusterService(queries, s.db, encryptor)
 	clusterHandler := handler.NewClusterHandler(s.clusterSvc, accountSvc, auditSvc)
-	tenantSvc := service.NewTenantService(queries, s.db)
-	tenantHandler := handler.NewTenantHandler(tenantSvc)
+	s.tenantSvc = service.NewTenantService(queries, s.db)
+	tenantHandler := handler.NewTenantHandler(s.tenantSvc, auditSvc)
 	wsOrigins := []string{s.cfg.WebURL}
 	if s.cfg.Environment == "development" {
 		wsOrigins = append(wsOrigins, "http://localhost:5173")
@@ -249,10 +254,17 @@ func (s *Server) setupRouter() {
 					})
 				})
 
-				// Tenants (read-only inventory discovered by the cluster watcher)
+				// Tenants. Reads expose the watcher's observed inventory;
+				// writes enqueue tenant_operations that the worker materializes
+				// into git commits to the tenants repo.
 				r.Route("/tenants", func(r chi.Router) {
 					r.Get("/", tenantHandler.List)
-					r.Get("/{tenantID}", tenantHandler.Get)
+					r.With(auth.RequireRole("operator")).Post("/", tenantHandler.Create)
+					r.Route("/{tenantID}", func(r chi.Router) {
+						r.Get("/", tenantHandler.Get)
+						r.With(auth.RequireRole("operator")).Delete("/", tenantHandler.Delete)
+						r.Get("/operations", tenantHandler.Operations)
+					})
 				})
 
 				// Pipelines

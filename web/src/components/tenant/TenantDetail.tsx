@@ -1,13 +1,32 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { api } from "@/api/client";
+import { useAuth } from "@/hooks/useAuth";
+import { navigate } from "@/hooks/useNavigate";
+import type { TenantOperation } from "@/api/types";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Link } from "@/components/ui/link";
 import { formatRelativeTime } from "@/lib/utils";
 import { phaseBadge } from "./TenantList";
-import { ArrowLeft, Boxes, ChevronDown, ChevronRight } from "lucide-react";
+import {
+  ArrowLeft,
+  Boxes,
+  ChevronDown,
+  ChevronRight,
+  Trash2,
+} from "lucide-react";
 
 export function TenantDetail({ tenantId }: { tenantId: string }) {
+  const { user } = useAuth();
+  const canWrite =
+    user?.role === "operator" ||
+    user?.role === "admin" ||
+    user?.role === "owner";
+  const queryClient = useQueryClient();
+
   const { data, isLoading, isError } = useQuery({
     queryKey: ["tenant", tenantId],
     queryFn: async () => {
@@ -18,6 +37,43 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
       return data!;
     },
     refetchInterval: 10000,
+  });
+
+  const { data: operations } = useQuery({
+    queryKey: ["tenant", tenantId, "operations"],
+    queryFn: async () => {
+      const { data, error } = await api.GET(
+        "/tenants/{tenantId}/operations",
+        { params: { path: { tenantId } } },
+      );
+      if (error) throw error;
+      return data!;
+    },
+    // Operations refresh more aggressively than the tenant itself — the
+    // worker transitions a row pending→committed in under a second after
+    // enqueue, and we want the UI to reflect that.
+    refetchInterval: (q) => {
+      const ops = q.state.data as TenantOperation[] | undefined;
+      const transitional = ops?.some((o) => o.status === "pending");
+      return transitional ? 2000 : 10000;
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await api.DELETE("/tenants/{tenantId}", {
+        params: { path: { tenantId } },
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["tenant", tenantId, "operations"] });
+      queryClient.invalidateQueries({ queryKey: ["tenants"] });
+      toast.success("Tenant delete enqueued · ArgoCD will prune shortly");
+      navigate("/tenants");
+    },
+    onError: () => toast.error("Failed to enqueue tenant delete"),
   });
 
   const [showSpec, setShowSpec] = useState(false);
@@ -74,11 +130,29 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
             </p>
           </div>
         </div>
+        {canWrite && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              if (
+                confirm(`Delete tenant "${data.name}"? This commits a removal to the tenants repo and ArgoCD will prune the resources.`)
+              ) {
+                deleteMutation.mutate();
+              }
+            }}
+            disabled={deleteMutation.isPending}
+            className="text-destructive hover:text-destructive hover:bg-destructive/10 hover:border-destructive/30"
+          >
+            <Trash2 className="w-3 h-3" />
+            Delete tenant
+          </Button>
+        )}
       </div>
 
-      <p className="text-[11px] text-muted-foreground/70 mb-6">
-        Read-only inventory. Tenant CRUD via git (phase 2c) is not yet wired.
-      </p>
+      {operations && operations.length > 0 && (
+        <OperationsPanel ops={operations} />
+      )}
 
       <JSONPanel
         title="Status"
@@ -93,6 +167,49 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
         onToggle={() => setShowSpec(!showSpec)}
         value={data.spec}
       />
+    </div>
+  );
+}
+
+function OperationsPanel({ ops }: { ops: TenantOperation[] }) {
+  return (
+    <div className="mb-6 border border-border/60 rounded-lg overflow-hidden">
+      <div className="px-4 py-2 text-xs font-medium border-b border-border/40 bg-accent/20">
+        Operations ({ops.length})
+      </div>
+      <div className="divide-y divide-border/30">
+        {ops.map((op) => (
+          <div key={op.id} className="px-4 py-2.5 text-xs flex items-center gap-3">
+            <Badge
+              variant={
+                op.status === "committed"
+                  ? "success"
+                  : op.status === "failed"
+                  ? "destructive"
+                  : "default"
+              }
+            >
+              {op.status}
+            </Badge>
+            <span className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
+              {op.operation}
+            </span>
+            <span className="text-muted-foreground/70 flex-1">
+              {formatRelativeTime(op.created_at)}
+            </span>
+            {op.git_commit_sha && (
+              <code className="text-[10px] text-muted-foreground/70 font-mono">
+                {op.git_commit_sha.slice(0, 8)}
+              </code>
+            )}
+            {op.error && (
+              <span className="text-[11px] text-destructive truncate max-w-[40%]" title={op.error}>
+                {op.error}
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

@@ -441,3 +441,33 @@ CREATE TABLE tenants (
 
 CREATE INDEX idx_tenants_org_id ON tenants(org_id);
 CREATE INDEX idx_tenants_cluster_id ON tenants(cluster_id);
+
+-- Tenant operations: append-only log of every write tofui has made to the
+-- tenants GitOps repo on behalf of a user. The operation row is created
+-- pending → enqueues the TenantApplyJob → worker writes the commit and
+-- transitions the row to `committed` (with the SHA) or `failed` (with the
+-- error message). The actual Tenant CR appears in the `tenants` table once
+-- ArgoCD applies the commit and the watcher observes it — so operations
+-- and tenants are decoupled: an operation captures intent, a tenant row
+-- captures live state.
+CREATE TYPE tenant_op_kind AS ENUM ('create', 'delete');
+CREATE TYPE tenant_op_status AS ENUM ('pending', 'committed', 'failed');
+
+CREATE TABLE tenant_operations (
+    id              TEXT PRIMARY KEY,
+    org_id          TEXT NOT NULL REFERENCES organizations(id),
+    cluster_id      TEXT NOT NULL REFERENCES clusters(id) ON DELETE CASCADE,
+    tenant_name     TEXT NOT NULL,
+    operation       tenant_op_kind NOT NULL,
+    status          tenant_op_status NOT NULL DEFAULT 'pending',
+    git_commit_sha  TEXT NOT NULL DEFAULT '',
+    error           TEXT NOT NULL DEFAULT '',
+    values_json     JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_by      TEXT NOT NULL REFERENCES users(id),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at    TIMESTAMPTZ
+);
+
+CREATE INDEX idx_tenant_operations_cluster_tenant ON tenant_operations(cluster_id, tenant_name);
+CREATE INDEX idx_tenant_operations_org_id ON tenant_operations(org_id);
+CREATE INDEX idx_tenant_operations_status ON tenant_operations(status);
