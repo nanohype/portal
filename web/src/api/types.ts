@@ -498,6 +498,19 @@ export interface UpdateClusterRequest {
   region?: string;
 }
 
+export interface Tenant {
+  id: string;
+  org_id: string;
+  cluster_id: string;
+  name: string;
+  phase: string;
+  spec: Record<string, unknown>;
+  status: Record<string, unknown>;
+  last_observed_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
 // openapi-fetch compatible paths type
 export interface paths {
   "/users": {
@@ -658,6 +671,24 @@ export interface paths {
       parameters: { path: { clusterId: string } };
       responses: {
         202: { content: { "application/json": { status: string } } };
+      };
+    };
+  };
+  "/tenants": {
+    get: {
+      parameters: {
+        query?: { page?: number; per_page?: number; cluster_id?: string };
+      };
+      responses: {
+        200: { content: { "application/json": ListResponse<Tenant> } };
+      };
+    };
+  };
+  "/tenants/{tenantId}": {
+    get: {
+      parameters: { path: { tenantId: string } };
+      responses: {
+        200: { content: { "application/json": Tenant } };
       };
     };
   };

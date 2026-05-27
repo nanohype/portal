@@ -149,6 +149,36 @@ func (q *Queries) DeleteCluster(ctx context.Context, arg DeleteClusterParams) er
 	return err
 }
 
+// ClusterWatchTarget is the minimal pair the dispatch tick needs to enqueue
+// a per-cluster watch job — no need to load the full cluster row at the
+// dispatch site.
+type ClusterWatchTarget struct {
+	ID    string
+	OrgID string
+}
+
+// ListConnectedClusters returns just the IDs of clusters with
+// connection_status='connected' across all orgs. Used by the watcher's
+// dispatch tick.
+func (q *Queries) ListConnectedClusters(ctx context.Context) ([]ClusterWatchTarget, error) {
+	rows, err := q.db.Query(ctx,
+		`SELECT id, org_id FROM clusters WHERE connection_status = 'connected'`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var targets []ClusterWatchTarget
+	for rows.Next() {
+		var t ClusterWatchTarget
+		if err := rows.Scan(&t.ID, &t.OrgID); err != nil {
+			return nil, err
+		}
+		targets = append(targets, t)
+	}
+	return targets, rows.Err()
+}
+
 // SetClusterConnectionStatus writes the async connection-test job's results.
 // On success: status='connected', last_connected_at=now(), node_count + k8s_version
 // populated, error cleared. On failure: status='failed', error populated,

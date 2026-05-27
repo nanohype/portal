@@ -16,6 +16,8 @@ import { AccountList } from "@/components/account/AccountList";
 import { AccountDetail } from "@/components/account/AccountDetail";
 import { ClusterList } from "@/components/cluster/ClusterList";
 import { ClusterDetail } from "@/components/cluster/ClusterDetail";
+import { TenantList } from "@/components/tenant/TenantList";
+import { TenantDetail } from "@/components/tenant/TenantDetail";
 import { OrgSettings } from "@/components/settings/OrgSettings";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocation, navigate } from "@/hooks/useNavigate";
@@ -66,6 +68,11 @@ function resolveRoute(location: string) {
   if (clusterMatch)
     return { page: "cluster" as const, clusterId: clusterMatch[1] };
   if (path === "/clusters") return { page: "clusters" as const };
+
+  const tenantMatch = path.match(/^\/tenants\/([^/]+)/);
+  if (tenantMatch)
+    return { page: "tenant" as const, tenantId: tenantMatch[1] };
+  if (path === "/tenants") return { page: "tenants" as const };
 
   if (path === "/teams") return { page: "teams" as const };
   if (path === "/users") return { page: "users" as const };
@@ -147,6 +154,10 @@ export function App() {
         {route.page === "clusters" && <ClusterList />}
         {route.page === "cluster" && (
           <ClusterDetail clusterId={route.clusterId!} />
+        )}
+        {route.page === "tenants" && <TenantList />}
+        {route.page === "tenant" && (
+          <TenantDetail tenantId={route.tenantId!} />
         )}
         {route.page === "teams" && <TeamsPage />}
         {route.page === "users" && <UsersPage />}
