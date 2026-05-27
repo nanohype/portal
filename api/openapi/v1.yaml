@@ -190,6 +190,112 @@ paths:
                 items:
                   $ref: "#/components/schemas/AuditLog"
 
+  /accounts:
+    get:
+      operationId: listAccounts
+      summary: List AWS accounts
+      tags: [accounts]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: List of accounts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountList"
+    post:
+      operationId: createAccount
+      summary: Register an AWS account (admin only)
+      tags: [accounts]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAccountRequest"
+      responses:
+        "201":
+          description: Created account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Account"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Duplicate name or AWS account ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /accounts/{accountId}:
+    get:
+      operationId: getAccount
+      summary: Get account
+      tags: [accounts]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+      responses:
+        "200":
+          description: Account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Account"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      operationId: updateAccount
+      summary: Update account (admin only)
+      tags: [accounts]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAccountRequest"
+      responses:
+        "200":
+          description: Updated account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Account"
+    delete:
+      operationId: deleteAccount
+      summary: Delete account (admin only)
+      tags: [accounts]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+      responses:
+        "204":
+          description: Deleted
+        "409":
+          description: Account is referenced by other resources
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /teams:
     get:
       operationId: listTeams
@@ -1050,6 +1156,12 @@ components:
       required: true
       schema:
         type: string
+    AccountId:
+      name: accountId
+      in: path
+      required: true
+      schema:
+        type: string
     Page:
       name: page
       in: query
@@ -1556,3 +1668,87 @@ components:
         created_at:
           type: string
           format: date-time
+
+    Account:
+      type: object
+      required: [id, org_id, name, aws_account_id, assume_role_arn, default_region, created_by, created_at, updated_at, external_id_set]
+      properties:
+        id:
+          type: string
+        org_id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        aws_account_id:
+          type: string
+          description: 12-digit AWS account number
+        assume_role_arn:
+          type: string
+          description: ARN of the IAM role tofui assumes into in this account
+        external_id_set:
+          type: boolean
+          description: Whether an external ID is configured for the assume-role trust
+        default_region:
+          type: string
+          description: Default AWS region for resources in this account
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    AccountList:
+      type: object
+      required: [data, total, page, per_page]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Account"
+        total:
+          type: integer
+        page:
+          type: integer
+        per_page:
+          type: integer
+
+    CreateAccountRequest:
+      type: object
+      required: [name, aws_account_id, assume_role_arn, default_region]
+      properties:
+        name:
+          type: string
+          description: Display name (unique within org)
+        description:
+          type: string
+        aws_account_id:
+          type: string
+          pattern: "^[0-9]{12}$"
+        assume_role_arn:
+          type: string
+          description: IAM role ARN; the account portion must match aws_account_id
+        external_id:
+          type: string
+          description: Optional shared secret for the assume-role trust policy
+        default_region:
+          type: string
+          pattern: "^[a-z]{2}-[a-z]+-[0-9]$"
+
+    UpdateAccountRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        assume_role_arn:
+          type: string
+        external_id:
+          type: string
+        default_region:
+          type: string

@@ -12,6 +12,8 @@ import { AuditLogPage } from "@/components/audit/AuditLogPage";
 import { PipelineList } from "@/components/pipeline/PipelineList";
 import { PipelineDetail } from "@/components/pipeline/PipelineDetail";
 import { PipelineRunView } from "@/components/pipeline/PipelineRunView";
+import { AccountList } from "@/components/account/AccountList";
+import { AccountDetail } from "@/components/account/AccountDetail";
 import { OrgSettings } from "@/components/settings/OrgSettings";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocation, navigate } from "@/hooks/useNavigate";
@@ -52,6 +54,11 @@ function resolveRoute(location: string) {
   const wsMatch = path.match(/^\/workspaces\/([^/]+)/);
   if (wsMatch)
     return { page: "workspace" as const, workspaceId: wsMatch[1] };
+
+  const accountMatch = path.match(/^\/accounts\/([^/]+)/);
+  if (accountMatch)
+    return { page: "account" as const, accountId: accountMatch[1] };
+  if (path === "/accounts") return { page: "accounts" as const };
 
   if (path === "/teams") return { page: "teams" as const };
   if (path === "/users") return { page: "users" as const };
@@ -125,6 +132,10 @@ export function App() {
             workspaceId={route.workspaceId!}
             runId={route.runId!}
           />
+        )}
+        {route.page === "accounts" && <AccountList />}
+        {route.page === "account" && (
+          <AccountDetail accountId={route.accountId!} />
         )}
         {route.page === "teams" && <TeamsPage />}
         {route.page === "users" && <UsersPage />}

@@ -132,6 +132,8 @@ func (s *Server) setupRouter() {
 	authHandler := handler.NewAuthHandler(s.cfg, queries, s.db, jwtAuth)
 	workspaceSvc := service.NewWorkspaceService(queries, s.db)
 	workspaceHandler := handler.NewWorkspaceHandler(workspaceSvc, auditSvc, store, queries)
+	accountSvc := service.NewAccountService(queries, s.db, encryptor)
+	accountHandler := handler.NewAccountHandler(accountSvc, auditSvc)
 	wsOrigins := []string{s.cfg.WebURL}
 	if s.cfg.Environment == "development" {
 		wsOrigins = append(wsOrigins, "http://localhost:5173")
@@ -212,6 +214,17 @@ func (s *Server) setupRouter() {
 						r.With(auth.RequireRole("admin")).Post("/members", teamHandler.AddMember)
 						r.With(auth.RequireRole("admin")).Put("/members/{userID}", teamHandler.UpdateMember)
 						r.With(auth.RequireRole("admin")).Delete("/members/{userID}", teamHandler.RemoveMember)
+					})
+				})
+
+				// Accounts (AWS account + assume-role config, admin-managed)
+				r.Route("/accounts", func(r chi.Router) {
+					r.Get("/", accountHandler.List)
+					r.With(auth.RequireRole("admin")).Post("/", accountHandler.Create)
+					r.Route("/{accountID}", func(r chi.Router) {
+						r.Get("/", accountHandler.Get)
+						r.With(auth.RequireRole("admin")).Put("/", accountHandler.Update)
+						r.With(auth.RequireRole("admin")).Delete("/", accountHandler.Delete)
 					})
 				})
 

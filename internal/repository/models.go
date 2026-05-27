@@ -205,3 +205,17 @@ type PipelineRunStageWithWorkspace struct {
 	PipelineRunStage
 	WorkspaceName string `json:"workspace_name"`
 }
+
+type Account struct {
+	ID                  string    `json:"id"`
+	OrgID               string    `json:"org_id"`
+	Name                string    `json:"name"`
+	Description         string    `json:"description"`
+	AWSAccountID        string    `json:"aws_account_id"`
+	AssumeRoleARN       string    `json:"assume_role_arn"`
+	ExternalIDEncrypted string    `json:"-"`
+	DefaultRegion       string    `json:"default_region"`
+	CreatedBy           string    `json:"created_by"`
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
+}
