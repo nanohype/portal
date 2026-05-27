@@ -415,3 +415,29 @@ CREATE TABLE clusters (
 
 CREATE INDEX idx_clusters_org_id ON clusters(org_id);
 CREATE INDEX idx_clusters_account_id ON clusters(account_id);
+
+-- Tenants: EAP Tenant CRDs (agents.stxkxs.io/v1alpha1) discovered by the
+-- per-cluster watcher. Read-only inventory at this stage — tofui populates
+-- and prunes these rows from what the K8s API actually shows; users can't
+-- create/edit tenants from tofui yet (that's phase 2c, via git).
+--
+-- Schema choice: we denormalize `name` and `phase` for fast filtering, then
+-- blob the full .spec and .status as JSONB so we survive CRD schema evolution
+-- without migrations. Cluster cascade-delete: if a cluster row goes away,
+-- its tenant rows go with it (the source of truth is gone).
+CREATE TABLE tenants (
+    id               TEXT PRIMARY KEY,
+    org_id           TEXT NOT NULL REFERENCES organizations(id),
+    cluster_id       TEXT NOT NULL REFERENCES clusters(id) ON DELETE CASCADE,
+    name             TEXT NOT NULL,
+    phase            TEXT NOT NULL DEFAULT '',
+    spec             JSONB NOT NULL DEFAULT '{}'::jsonb,
+    status           JSONB NOT NULL DEFAULT '{}'::jsonb,
+    last_observed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(cluster_id, name)
+);
+
+CREATE INDEX idx_tenants_org_id ON tenants(org_id);
+CREATE INDEX idx_tenants_cluster_id ON tenants(cluster_id);

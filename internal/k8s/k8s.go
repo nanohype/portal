@@ -13,9 +13,31 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 )
+
+// BuildDynamicClient returns a dynamic client for CRD reads — used to walk
+// EAP custom resources (Tenants, Platforms, etc.) without vendoring their
+// Go types.
+func BuildDynamicClient(c SlimConfig) (dynamic.Interface, error) {
+	cfg, err := BuildRestConfig(c)
+	if err != nil {
+		return nil, err
+	}
+	return dynamic.NewForConfig(cfg)
+}
+
+// TenantGVR is the GroupVersionResource for the EAP Tenant CRD. Centralized
+// so the watcher and any future tenant-touching code stay in sync if the
+// CRD's apiVersion ever bumps.
+var TenantGVR = schema.GroupVersionResource{
+	Group:    "agents.stxkxs.io",
+	Version:  "v1alpha1",
+	Resource: "tenants",
+}
 
 // SlimConfig is the minimum set of fields needed to talk to a Kubernetes API
 // server. Equivalent to a kubeconfig that has exactly one cluster + one user

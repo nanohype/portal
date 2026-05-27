@@ -141,6 +141,8 @@ func (s *Server) setupRouter() {
 	accountHandler := handler.NewAccountHandler(accountSvc, auditSvc)
 	s.clusterSvc = service.NewClusterService(queries, s.db, encryptor)
 	clusterHandler := handler.NewClusterHandler(s.clusterSvc, accountSvc, auditSvc)
+	tenantSvc := service.NewTenantService(queries, s.db)
+	tenantHandler := handler.NewTenantHandler(tenantSvc)
 	wsOrigins := []string{s.cfg.WebURL}
 	if s.cfg.Environment == "development" {
 		wsOrigins = append(wsOrigins, "http://localhost:5173")
@@ -245,6 +247,12 @@ func (s *Server) setupRouter() {
 						r.With(auth.RequireRole("admin")).Delete("/", clusterHandler.Delete)
 						r.With(auth.RequireRole("admin")).Post("/test-connection", clusterHandler.TestConnection)
 					})
+				})
+
+				// Tenants (read-only inventory discovered by the cluster watcher)
+				r.Route("/tenants", func(r chi.Router) {
+					r.Get("/", tenantHandler.List)
+					r.Get("/{tenantID}", tenantHandler.Get)
 				})
 
 				// Pipelines

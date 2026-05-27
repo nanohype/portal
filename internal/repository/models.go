@@ -240,3 +240,16 @@ type Cluster struct {
 	CreatedAt         time.Time  `json:"created_at"`
 	UpdatedAt         time.Time  `json:"updated_at"`
 }
+
+type Tenant struct {
+	ID             string          `json:"id"`
+	OrgID          string          `json:"org_id"`
+	ClusterID      string          `json:"cluster_id"`
+	Name           string          `json:"name"`
+	Phase          string          `json:"phase"`
+	Spec           json.RawMessage `json:"spec"`
+	Status         json.RawMessage `json:"status"`
+	LastObservedAt time.Time       `json:"last_observed_at"`
+	CreatedAt      time.Time       `json:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at"`
+}

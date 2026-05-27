@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/caarlos0/env/v11"
 	"github.com/jackc/pgx/v5"
@@ -177,6 +178,20 @@ func main() {
 	clusterTestWorker := worker.NewClusterConnectionTestJobWorker(queries, clusterDecrypt, clusterStatusUpdate, awsProvider, k8sCache)
 	river.AddWorker(workers, clusterTestWorker)
 
+	// Cluster watcher: walks each connected cluster's EAP CRDs periodically
+	// and reconciles tofui's tenant inventory. Worker = process one cluster;
+	// dispatch tick (further below) fans out one job per cluster every 60s.
+	tenantSvc := service.NewTenantService(queries, dbPool)
+	tenantReconcile := func(ctx context.Context, orgID, clusterID string, observed []worker.TenantSnapshot) (int, int, error) {
+		svcObs := make([]service.TenantSnapshot, len(observed))
+		for i, o := range observed {
+			svcObs[i] = service.TenantSnapshot{Name: o.Name, Phase: o.Phase, Spec: o.Spec, Status: o.Status}
+		}
+		return tenantSvc.Reconcile(ctx, orgID, clusterID, svcObs)
+	}
+	clusterWatchWorker := worker.NewClusterWatchJobWorker(queries, clusterDecrypt, tenantReconcile)
+	river.AddWorker(workers, clusterWatchWorker)
+
 	// Create River client
 	riverClient, err := river.NewClient[pgx.Tx](riverpgxv5.New(dbPool), &river.Config{
 		Queues: map[string]river.QueueConfig{
@@ -192,6 +207,8 @@ func main() {
 	// Wire river client back to workers for enqueueing
 	runJobWorker.SetRiverClient(riverClient, dbPool)
 	pipelineStageWorker.SetRiverClient(riverClient, dbPool)
+	clusterTestWorker.SetRiverClient(riverClient, dbPool)
+	clusterWatchWorker.SetRiverClient(riverClient, dbPool)
 	runSvc.SetRiverClient(riverClient)
 
 	// Health endpoint for K8s liveness probe
@@ -209,6 +226,40 @@ func main() {
 	// Start River client with a separate context so in-flight jobs aren't killed on signal
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+
+	// Cluster-watch dispatcher: every 60s, find all connected clusters and
+	// enqueue a watch job per cluster. River's UniqueOpts on the job args
+	// drops duplicates if a previous tick's job is still running, so a slow
+	// cluster doesn't backlog the queue. Shuts down with the signal context.
+	go func() {
+		t := time.NewTicker(60 * time.Second)
+		defer t.Stop()
+		runWatchDispatch := func() {
+			targets, err := queries.ListConnectedClusters(context.Background())
+			if err != nil {
+				logger.Warn("watch dispatch: list connected clusters", "error", err)
+				return
+			}
+			for _, target := range targets {
+				_, err := riverClient.Insert(context.Background(), worker.ClusterWatchJobArgs{
+					ClusterID: target.ID, OrgID: target.OrgID,
+				}, nil)
+				if err != nil {
+					logger.Warn("watch dispatch: insert job", "cluster_id", target.ID, "error", err)
+				}
+			}
+		}
+		// First tick: don't wait 60s for the first sweep after a restart.
+		runWatchDispatch()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				runWatchDispatch()
+			}
+		}
+	}()
 
 	if err := riverClient.Start(context.Background()); err != nil {
 		logger.Error("failed to start river client", "error", err)

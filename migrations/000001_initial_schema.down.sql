@@ -1,3 +1,4 @@
+DROP TABLE IF EXISTS tenants;
 DROP TABLE IF EXISTS clusters;
 DROP TYPE IF EXISTS cluster_connection_status;
 DROP TABLE IF EXISTS accounts;
