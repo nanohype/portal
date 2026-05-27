@@ -14,6 +14,8 @@ import { PipelineDetail } from "@/components/pipeline/PipelineDetail";
 import { PipelineRunView } from "@/components/pipeline/PipelineRunView";
 import { AccountList } from "@/components/account/AccountList";
 import { AccountDetail } from "@/components/account/AccountDetail";
+import { ClusterList } from "@/components/cluster/ClusterList";
+import { ClusterDetail } from "@/components/cluster/ClusterDetail";
 import { OrgSettings } from "@/components/settings/OrgSettings";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocation, navigate } from "@/hooks/useNavigate";
@@ -59,6 +61,11 @@ function resolveRoute(location: string) {
   if (accountMatch)
     return { page: "account" as const, accountId: accountMatch[1] };
   if (path === "/accounts") return { page: "accounts" as const };
+
+  const clusterMatch = path.match(/^\/clusters\/([^/]+)/);
+  if (clusterMatch)
+    return { page: "cluster" as const, clusterId: clusterMatch[1] };
+  if (path === "/clusters") return { page: "clusters" as const };
 
   if (path === "/teams") return { page: "teams" as const };
   if (path === "/users") return { page: "users" as const };
@@ -136,6 +143,10 @@ export function App() {
         {route.page === "accounts" && <AccountList />}
         {route.page === "account" && (
           <AccountDetail accountId={route.accountId!} />
+        )}
+        {route.page === "clusters" && <ClusterList />}
+        {route.page === "cluster" && (
+          <ClusterDetail clusterId={route.clusterId!} />
         )}
         {route.page === "teams" && <TeamsPage />}
         {route.page === "users" && <UsersPage />}

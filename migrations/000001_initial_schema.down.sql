@@ -1,3 +1,5 @@
+DROP TABLE IF EXISTS clusters;
+DROP TYPE IF EXISTS cluster_connection_status;
 DROP TABLE IF EXISTS accounts;
 DROP TABLE IF EXISTS pipeline_variables;
 DROP TABLE IF EXISTS org_variables;
