@@ -376,3 +376,42 @@ CREATE TABLE accounts (
 );
 
 CREATE INDEX idx_accounts_org_id ON accounts(org_id);
+
+-- Kubernetes clusters tofui watches. One row per managed EKS cluster.
+-- Lives inside an account (FK ON DELETE RESTRICT — accounts can't be
+-- removed while clusters reference them). We store the minimum needed to
+-- talk to the API server: endpoint + CA + service-account token. Kubeconfig
+-- as a blob was rejected in favor of this slim shape — easier to rotate
+-- one field at a time and avoids carrying exec plugins / contexts we'd
+-- never use.
+CREATE TYPE cluster_connection_status AS ENUM (
+    'pending',
+    'connecting',
+    'connected',
+    'failed'
+);
+
+CREATE TABLE clusters (
+    id                  TEXT PRIMARY KEY,
+    org_id              TEXT NOT NULL REFERENCES organizations(id),
+    account_id          TEXT NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT,
+    name                TEXT NOT NULL,
+    description         TEXT NOT NULL DEFAULT '',
+    environment         TEXT NOT NULL DEFAULT 'production',
+    api_endpoint        TEXT NOT NULL,
+    ca_bundle_encrypted TEXT NOT NULL,
+    sa_token_encrypted  TEXT NOT NULL,
+    region              TEXT NOT NULL,
+    connection_status   cluster_connection_status NOT NULL DEFAULT 'pending',
+    last_connected_at   TIMESTAMPTZ,
+    connection_error    TEXT NOT NULL DEFAULT '',
+    node_count          INT NOT NULL DEFAULT 0,
+    k8s_version         TEXT NOT NULL DEFAULT '',
+    created_by          TEXT NOT NULL REFERENCES users(id),
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(org_id, name)
+);
+
+CREATE INDEX idx_clusters_org_id ON clusters(org_id);
+CREATE INDEX idx_clusters_account_id ON clusters(account_id);

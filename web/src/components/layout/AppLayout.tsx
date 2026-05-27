@@ -78,6 +78,11 @@ export function AppLayout({ children }: { children: ReactNode }) {
               </NavLink>
             )}
             {isAdmin && (
+              <NavLink href="/clusters" active={path.startsWith("/clusters")}>
+                Clusters
+              </NavLink>
+            )}
+            {isAdmin && (
               <NavLink href="/users" active={path === "/users"}>
                 Users
               </NavLink>

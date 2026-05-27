@@ -219,3 +219,24 @@ type Account struct {
 	CreatedAt           time.Time `json:"created_at"`
 	UpdatedAt           time.Time `json:"updated_at"`
 }
+
+type Cluster struct {
+	ID                string     `json:"id"`
+	OrgID             string     `json:"org_id"`
+	AccountID         string     `json:"account_id"`
+	Name              string     `json:"name"`
+	Description       string     `json:"description"`
+	Environment       string     `json:"environment"`
+	APIEndpoint       string     `json:"api_endpoint"`
+	CABundleEncrypted string     `json:"-"`
+	SATokenEncrypted  string     `json:"-"`
+	Region            string     `json:"region"`
+	ConnectionStatus  string     `json:"connection_status"`
+	LastConnectedAt   *time.Time `json:"last_connected_at"`
+	ConnectionError   string     `json:"connection_error"`
+	NodeCount         int32      `json:"node_count"`
+	K8sVersion        string     `json:"k8s_version"`
+	CreatedBy         string     `json:"created_by"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+}
