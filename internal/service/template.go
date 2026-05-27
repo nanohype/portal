@@ -48,8 +48,14 @@ type UpdateTemplateParams struct {
 	RequiredCompliance   *[]string              // nil = unchanged
 }
 
-func (s *TemplateService) List(ctx context.Context, orgID string) ([]repository.Template, error) {
-	return s.queries.ListTemplates(ctx, orgID)
+// List returns templates visible to the caller. Pass teamIDs=nil for the
+// admin path (no scoping); pass a non-nil slice (possibly empty) for the
+// non-admin path — empty means "user belongs to no teams" → zero rows.
+func (s *TemplateService) List(ctx context.Context, orgID string, teamIDs []string) ([]repository.Template, error) {
+	return s.queries.ListTemplates(ctx, repository.ListTemplatesParams{
+		OrgID:   orgID,
+		TeamIDs: teamIDs,
+	})
 }
 
 func (s *TemplateService) Get(ctx context.Context, id, orgID string) (repository.Template, error) {

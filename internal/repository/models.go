@@ -285,3 +285,22 @@ type Template struct {
 	CreatedAt            time.Time       `json:"created_at"`
 	UpdatedAt            time.Time       `json:"updated_at"`
 }
+
+type TenantTeamAccess struct {
+	ID         string    `json:"id"`
+	OrgID      string    `json:"org_id"`
+	ClusterID  string    `json:"cluster_id"`
+	TenantName string    `json:"tenant_name"`
+	TeamID     string    `json:"team_id"`
+	GrantedBy  string    `json:"granted_by"`
+	GrantedAt  time.Time `json:"granted_at"`
+}
+
+type TemplateTeamAccess struct {
+	ID         string    `json:"id"`
+	OrgID      string    `json:"org_id"`
+	TemplateID string    `json:"template_id"`
+	TeamID     string    `json:"team_id"`
+	GrantedBy  string    `json:"granted_by"`
+	GrantedAt  time.Time `json:"granted_at"`
+}

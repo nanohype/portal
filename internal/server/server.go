@@ -148,8 +148,9 @@ func (s *Server) setupRouter() {
 	clusterHandler := handler.NewClusterHandler(s.clusterSvc, accountSvc, auditSvc)
 	s.tenantSvc = service.NewTenantService(queries, s.db)
 	templateSvc := service.NewTemplateService(queries, s.db)
-	templateHandler := handler.NewTemplateHandler(templateSvc, auditSvc)
-	tenantHandler := handler.NewTenantHandler(s.tenantSvc, templateSvc, auditSvc)
+	accessSvc := service.NewTeamAccessService(queries, s.db)
+	templateHandler := handler.NewTemplateHandler(templateSvc, accessSvc, auditSvc)
+	tenantHandler := handler.NewTenantHandler(s.tenantSvc, templateSvc, accessSvc, auditSvc)
 	wsOrigins := []string{s.cfg.WebURL}
 	if s.cfg.Environment == "development" {
 		wsOrigins = append(wsOrigins, "http://localhost:5173")
@@ -256,9 +257,9 @@ func (s *Server) setupRouter() {
 					})
 				})
 
-				// Templates: admin-curated tenant flavors. Reads open to any
-				// authenticated user (operators need to see what's available);
-				// writes admin-only.
+				// Templates: admin-curated tenant flavors. Reads filter by
+				// team access for non-admins; writes + access management
+				// are admin-only.
 				r.Route("/templates", func(r chi.Router) {
 					r.Get("/", templateHandler.List)
 					r.With(auth.RequireRole("admin")).Post("/", templateHandler.Create)
@@ -266,12 +267,15 @@ func (s *Server) setupRouter() {
 						r.Get("/", templateHandler.Get)
 						r.With(auth.RequireRole("admin")).Put("/", templateHandler.Update)
 						r.With(auth.RequireRole("admin")).Delete("/", templateHandler.Delete)
+						r.Get("/access", templateHandler.ListAccess)
+						r.With(auth.RequireRole("admin")).Post("/access", templateHandler.GrantAccess)
+						r.With(auth.RequireRole("admin")).Delete("/access/{teamID}", templateHandler.RevokeAccess)
 					})
 				})
 
-				// Tenants. Reads expose the watcher's observed inventory;
-				// writes enqueue tenant_operations that the worker materializes
-				// into git commits to the tenants repo.
+				// Tenants. Reads expose the watcher's observed inventory
+				// (filtered by team access for non-admins). Writes enqueue
+				// tenant_operations + persist a team-access grant.
 				r.Route("/tenants", func(r chi.Router) {
 					r.Get("/", tenantHandler.List)
 					r.With(auth.RequireRole("operator")).Post("/", tenantHandler.Create)
@@ -279,6 +283,9 @@ func (s *Server) setupRouter() {
 						r.Get("/", tenantHandler.Get)
 						r.With(auth.RequireRole("operator")).Delete("/", tenantHandler.Delete)
 						r.Get("/operations", tenantHandler.Operations)
+						r.Get("/access", tenantHandler.ListAccess)
+						r.With(auth.RequireRole("admin")).Post("/access", tenantHandler.GrantAccess)
+						r.With(auth.RequireRole("admin")).Delete("/access/{teamID}", tenantHandler.RevokeAccess)
 					})
 				})
 

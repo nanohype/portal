@@ -35,11 +35,33 @@ func (q *Queries) GetTenant(ctx context.Context, arg GetTenantParams) (Tenant, e
 type ListTenantsParams struct {
 	OrgID     string `json:"org_id"`
 	ClusterID string `json:"cluster_id"`
-	Limit     int32  `json:"limit"`
-	Offset    int32  `json:"offset"`
+	// TeamIDs scopes the result to tenants granted to one of these teams.
+	// Nil = no team filter (caller is admin). Empty non-nil slice = explicit
+	// "no teams to see" (non-admin in zero teams) — returns zero rows.
+	TeamIDs []string `json:"team_ids"`
+	Limit   int32    `json:"limit"`
+	Offset  int32    `json:"offset"`
 }
 
 func (q *Queries) ListTenants(ctx context.Context, arg ListTenantsParams) ([]Tenant, error) {
+	if arg.TeamIDs != nil {
+		// Non-admin path: JOIN to access table, restrict to the user's teams.
+		// Empty TeamIDs means the user is in no teams — short-circuit zero.
+		if len(arg.TeamIDs) == 0 {
+			return []Tenant{}, nil
+		}
+		rows, err := q.db.Query(ctx,
+			`SELECT DISTINCT `+tenantColumnsPrefixed("t")+` FROM tenants t
+			JOIN tenant_team_access tta
+			  ON tta.cluster_id = t.cluster_id AND tta.tenant_name = t.name
+			WHERE t.org_id = $1
+			  AND ($2::TEXT = '' OR t.cluster_id = $2)
+			  AND tta.team_id = ANY($3::TEXT[])
+			ORDER BY t.cluster_id, t.name LIMIT $4 OFFSET $5`,
+			arg.OrgID, arg.ClusterID, arg.TeamIDs, arg.Limit, arg.Offset,
+		)
+		return scanTenants(rows, err)
+	}
 	rows, err := q.db.Query(ctx,
 		`SELECT `+tenantColumns+` FROM tenants
 		WHERE org_id = $1
@@ -47,11 +69,25 @@ func (q *Queries) ListTenants(ctx context.Context, arg ListTenantsParams) ([]Ten
 		ORDER BY cluster_id, name LIMIT $3 OFFSET $4`,
 		arg.OrgID, arg.ClusterID, arg.Limit, arg.Offset,
 	)
+	return scanTenants(rows, err)
+}
+
+// tenantColumnsPrefixed returns the column list with a table alias prefix,
+// for JOIN queries that introduce ambiguous column references.
+func tenantColumnsPrefixed(alias string) string {
+	return alias + ".id, " + alias + ".org_id, " + alias + ".cluster_id, " + alias + ".name, " + alias + ".phase, " + alias + ".spec, " + alias + ".status, " + alias + ".last_observed_at, " + alias + ".created_at, " + alias + ".updated_at"
+}
+
+func scanTenants(rows interface {
+	Next() bool
+	Scan(...interface{}) error
+	Err() error
+	Close()
+}, err error) ([]Tenant, error) {
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-
 	var tenants []Tenant
 	for rows.Next() {
 		t, err := scanTenant(rows)
@@ -67,11 +103,29 @@ func (q *Queries) ListTenants(ctx context.Context, arg ListTenantsParams) ([]Ten
 }
 
 type CountTenantsParams struct {
-	OrgID     string `json:"org_id"`
-	ClusterID string `json:"cluster_id"`
+	OrgID     string   `json:"org_id"`
+	ClusterID string   `json:"cluster_id"`
+	TeamIDs   []string `json:"team_ids"`
 }
 
 func (q *Queries) CountTenants(ctx context.Context, arg CountTenantsParams) (int64, error) {
+	if arg.TeamIDs != nil {
+		if len(arg.TeamIDs) == 0 {
+			return 0, nil
+		}
+		row := q.db.QueryRow(ctx,
+			`SELECT COUNT(DISTINCT t.id) FROM tenants t
+			JOIN tenant_team_access tta
+			  ON tta.cluster_id = t.cluster_id AND tta.tenant_name = t.name
+			WHERE t.org_id = $1
+			  AND ($2::TEXT = '' OR t.cluster_id = $2)
+			  AND tta.team_id = ANY($3::TEXT[])`,
+			arg.OrgID, arg.ClusterID, arg.TeamIDs,
+		)
+		var count int64
+		err := row.Scan(&count)
+		return count, err
+	}
 	row := q.db.QueryRow(ctx,
 		`SELECT COUNT(*) FROM tenants
 		WHERE org_id = $1

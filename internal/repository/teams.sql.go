@@ -98,6 +98,35 @@ func (q *Queries) ListTeams(ctx context.Context, orgID string) ([]Team, error) {
 	return teams, rows.Err()
 }
 
+// ListTeamsForUser returns teams the user belongs to within an org. Used
+// by the tenant create form to populate the "owning team" picker — non-admin
+// operators should only see teams they can actually pick.
+func (q *Queries) ListTeamsForUser(ctx context.Context, userID, orgID string) ([]Team, error) {
+	rows, err := q.db.Query(ctx,
+		`SELECT t.id, t.org_id, t.name, t.slug, t.created_at, t.updated_at
+		FROM teams t JOIN team_members tm ON tm.team_id = t.id
+		WHERE tm.user_id = $1 AND t.org_id = $2
+		ORDER BY t.name`,
+		userID, orgID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var teams []Team
+	for rows.Next() {
+		var t Team
+		if err := rows.Scan(&t.ID, &t.OrgID, &t.Name, &t.Slug, &t.CreatedAt, &t.UpdatedAt); err != nil {
+			return nil, err
+		}
+		teams = append(teams, t)
+	}
+	if teams == nil {
+		teams = []Team{}
+	}
+	return teams, rows.Err()
+}
+
 func (q *Queries) DeleteTeam(ctx context.Context, id, orgID string) error {
 	_, err := q.db.Exec(ctx, `DELETE FROM teams WHERE id = $1 AND org_id = $2`, id, orgID)
 	return err

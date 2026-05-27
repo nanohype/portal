@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { api } from "@/api/client";
 import { useAuth } from "@/hooks/useAuth";
 import { navigate } from "@/hooks/useNavigate";
-import type { TenantOperation } from "@/api/types";
+import type { Team, TenantOperation, TenantTeamAccess } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -154,6 +154,8 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
         <OperationsPanel ops={operations} />
       )}
 
+      {canWrite && <AccessPanel tenantId={tenantId} />}
+
       <JSONPanel
         title="Status"
         open={showStatus}
@@ -167,6 +169,130 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
         onToggle={() => setShowSpec(!showSpec)}
         value={data.spec}
       />
+    </div>
+  );
+}
+
+function AccessPanel({ tenantId }: { tenantId: string }) {
+  const queryClient = useQueryClient();
+  const [picker, setPicker] = useState("");
+
+  const { data: access } = useQuery({
+    queryKey: ["tenant", tenantId, "access"],
+    queryFn: async () => {
+      const { data, error } = await api.GET("/tenants/{tenantId}/access", {
+        params: { path: { tenantId } },
+      });
+      if (error) throw error;
+      return data!;
+    },
+  });
+
+  const { data: teams } = useQuery({
+    queryKey: ["teams", "all"],
+    queryFn: async () => {
+      const { data, error } = await api.GET("/teams");
+      if (error) throw error;
+      return data!;
+    },
+  });
+
+  const grant = useMutation({
+    mutationFn: async (teamID: string) => {
+      const { data, error } = await api.POST(
+        "/tenants/{tenantId}/access",
+        { params: { path: { tenantId } }, body: { team_id: teamID } },
+      );
+      if (error) throw error;
+      return data!;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["tenant", tenantId, "access"] });
+      toast.success("Access granted");
+      setPicker("");
+    },
+    onError: () => toast.error("Failed to grant access"),
+  });
+
+  const revoke = useMutation({
+    mutationFn: async (teamID: string) => {
+      const { error } = await api.DELETE(
+        "/tenants/{tenantId}/access/{teamId}",
+        { params: { path: { tenantId, teamId: teamID } } },
+      );
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["tenant", tenantId, "access"] });
+      toast.success("Access revoked");
+    },
+    onError: () => toast.error("Failed to revoke access"),
+  });
+
+  const grantedIDs = new Set((access ?? []).map((a: TenantTeamAccess) => a.team_id));
+  const ungranted = (teams ?? []).filter((t: Team) => !grantedIDs.has(t.id));
+  const teamName = (id: string) =>
+    (teams ?? []).find((t: Team) => t.id === id)?.name ?? id;
+
+  return (
+    <div className="mb-6 border border-border/60 rounded-lg overflow-hidden">
+      <div className="px-4 py-2 text-xs font-medium border-b border-border/40 bg-accent/20 flex items-center justify-between">
+        <span>Team Access ({access?.length ?? 0})</span>
+      </div>
+      <div className="divide-y divide-border/30">
+        {(access ?? []).length === 0 ? (
+          <div className="px-4 py-3 text-xs text-muted-foreground">
+            No teams have access yet — admins can see this tenant; operators
+            and viewers can only see it after a grant.
+          </div>
+        ) : (
+          (access ?? []).map((a: TenantTeamAccess) => (
+            <div
+              key={a.id}
+              className="px-4 py-2.5 text-xs flex items-center gap-3"
+            >
+              <span className="font-medium flex-1">{teamName(a.team_id)}</span>
+              <span className="text-muted-foreground/70">
+                {formatRelativeTime(a.granted_at)}
+              </span>
+              <button
+                onClick={() => {
+                  if (confirm(`Revoke access from ${teamName(a.team_id)}?`)) {
+                    revoke.mutate(a.team_id);
+                  }
+                }}
+                className="text-muted-foreground hover:text-destructive transition-colors cursor-pointer"
+                aria-label="Revoke"
+              >
+                <Trash2 className="w-3 h-3" />
+              </button>
+            </div>
+          ))
+        )}
+        {ungranted.length > 0 && (
+          <div className="px-4 py-2 bg-background/40 flex items-center gap-2">
+            <select
+              value={picker}
+              onChange={(e) => setPicker(e.target.value)}
+              className="text-xs border border-border/60 rounded-md bg-background px-2 py-1.5 flex-1"
+            >
+              <option value="">Grant access to a team…</option>
+              {ungranted.map((t: Team) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+            <Button
+              size="sm"
+              onClick={() => picker && grant.mutate(picker)}
+              disabled={!picker || grant.isPending}
+            >
+              Grant
+            </Button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

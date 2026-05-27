@@ -17,12 +17,13 @@ import (
 // drive the tenant-create form. Read is open to any authenticated user
 // (operators need to see what's available); write is admin-only.
 type TemplateHandler struct {
-	svc      *service.TemplateService
-	auditSvc *service.AuditService
+	svc       *service.TemplateService
+	accessSvc *service.TeamAccessService
+	auditSvc  *service.AuditService
 }
 
-func NewTemplateHandler(svc *service.TemplateService, auditSvc *service.AuditService) *TemplateHandler {
-	return &TemplateHandler{svc: svc, auditSvc: auditSvc}
+func NewTemplateHandler(svc *service.TemplateService, accessSvc *service.TeamAccessService, auditSvc *service.AuditService) *TemplateHandler {
+	return &TemplateHandler{svc: svc, accessSvc: accessSvc, auditSvc: auditSvc}
 }
 
 // templateNameRe mirrors the k8s name regex used elsewhere — templates
@@ -54,7 +55,23 @@ type UpdateTemplateRequest struct {
 
 func (h *TemplateHandler) List(w http.ResponseWriter, r *http.Request) {
 	userCtx := auth.GetUser(r.Context())
-	templates, err := h.svc.List(r.Context(), userCtx.OrgID)
+
+	// Admins see all templates; non-admins see only templates their teams
+	// have been granted access to. Same nil-vs-empty semantics as TenantHandler.
+	var teamIDs []string
+	if !isAdmin(userCtx.Role) {
+		ids, err := h.accessSvc.UserTeamIDs(r.Context(), userCtx.UserID, userCtx.OrgID)
+		if err != nil {
+			respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to resolve user teams")
+			return
+		}
+		if ids == nil {
+			ids = []string{}
+		}
+		teamIDs = ids
+	}
+
+	templates, err := h.svc.List(r.Context(), userCtx.OrgID, teamIDs)
 	if err != nil {
 		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to list templates")
 		return
@@ -190,6 +207,85 @@ func (h *TemplateHandler) Update(w http.ResponseWriter, r *http.Request) {
 	})
 
 	respond.JSON(w, http.StatusOK, updated)
+}
+
+// ListAccess returns the team-access grants on a template.
+func (h *TemplateHandler) ListAccess(w http.ResponseWriter, r *http.Request) {
+	userCtx := auth.GetUser(r.Context())
+	id := chi.URLParam(r, "templateID")
+
+	if _, err := h.svc.Get(r.Context(), id, userCtx.OrgID); err != nil {
+		respond.Error(w, http.StatusNotFound, "template not found")
+		return
+	}
+	access, err := h.accessSvc.ListTemplate(r.Context(), userCtx.OrgID, id)
+	if err != nil {
+		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to list access")
+		return
+	}
+	respond.JSON(w, http.StatusOK, access)
+}
+
+type GrantTemplateAccessRequest struct {
+	TeamID string `json:"team_id"`
+}
+
+func (h *TemplateHandler) GrantAccess(w http.ResponseWriter, r *http.Request) {
+	userCtx := auth.GetUser(r.Context())
+	id := chi.URLParam(r, "templateID")
+
+	if _, err := h.svc.Get(r.Context(), id, userCtx.OrgID); err != nil {
+		respond.Error(w, http.StatusNotFound, "template not found")
+		return
+	}
+
+	var req GrantTemplateAccessRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.TeamID) == "" {
+		respond.Error(w, http.StatusBadRequest, "team_id is required")
+		return
+	}
+
+	grant, err := h.accessSvc.GrantTemplate(r.Context(), userCtx.OrgID, id, req.TeamID, userCtx.UserID)
+	if err != nil {
+		if isForeignKeyViolation(err) {
+			respond.Error(w, http.StatusBadRequest, "team_id does not reference a known team")
+			return
+		}
+		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to grant access")
+		return
+	}
+
+	ip, ua := auditContext(r)
+	h.auditSvc.Log(r.Context(), service.AuditEntry{
+		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
+		Action: "template.access_granted", EntityType: "template", EntityID: id,
+		After: grant, IPAddress: ip, UserAgent: ua,
+	})
+	respond.JSON(w, http.StatusCreated, grant)
+}
+
+func (h *TemplateHandler) RevokeAccess(w http.ResponseWriter, r *http.Request) {
+	userCtx := auth.GetUser(r.Context())
+	id := chi.URLParam(r, "templateID")
+	teamID := chi.URLParam(r, "teamID")
+
+	if _, err := h.svc.Get(r.Context(), id, userCtx.OrgID); err != nil {
+		respond.Error(w, http.StatusNotFound, "template not found")
+		return
+	}
+
+	if err := h.accessSvc.RevokeTemplate(r.Context(), userCtx.OrgID, id, teamID); err != nil {
+		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to revoke access")
+		return
+	}
+
+	ip, ua := auditContext(r)
+	h.auditSvc.Log(r.Context(), service.AuditEntry{
+		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
+		Action: "template.access_revoked", EntityType: "template", EntityID: id,
+		Before: map[string]string{"team_id": teamID}, IPAddress: ip, UserAgent: ua,
+	})
+	respond.NoContent(w)
 }
 
 func (h *TemplateHandler) Delete(w http.ResponseWriter, r *http.Request) {
