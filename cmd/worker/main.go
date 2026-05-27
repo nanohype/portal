@@ -17,6 +17,8 @@ import (
 
 	tofuaws "github.com/stxkxs/tofui/internal/aws"
 	"github.com/stxkxs/tofui/internal/domain"
+	tofugit "github.com/stxkxs/tofui/internal/git"
+	tofuhelm "github.com/stxkxs/tofui/internal/helm"
 	"github.com/stxkxs/tofui/internal/k8s"
 	"github.com/stxkxs/tofui/internal/logstream"
 	"github.com/stxkxs/tofui/internal/repository"
@@ -25,6 +27,8 @@ import (
 	"github.com/stxkxs/tofui/internal/storage"
 	"github.com/stxkxs/tofui/internal/worker"
 	"github.com/stxkxs/tofui/internal/worker/executor"
+	"path/filepath"
+	"sync"
 )
 
 func main() {
@@ -192,6 +196,84 @@ func main() {
 	clusterWatchWorker := worker.NewClusterWatchJobWorker(queries, clusterDecrypt, tenantReconcile)
 	river.AddWorker(workers, clusterWatchWorker)
 
+	// Tenant write path (phase 2c): renders the EAP `charts/tenant` chart
+	// with the user-supplied values, commits the rendered manifest into the
+	// tenants repo, lets ArgoCD reconcile. Two git repos are involved:
+	//  * EAP charts repo — read-only mirror, cloned at startup, pulled on
+	//    each tenant op so chart edits land without a worker redeploy.
+	//  * tenants repo — read-write, where rendered manifests get committed.
+	// Both are optional: if URLs aren't set, the apply worker surfaces a
+	// clear "not configured" error rather than crashing at boot.
+	var tenantApplyWorker *worker.TenantApplyJobWorker
+	if cfg.TenantsRepoURL != "" && cfg.EAPChartsRepoURL != "" && cfg.GitSSHKeyPath != "" {
+		eapRepo, err := tofugit.NewRepo(filepath.Join(cfg.GitCacheDir, "eap"), cfg.EAPChartsRepoURL, cfg.GitSSHKeyPath)
+		if err != nil {
+			logger.Error("failed to initialize EAP charts repo", "error", err)
+			os.Exit(1)
+		}
+		if err := eapRepo.CloneOrPull(context.Background(), cfg.EAPChartsRepoRef); err != nil {
+			logger.Warn("EAP charts initial sync failed (will retry on first tenant op)", "error", err)
+		}
+		tenantsRepo, err := tofugit.NewRepo(filepath.Join(cfg.GitCacheDir, "tenants"), cfg.TenantsRepoURL, cfg.GitSSHKeyPath)
+		if err != nil {
+			logger.Error("failed to initialize tenants repo", "error", err)
+			os.Exit(1)
+		}
+
+		chartCache := tofuhelm.NewCache(eapRepo.Workdir())
+		renderFn := func(chartName, releaseName, namespace string, values map[string]interface{}) (string, error) {
+			// Pull fresh chart on every render so chart-author edits land
+			// without a tofui restart. Cheap (~few hundred ms when nothing
+			// changed); the chartCache.Reset call discards in-memory parses
+			// so the next Load re-reads.
+			if err := eapRepo.CloneOrPull(context.Background(), cfg.EAPChartsRepoRef); err != nil {
+				return "", err
+			}
+			chartCache.Reset()
+			ch, err := chartCache.Load(chartName)
+			if err != nil {
+				return "", err
+			}
+			return tofuhelm.Render(ch, releaseName, namespace, values)
+		}
+
+		tenantApplyWorker = worker.NewTenantApplyJobWorker(worker.TenantApplyDeps{
+			Queries: queries,
+			LoadOp: func(ctx context.Context, id, orgID string) (repository.TenantOperation, error) {
+				return tenantSvc.GetOperation(ctx, id, orgID)
+			},
+			CompleteOp: func(ctx context.Context, id, orgID, status, sha, errMsg string) error {
+				return tenantSvc.CompleteOperation(ctx, id, orgID, status, sha, errMsg)
+			},
+			Render:      renderFn,
+			TenantsRepo: tenantsRepo,
+			RepoMu:      &sync.Mutex{},
+			TenantsRef:  cfg.TenantsRepoRef,
+			Author:      tofugit.Author{Name: cfg.GitAuthorName, Email: cfg.GitAuthorEmail},
+		})
+		river.AddWorker(workers, tenantApplyWorker)
+		logger.Info("tenant write path enabled",
+			"eap_charts", cfg.EAPChartsRepoURL,
+			"tenants_repo", cfg.TenantsRepoURL,
+		)
+	} else {
+		// Register a stub that fails clearly when invoked — without this,
+		// River would reject jobs of an unknown kind with a non-actionable
+		// "no worker for kind" error and the tenant_operations row would
+		// be stuck in pending. Better to surface "not configured" on the
+		// row itself so the UI shows what's wrong.
+		stub := worker.NewTenantApplyJobWorker(worker.TenantApplyDeps{
+			Queries:    queries,
+			LoadOp:     func(ctx context.Context, id, orgID string) (repository.TenantOperation, error) { return tenantSvc.GetOperation(ctx, id, orgID) },
+			CompleteOp: func(ctx context.Context, id, orgID, status, sha, errMsg string) error { return tenantSvc.CompleteOperation(ctx, id, orgID, status, sha, errMsg) },
+			Render:     nil,
+			RepoMu:     &sync.Mutex{},
+			TenantsRef: cfg.TenantsRepoRef,
+		})
+		river.AddWorker(workers, stub)
+		logger.Info("tenant write path disabled (GITOPS_TENANTS_REPO_URL / EAP_CHARTS_REPO_URL / GITOPS_SSH_KEY_PATH not set)")
+	}
+
 	// Create River client
 	riverClient, err := river.NewClient[pgx.Tx](riverpgxv5.New(dbPool), &river.Config{
 		Queues: map[string]river.QueueConfig{
@@ -209,6 +291,9 @@ func main() {
 	pipelineStageWorker.SetRiverClient(riverClient, dbPool)
 	clusterTestWorker.SetRiverClient(riverClient, dbPool)
 	clusterWatchWorker.SetRiverClient(riverClient, dbPool)
+	if tenantApplyWorker != nil {
+		tenantApplyWorker.SetRiverClient(riverClient, dbPool)
+	}
 	runSvc.SetRiverClient(riverClient)
 
 	// Health endpoint for K8s liveness probe

@@ -70,6 +70,7 @@ func main() {
 		srv.ApprovalHandler().SetRiverClient(riverClient)
 		srv.PipelineService().SetRiverClient(riverClient)
 		srv.ClusterService().SetRiverClient(riverClient)
+		srv.TenantService().SetRiverClient(riverClient)
 		logger.Info("river client connected for job enqueue")
 	}
 

@@ -422,6 +422,31 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TenantList"
+    post:
+      operationId: createTenant
+      summary: Enqueue a tenant-create operation (operator only)
+      description: |
+        Records a tenant_operation row of kind=create and enqueues the worker
+        job that renders the EAP `charts/tenant` chart with the supplied
+        values and commits the result to the tenants repo. The resulting
+        Tenant CR will appear in /tenants once ArgoCD syncs and the watcher
+        observes it.
+      tags: [tenants]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTenantRequest"
+      responses:
+        "202":
+          description: Operation enqueued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantOperation"
 
   /tenants/{tenantId}:
     get:
@@ -441,6 +466,40 @@ paths:
                 $ref: "#/components/schemas/Tenant"
         "404":
           $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: deleteTenant
+      summary: Enqueue a tenant-delete operation (operator only)
+      tags: [tenants]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+      responses:
+        "202":
+          description: Delete operation enqueued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantOperation"
+
+  /tenants/{tenantId}/operations:
+    get:
+      operationId: listTenantOperations
+      summary: List the create/delete operation history for one tenant
+      tags: [tenants]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+      responses:
+        "200":
+          description: Operation log, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TenantOperation"
 
   /clusters/{clusterId}/test-connection:
     post:
@@ -2053,3 +2112,45 @@ components:
         total: { type: integer }
         page: { type: integer }
         per_page: { type: integer }
+
+    CreateTenantRequest:
+      type: object
+      required: [cluster_id, name, values]
+      properties:
+        cluster_id:
+          type: string
+        name:
+          type: string
+          description: RFC 1123 name (lowercase alphanumeric + hyphen, 1-63)
+        values:
+          type: object
+          additionalProperties: true
+          description: helm values passed to the EAP tenant chart
+
+    TenantOperation:
+      type: object
+      required: [id, org_id, cluster_id, tenant_name, operation, status, created_by, created_at]
+      properties:
+        id: { type: string }
+        org_id: { type: string }
+        cluster_id: { type: string }
+        tenant_name: { type: string }
+        operation:
+          type: string
+          enum: [create, delete]
+        status:
+          type: string
+          enum: [pending, committed, failed]
+        git_commit_sha: { type: string }
+        error: { type: string }
+        values_json:
+          type: object
+          additionalProperties: true
+        created_by: { type: string }
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true

@@ -6,19 +6,27 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/oklog/ulid/v2"
+	"github.com/riverqueue/river"
 
 	"github.com/stxkxs/tofui/internal/repository"
+	"github.com/stxkxs/tofui/internal/worker"
 )
 
 type TenantService struct {
-	queries *repository.Queries
-	db      *pgxpool.Pool
+	queries     *repository.Queries
+	db          *pgxpool.Pool
+	riverClient *river.Client[pgx.Tx]
 }
 
 func NewTenantService(queries *repository.Queries, db *pgxpool.Pool) *TenantService {
 	return &TenantService{queries: queries, db: db}
+}
+
+func (s *TenantService) SetRiverClient(client *river.Client[pgx.Tx]) {
+	s.riverClient = client
 }
 
 // TenantSnapshot is the watcher's view of one Tenant CR. Wire format for
@@ -117,4 +125,84 @@ func nonNullJSON(b json.RawMessage) json.RawMessage {
 		return json.RawMessage("{}")
 	}
 	return b
+}
+
+// EnqueueCreate records a "tofui wants this tenant to exist" intent and
+// schedules the worker job that will render the chart + commit to git. The
+// returned TenantOperation row carries id=pending until the worker
+// transitions it. Idempotency lives at the worker — repeated create
+// commits with identical content are no-ops because git status will be
+// clean and Commit() returns ("", nil) in that case.
+func (s *TenantService) EnqueueCreate(ctx context.Context, orgID, clusterID, name, createdBy string, values map[string]interface{}) (repository.TenantOperation, error) {
+	return s.enqueue(ctx, orgID, clusterID, name, "create", createdBy, values)
+}
+
+// EnqueueDelete is the symmetric operation: records intent to remove a
+// tenant and schedules the worker job to delete its file from the tenants
+// repo and commit.
+func (s *TenantService) EnqueueDelete(ctx context.Context, orgID, clusterID, name, createdBy string) (repository.TenantOperation, error) {
+	return s.enqueue(ctx, orgID, clusterID, name, "delete", createdBy, nil)
+}
+
+func (s *TenantService) enqueue(ctx context.Context, orgID, clusterID, name, kind, createdBy string, values map[string]interface{}) (repository.TenantOperation, error) {
+	if s.riverClient == nil {
+		return repository.TenantOperation{}, fmt.Errorf("river client not configured")
+	}
+	var raw json.RawMessage
+	if values != nil {
+		b, err := json.Marshal(values)
+		if err != nil {
+			return repository.TenantOperation{}, fmt.Errorf("marshal values: %w", err)
+		}
+		raw = b
+	} else {
+		raw = json.RawMessage("{}")
+	}
+
+	op, err := s.queries.CreateTenantOperation(ctx, repository.CreateTenantOperationParams{
+		ID:         ulid.Make().String(),
+		OrgID:      orgID,
+		ClusterID:  clusterID,
+		TenantName: name,
+		Operation:  kind,
+		ValuesJSON: raw,
+		CreatedBy:  createdBy,
+	})
+	if err != nil {
+		return repository.TenantOperation{}, fmt.Errorf("create operation: %w", err)
+	}
+
+	if _, err := s.riverClient.Insert(ctx, worker.TenantApplyJobArgs{
+		OperationID: op.ID, OrgID: op.OrgID,
+	}, nil); err != nil {
+		// The operation row exists in pending; a future explicit retry can
+		// recover. We still surface the error so the handler returns 500.
+		return op, fmt.Errorf("enqueue job: %w", err)
+	}
+	return op, nil
+}
+
+// CompleteOperation is the write path the worker uses to mark an operation
+// done. Wrapped so callers don't need to construct the params struct.
+func (s *TenantService) CompleteOperation(ctx context.Context, id, orgID, status, sha, errMsg string) error {
+	return s.queries.CompleteTenantOperation(ctx, repository.CompleteTenantOperationParams{
+		ID:           id,
+		OrgID:        orgID,
+		Status:       status,
+		GitCommitSHA: sha,
+		Error:        errMsg,
+		CompletedAt:  time.Now(),
+	})
+}
+
+// GetOperation reads an operation row by ID. Used by the worker on job start.
+func (s *TenantService) GetOperation(ctx context.Context, id, orgID string) (repository.TenantOperation, error) {
+	return s.queries.GetTenantOperation(ctx, repository.GetTenantOperationParams{ID: id, OrgID: orgID})
+}
+
+// ListOperations returns the per-tenant operation log for the UI panel.
+func (s *TenantService) ListOperations(ctx context.Context, orgID, clusterID, tenantName string) ([]repository.TenantOperation, error) {
+	return s.queries.ListTenantOperationsByTenant(ctx, repository.ListTenantOperationsByTenantParams{
+		ClusterID: clusterID, OrgID: orgID, TenantName: tenantName,
+	})
 }

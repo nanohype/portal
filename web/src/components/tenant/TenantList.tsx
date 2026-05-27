@@ -1,11 +1,15 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/api/client";
+import { useAuth } from "@/hooks/useAuth";
 import type { Cluster, Tenant } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Link } from "@/components/ui/link";
 import { formatRelativeTime } from "@/lib/utils";
-import { Boxes } from "lucide-react";
+import { Boxes, Plus } from "lucide-react";
+import { TenantCreateModal } from "./TenantCreateModal";
 
 export function phaseBadge(phase: string) {
   switch (phase.toLowerCase()) {
@@ -28,6 +32,13 @@ export function phaseBadge(phase: string) {
 }
 
 export function TenantList() {
+  const { user } = useAuth();
+  const canWrite =
+    user?.role === "operator" ||
+    user?.role === "admin" ||
+    user?.role === "owner";
+  const [showCreate, setShowCreate] = useState(false);
+
   const { data, isLoading, isError } = useQuery({
     queryKey: ["tenants"],
     queryFn: async () => {
@@ -84,12 +95,24 @@ export function TenantList() {
 
   return (
     <div className="p-6">
-      <div className="mb-6">
-        <h1 className="text-lg font-semibold tracking-tight">Tenants</h1>
-        <p className="text-[12px] text-muted-foreground mt-1">
-          EAP tenants discovered by tofui's cluster watcher (refreshed every
-          60s)
-        </p>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-lg font-semibold tracking-tight">Tenants</h1>
+          <p className="text-[12px] text-muted-foreground mt-1">
+            EAP tenants discovered by tofui's cluster watcher (refreshed
+            every 60s)
+          </p>
+        </div>
+        {canWrite && (
+          <Button
+            size="sm"
+            onClick={() => setShowCreate(true)}
+            disabled={!clusters || clusters.length === 0}
+          >
+            <Plus className="w-3.5 h-3.5" />
+            New Tenant
+          </Button>
+        )}
       </div>
 
       {tenants.length === 0 ? (
@@ -145,6 +168,12 @@ export function TenantList() {
           ))}
         </div>
       )}
+
+      <TenantCreateModal
+        open={showCreate}
+        onClose={() => setShowCreate(false)}
+        clusters={clusters ?? []}
+      />
     </div>
   );
 }
