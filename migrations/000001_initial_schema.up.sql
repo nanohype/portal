@@ -471,3 +471,38 @@ CREATE TABLE tenant_operations (
 CREATE INDEX idx_tenant_operations_cluster_tenant ON tenant_operations(cluster_id, tenant_name);
 CREATE INDEX idx_tenant_operations_org_id ON tenant_operations(org_id);
 CREATE INDEX idx_tenant_operations_status ON tenant_operations(status);
+
+-- Templates: admin-curated tenant flavors. A template carries the default
+-- helm values for a tenant ("marketing-team gets persona=marketing, budget
+-- $5K, anthropic+nova models, soc2 required") plus an allowlist of dotted
+-- paths within those values that an operator can override at create time.
+-- Caps (max_budget_usd, allowed_model_families, required_compliance) are
+-- enforced server-side so a hostile or fat-fingered operator can't escape
+-- the admin-defined envelope.
+--
+-- Templates are admin-managed; operators read + instantiate them. Team-
+-- scoped access (which team can use which template) is phase 3b.
+CREATE TABLE templates (
+    id                      TEXT PRIMARY KEY,
+    org_id                  TEXT NOT NULL REFERENCES organizations(id),
+    name                    TEXT NOT NULL,
+    description             TEXT NOT NULL DEFAULT '',
+    persona                 TEXT NOT NULL,
+    default_values          JSONB NOT NULL DEFAULT '{}'::jsonb,
+    allowed_overrides       JSONB NOT NULL DEFAULT '[]'::jsonb,
+    max_budget_usd          INT NOT NULL DEFAULT 0, -- 0 = no cap
+    allowed_model_families  JSONB NOT NULL DEFAULT '[]'::jsonb,
+    required_compliance     JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_by              TEXT NOT NULL REFERENCES users(id),
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(org_id, name)
+);
+
+CREATE INDEX idx_templates_org_id ON templates(org_id);
+
+-- Link tenant_operations to the template that produced them (when one was
+-- used). SET NULL on delete so deleting a template doesn't invalidate the
+-- historical operation log.
+ALTER TABLE tenant_operations
+    ADD COLUMN template_id TEXT REFERENCES templates(id) ON DELETE SET NULL;

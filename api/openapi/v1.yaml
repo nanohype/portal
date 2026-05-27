@@ -400,6 +400,105 @@ paths:
         "204":
           description: Deleted
 
+  /templates:
+    get:
+      operationId: listTemplates
+      summary: List admin-curated tenant templates
+      tags: [templates]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: List of templates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Template"
+    post:
+      operationId: createTemplate
+      summary: Create template (admin only)
+      tags: [templates]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTemplateRequest"
+      responses:
+        "201":
+          description: Created template
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Template"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Duplicate name
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /templates/{templateID}:
+    get:
+      operationId: getTemplate
+      summary: Get template
+      tags: [templates]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TemplateId"
+      responses:
+        "200":
+          description: Template
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Template"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      operationId: updateTemplate
+      summary: Update template (admin only)
+      tags: [templates]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TemplateId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTemplateRequest"
+      responses:
+        "200":
+          description: Updated template
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Template"
+    delete:
+      operationId: deleteTemplate
+      summary: Delete template (admin only)
+      tags: [templates]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TemplateId"
+      responses:
+        "204":
+          description: Deleted
+
   /tenants:
     get:
       operationId: listTenants
@@ -1400,6 +1499,12 @@ components:
       required: true
       schema:
         type: string
+    TemplateId:
+      name: templateID
+      in: path
+      required: true
+      schema:
+        type: string
     Page:
       name: page
       in: query
@@ -2115,7 +2220,7 @@ components:
 
     CreateTenantRequest:
       type: object
-      required: [cluster_id, name, values]
+      required: [cluster_id, name]
       properties:
         cluster_id:
           type: string
@@ -2125,7 +2230,89 @@ components:
         values:
           type: object
           additionalProperties: true
-          description: helm values passed to the EAP tenant chart
+          description: |
+            When `template_id` is empty: full helm values blob passed to the
+            EAP tenant chart. When `template_id` is set: operator overrides,
+            applied to the template's defaults subject to its allowed_overrides
+            allowlist + caps.
+        template_id:
+          type: string
+          description: Optional reference to a curated template
+
+    Template:
+      type: object
+      required: [id, org_id, name, persona, default_values, allowed_overrides, max_budget_usd, allowed_model_families, required_compliance, created_by, created_at, updated_at]
+      properties:
+        id: { type: string }
+        org_id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        persona: { type: string }
+        default_values:
+          type: object
+          additionalProperties: true
+        allowed_overrides:
+          type: array
+          items: { type: string }
+          description: Dotted paths the operator can override at instantiation
+        max_budget_usd:
+          type: integer
+          description: 0 = no cap
+        allowed_model_families:
+          type: array
+          items: { type: string }
+        required_compliance:
+          type: array
+          items: { type: string }
+          description: Compliance flags that must be set true (e.g. ["soc2"])
+        created_by: { type: string }
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateTemplateRequest:
+      type: object
+      required: [name, persona]
+      properties:
+        name: { type: string }
+        description: { type: string }
+        persona: { type: string }
+        default_values:
+          type: object
+          additionalProperties: true
+        allowed_overrides:
+          type: array
+          items: { type: string }
+        max_budget_usd: { type: integer }
+        allowed_model_families:
+          type: array
+          items: { type: string }
+        required_compliance:
+          type: array
+          items: { type: string }
+
+    UpdateTemplateRequest:
+      type: object
+      properties:
+        name: { type: string }
+        description: { type: string }
+        persona: { type: string }
+        default_values:
+          type: object
+          additionalProperties: true
+        allowed_overrides:
+          type: array
+          items: { type: string }
+        max_budget_usd: { type: integer }
+        allowed_model_families:
+          type: array
+          items: { type: string }
+        required_compliance:
+          type: array
+          items: { type: string }
 
     TenantOperation:
       type: object
@@ -2146,6 +2333,9 @@ components:
         values_json:
           type: object
           additionalProperties: true
+        template_id:
+          type: string
+          nullable: true
         created_by: { type: string }
         created_at:
           type: string

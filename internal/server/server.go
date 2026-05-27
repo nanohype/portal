@@ -147,7 +147,9 @@ func (s *Server) setupRouter() {
 	s.clusterSvc = service.NewClusterService(queries, s.db, encryptor)
 	clusterHandler := handler.NewClusterHandler(s.clusterSvc, accountSvc, auditSvc)
 	s.tenantSvc = service.NewTenantService(queries, s.db)
-	tenantHandler := handler.NewTenantHandler(s.tenantSvc, auditSvc)
+	templateSvc := service.NewTemplateService(queries, s.db)
+	templateHandler := handler.NewTemplateHandler(templateSvc, auditSvc)
+	tenantHandler := handler.NewTenantHandler(s.tenantSvc, templateSvc, auditSvc)
 	wsOrigins := []string{s.cfg.WebURL}
 	if s.cfg.Environment == "development" {
 		wsOrigins = append(wsOrigins, "http://localhost:5173")
@@ -251,6 +253,19 @@ func (s *Server) setupRouter() {
 						r.With(auth.RequireRole("admin")).Put("/", clusterHandler.Update)
 						r.With(auth.RequireRole("admin")).Delete("/", clusterHandler.Delete)
 						r.With(auth.RequireRole("admin")).Post("/test-connection", clusterHandler.TestConnection)
+					})
+				})
+
+				// Templates: admin-curated tenant flavors. Reads open to any
+				// authenticated user (operators need to see what's available);
+				// writes admin-only.
+				r.Route("/templates", func(r chi.Router) {
+					r.Get("/", templateHandler.List)
+					r.With(auth.RequireRole("admin")).Post("/", templateHandler.Create)
+					r.Route("/{templateID}", func(r chi.Router) {
+						r.Get("/", templateHandler.Get)
+						r.With(auth.RequireRole("admin")).Put("/", templateHandler.Update)
+						r.With(auth.RequireRole("admin")).Delete("/", templateHandler.Delete)
 					})
 				})
 

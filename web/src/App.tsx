@@ -18,6 +18,7 @@ import { ClusterList } from "@/components/cluster/ClusterList";
 import { ClusterDetail } from "@/components/cluster/ClusterDetail";
 import { TenantList } from "@/components/tenant/TenantList";
 import { TenantDetail } from "@/components/tenant/TenantDetail";
+import { TemplateList } from "@/components/template/TemplateList";
 import { OrgSettings } from "@/components/settings/OrgSettings";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocation, navigate } from "@/hooks/useNavigate";
@@ -73,6 +74,8 @@ function resolveRoute(location: string) {
   if (tenantMatch)
     return { page: "tenant" as const, tenantId: tenantMatch[1] };
   if (path === "/tenants") return { page: "tenants" as const };
+
+  if (path === "/templates") return { page: "templates" as const };
 
   if (path === "/teams") return { page: "teams" as const };
   if (path === "/users") return { page: "users" as const };
@@ -159,6 +162,7 @@ export function App() {
         {route.page === "tenant" && (
           <TenantDetail tenantId={route.tenantId!} />
         )}
+        {route.page === "templates" && <TemplateList />}
         {route.page === "teams" && <TeamsPage />}
         {route.page === "users" && <UsersPage />}
         {route.page === "audit-logs" && <AuditLogPage />}

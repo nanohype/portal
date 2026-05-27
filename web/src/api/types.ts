@@ -515,6 +515,45 @@ export interface CreateTenantRequest {
   cluster_id: string;
   name: string;
   values: Record<string, unknown>;
+  template_id?: string;
+}
+
+export interface Template {
+  id: string;
+  org_id: string;
+  name: string;
+  description: string;
+  persona: string;
+  default_values: Record<string, unknown>;
+  allowed_overrides: string[];
+  max_budget_usd: number;
+  allowed_model_families: string[];
+  required_compliance: string[];
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateTemplateRequest {
+  name: string;
+  description?: string;
+  persona: string;
+  default_values?: Record<string, unknown>;
+  allowed_overrides?: string[];
+  max_budget_usd?: number;
+  allowed_model_families?: string[];
+  required_compliance?: string[];
+}
+
+export interface UpdateTemplateRequest {
+  name?: string;
+  description?: string;
+  persona?: string;
+  default_values?: Record<string, unknown>;
+  allowed_overrides?: string[];
+  max_budget_usd?: number;
+  allowed_model_families?: string[];
+  required_compliance?: string[];
 }
 
 export type TenantOperationKind = "create" | "delete";
@@ -530,6 +569,7 @@ export interface TenantOperation {
   git_commit_sha: string;
   error: string;
   values_json: Record<string, unknown>;
+  template_id: string | null;
   created_by: string;
   created_at: string;
   completed_at: string | null;
@@ -733,6 +773,40 @@ export interface paths {
       parameters: { path: { tenantId: string } };
       responses: {
         200: { content: { "application/json": TenantOperation[] } };
+      };
+    };
+  };
+  "/templates": {
+    get: {
+      responses: {
+        200: { content: { "application/json": Template[] } };
+      };
+    };
+    post: {
+      requestBody: { content: { "application/json": CreateTemplateRequest } };
+      responses: {
+        201: { content: { "application/json": Template } };
+      };
+    };
+  };
+  "/templates/{templateID}": {
+    get: {
+      parameters: { path: { templateID: string } };
+      responses: {
+        200: { content: { "application/json": Template } };
+      };
+    };
+    put: {
+      parameters: { path: { templateID: string } };
+      requestBody: { content: { "application/json": UpdateTemplateRequest } };
+      responses: {
+        200: { content: { "application/json": Template } };
+      };
+    };
+    delete: {
+      parameters: { path: { templateID: string } };
+      responses: {
+        204: { content: never };
       };
     };
   };
