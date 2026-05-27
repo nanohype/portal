@@ -420,6 +420,37 @@ export interface UpdateRoleRequest {
   role: "owner" | "admin" | "operator" | "viewer";
 }
 
+export interface Account {
+  id: string;
+  org_id: string;
+  name: string;
+  description: string;
+  aws_account_id: string;
+  assume_role_arn: string;
+  external_id_set: boolean;
+  default_region: string;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateAccountRequest {
+  name: string;
+  description?: string;
+  aws_account_id: string;
+  assume_role_arn: string;
+  external_id?: string;
+  default_region: string;
+}
+
+export interface UpdateAccountRequest {
+  name?: string;
+  description?: string;
+  assume_role_arn?: string;
+  external_id?: string;
+  default_region?: string;
+}
+
 // openapi-fetch compatible paths type
 export interface paths {
   "/users": {
@@ -500,6 +531,41 @@ export interface paths {
       responses: {
         200: { content: { "application/json": User } };
         401: { content: { "application/json": ErrorResponse } };
+      };
+    };
+  };
+  "/accounts": {
+    get: {
+      parameters: { query?: { page?: number; per_page?: number } };
+      responses: {
+        200: { content: { "application/json": ListResponse<Account> } };
+      };
+    };
+    post: {
+      requestBody: { content: { "application/json": CreateAccountRequest } };
+      responses: {
+        201: { content: { "application/json": Account } };
+      };
+    };
+  };
+  "/accounts/{accountId}": {
+    get: {
+      parameters: { path: { accountId: string } };
+      responses: {
+        200: { content: { "application/json": Account } };
+      };
+    };
+    put: {
+      parameters: { path: { accountId: string } };
+      requestBody: { content: { "application/json": UpdateAccountRequest } };
+      responses: {
+        200: { content: { "application/json": Account } };
+      };
+    };
+    delete: {
+      parameters: { path: { accountId: string } };
+      responses: {
+        204: { content: never };
       };
     };
   };

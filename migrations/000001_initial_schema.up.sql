@@ -354,3 +354,25 @@ CREATE TABLE pipeline_variables (
 );
 
 CREATE INDEX idx_pipeline_variables_pipeline_id ON pipeline_variables(pipeline_id);
+
+-- AWS accounts. Stores the assume-role configuration tofui needs to operate
+-- against each managed AWS account. Foundation for the multi-cluster portal:
+-- Cluster (and later Tenant) will FK into this table. Data-layer only in
+-- this slice — we store credentials but do not yet call AWS APIs with them.
+CREATE TABLE accounts (
+    id                    TEXT PRIMARY KEY,
+    org_id                TEXT NOT NULL REFERENCES organizations(id),
+    name                  TEXT NOT NULL,
+    description           TEXT NOT NULL DEFAULT '',
+    aws_account_id        TEXT NOT NULL,
+    assume_role_arn       TEXT NOT NULL,
+    external_id_encrypted TEXT NOT NULL DEFAULT '',
+    default_region        TEXT NOT NULL,
+    created_by            TEXT NOT NULL REFERENCES users(id),
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(org_id, name),
+    UNIQUE(org_id, aws_account_id)
+);
+
+CREATE INDEX idx_accounts_org_id ON accounts(org_id);
