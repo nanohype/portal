@@ -296,6 +296,131 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /clusters:
+    get:
+      operationId: listClusters
+      summary: List Kubernetes clusters
+      tags: [clusters]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - name: account_id
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of clusters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClusterList"
+    post:
+      operationId: createCluster
+      summary: Register a Kubernetes cluster (admin only)
+      tags: [clusters]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateClusterRequest"
+      responses:
+        "201":
+          description: Created cluster
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Cluster"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Duplicate cluster name
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /clusters/{clusterId}:
+    get:
+      operationId: getCluster
+      summary: Get cluster
+      tags: [clusters]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ClusterId"
+      responses:
+        "200":
+          description: Cluster
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Cluster"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      operationId: updateCluster
+      summary: Update cluster (admin only)
+      tags: [clusters]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ClusterId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateClusterRequest"
+      responses:
+        "200":
+          description: Updated cluster
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Cluster"
+    delete:
+      operationId: deleteCluster
+      summary: Delete cluster (admin only)
+      tags: [clusters]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ClusterId"
+      responses:
+        "204":
+          description: Deleted
+
+  /clusters/{clusterId}/test-connection:
+    post:
+      operationId: testClusterConnection
+      summary: Re-enqueue the async connection test (admin only)
+      tags: [clusters]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ClusterId"
+      responses:
+        "202":
+          description: Test enqueued; status will transition asynchronously
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [pending]
+
   /teams:
     get:
       operationId: listTeams
@@ -1162,6 +1287,12 @@ components:
       required: true
       schema:
         type: string
+    ClusterId:
+      name: clusterId
+      in: path
+      required: true
+      schema:
+        type: string
     Page:
       name: page
       in: query
@@ -1752,3 +1883,84 @@ components:
           type: string
         default_region:
           type: string
+
+    Cluster:
+      type: object
+      required: [id, org_id, account_id, name, api_endpoint, region, connection_status, node_count, k8s_version, created_by, created_at, updated_at, credentials_set]
+      properties:
+        id: { type: string }
+        org_id: { type: string }
+        account_id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        environment:
+          type: string
+          enum: [development, staging, production]
+        api_endpoint: { type: string }
+        region: { type: string }
+        connection_status:
+          type: string
+          enum: [pending, connecting, connected, failed]
+        last_connected_at:
+          type: string
+          format: date-time
+          nullable: true
+        connection_error: { type: string }
+        node_count: { type: integer }
+        k8s_version: { type: string }
+        credentials_set: { type: boolean }
+        created_by: { type: string }
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ClusterList:
+      type: object
+      required: [data, total, page, per_page]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Cluster"
+        total: { type: integer }
+        page: { type: integer }
+        per_page: { type: integer }
+
+    CreateClusterRequest:
+      type: object
+      required: [account_id, name, api_endpoint, ca_bundle, sa_token]
+      properties:
+        account_id:
+          type: string
+          description: Parent account (tofui-internal ULID)
+        name: { type: string }
+        description: { type: string }
+        environment:
+          type: string
+          enum: [development, staging, production]
+        api_endpoint:
+          type: string
+          description: Must be an https:// URL
+        ca_bundle:
+          type: string
+          description: PEM-encoded CA certificate
+        sa_token:
+          type: string
+          description: Service-account bearer token
+        region:
+          type: string
+          description: Defaults to the parent account's default region when omitted
+
+    UpdateClusterRequest:
+      type: object
+      properties:
+        name: { type: string }
+        description: { type: string }
+        environment: { type: string }
+        api_endpoint: { type: string }
+        ca_bundle: { type: string }
+        sa_token: { type: string }
+        region: { type: string }

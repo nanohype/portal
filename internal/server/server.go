@@ -30,6 +30,7 @@ type Server struct {
 	approvalHandler *handler.ApprovalHandler
 	runSvc          *service.RunService
 	pipelineSvc     *service.PipelineService
+	clusterSvc      *service.ClusterService
 }
 
 func New(cfg *domain.Config, db *pgxpool.Pool, logger *slog.Logger) *Server {
@@ -57,6 +58,10 @@ func (s *Server) RunService() *service.RunService {
 
 func (s *Server) PipelineService() *service.PipelineService {
 	return s.pipelineSvc
+}
+
+func (s *Server) ClusterService() *service.ClusterService {
+	return s.clusterSvc
 }
 
 func (s *Server) ApprovalHandler() *handler.ApprovalHandler {
@@ -134,6 +139,8 @@ func (s *Server) setupRouter() {
 	workspaceHandler := handler.NewWorkspaceHandler(workspaceSvc, auditSvc, store, queries)
 	accountSvc := service.NewAccountService(queries, s.db, encryptor)
 	accountHandler := handler.NewAccountHandler(accountSvc, auditSvc)
+	s.clusterSvc = service.NewClusterService(queries, s.db, encryptor)
+	clusterHandler := handler.NewClusterHandler(s.clusterSvc, accountSvc, auditSvc)
 	wsOrigins := []string{s.cfg.WebURL}
 	if s.cfg.Environment == "development" {
 		wsOrigins = append(wsOrigins, "http://localhost:5173")
@@ -225,6 +232,18 @@ func (s *Server) setupRouter() {
 						r.Get("/", accountHandler.Get)
 						r.With(auth.RequireRole("admin")).Put("/", accountHandler.Update)
 						r.With(auth.RequireRole("admin")).Delete("/", accountHandler.Delete)
+					})
+				})
+
+				// Clusters (Kubernetes clusters tofui watches, admin-managed)
+				r.Route("/clusters", func(r chi.Router) {
+					r.Get("/", clusterHandler.List)
+					r.With(auth.RequireRole("admin")).Post("/", clusterHandler.Create)
+					r.Route("/{clusterID}", func(r chi.Router) {
+						r.Get("/", clusterHandler.Get)
+						r.With(auth.RequireRole("admin")).Put("/", clusterHandler.Update)
+						r.With(auth.RequireRole("admin")).Delete("/", clusterHandler.Delete)
+						r.With(auth.RequireRole("admin")).Post("/test-connection", clusterHandler.TestConnection)
 					})
 				})
 

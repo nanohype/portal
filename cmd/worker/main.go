@@ -14,7 +14,9 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 
+	tofuaws "github.com/stxkxs/tofui/internal/aws"
 	"github.com/stxkxs/tofui/internal/domain"
+	"github.com/stxkxs/tofui/internal/k8s"
 	"github.com/stxkxs/tofui/internal/logstream"
 	"github.com/stxkxs/tofui/internal/repository"
 	"github.com/stxkxs/tofui/internal/secrets"
@@ -146,6 +148,34 @@ func main() {
 	}
 	pipelineStageWorker := worker.NewPipelineStageJobWorker(queries, createRunFn, service.ImportOutputsBetweenWorkspaces, store)
 	river.AddWorker(workers, pipelineStageWorker)
+
+	// Cluster connection-test worker (proves stored cluster credentials work).
+	// AWS provider is best-effort — if the default credential chain can't load
+	// (no profile, no IRSA, no env), the worker still runs the k8s probe and
+	// just skips the sts:GetCallerIdentity verification step.
+	clusterSvc := service.NewClusterService(queries, dbPool, encryptor)
+	awsProvider, err := tofuaws.NewProvider(context.Background())
+	if err != nil {
+		logger.Warn("aws provider not available, sts verification disabled", "error", err)
+		awsProvider = nil
+	}
+	k8sCache := k8s.NewClientCache()
+	clusterDecrypt := func(c repository.Cluster) (k8s.SlimConfig, error) {
+		creds, err := clusterSvc.Decrypt(c)
+		if err != nil {
+			return k8s.SlimConfig{}, err
+		}
+		return k8s.SlimConfig{
+			APIEndpoint: creds.APIEndpoint,
+			CABundle:    creds.CABundle,
+			BearerToken: creds.SAToken,
+		}, nil
+	}
+	clusterStatusUpdate := func(ctx context.Context, id, orgID, status, errMsg, k8sVersion string, nodeCount int32) error {
+		return clusterSvc.SetConnectionStatus(ctx, id, orgID, status, errMsg, k8sVersion, nodeCount)
+	}
+	clusterTestWorker := worker.NewClusterConnectionTestJobWorker(queries, clusterDecrypt, clusterStatusUpdate, awsProvider, k8sCache)
+	river.AddWorker(workers, clusterTestWorker)
 
 	// Create River client
 	riverClient, err := river.NewClient[pgx.Tx](riverpgxv5.New(dbPool), &river.Config{

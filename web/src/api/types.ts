@@ -451,6 +451,53 @@ export interface UpdateAccountRequest {
   default_region?: string;
 }
 
+export type ClusterConnectionStatus =
+  | "pending"
+  | "connecting"
+  | "connected"
+  | "failed";
+
+export interface Cluster {
+  id: string;
+  org_id: string;
+  account_id: string;
+  name: string;
+  description: string;
+  environment: "development" | "staging" | "production";
+  api_endpoint: string;
+  region: string;
+  connection_status: ClusterConnectionStatus;
+  last_connected_at: string | null;
+  connection_error: string;
+  node_count: number;
+  k8s_version: string;
+  credentials_set: boolean;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateClusterRequest {
+  account_id: string;
+  name: string;
+  description?: string;
+  environment?: "development" | "staging" | "production";
+  api_endpoint: string;
+  ca_bundle: string;
+  sa_token: string;
+  region?: string;
+}
+
+export interface UpdateClusterRequest {
+  name?: string;
+  description?: string;
+  environment?: string;
+  api_endpoint?: string;
+  ca_bundle?: string;
+  sa_token?: string;
+  region?: string;
+}
+
 // openapi-fetch compatible paths type
 export interface paths {
   "/users": {
@@ -566,6 +613,51 @@ export interface paths {
       parameters: { path: { accountId: string } };
       responses: {
         204: { content: never };
+      };
+    };
+  };
+  "/clusters": {
+    get: {
+      parameters: {
+        query?: { page?: number; per_page?: number; account_id?: string };
+      };
+      responses: {
+        200: { content: { "application/json": ListResponse<Cluster> } };
+      };
+    };
+    post: {
+      requestBody: { content: { "application/json": CreateClusterRequest } };
+      responses: {
+        201: { content: { "application/json": Cluster } };
+      };
+    };
+  };
+  "/clusters/{clusterId}": {
+    get: {
+      parameters: { path: { clusterId: string } };
+      responses: {
+        200: { content: { "application/json": Cluster } };
+      };
+    };
+    put: {
+      parameters: { path: { clusterId: string } };
+      requestBody: { content: { "application/json": UpdateClusterRequest } };
+      responses: {
+        200: { content: { "application/json": Cluster } };
+      };
+    };
+    delete: {
+      parameters: { path: { clusterId: string } };
+      responses: {
+        204: { content: never };
+      };
+    };
+  };
+  "/clusters/{clusterId}/test-connection": {
+    post: {
+      parameters: { path: { clusterId: string } };
+      responses: {
+        202: { content: { "application/json": { status: string } } };
       };
     };
   };
