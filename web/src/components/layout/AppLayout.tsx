@@ -73,6 +73,11 @@ export function AppLayout({ children }: { children: ReactNode }) {
               Teams
             </NavLink>
             {isAdmin && (
+              <NavLink href="/accounts" active={path.startsWith("/accounts")}>
+                Accounts
+              </NavLink>
+            )}
+            {isAdmin && (
               <NavLink href="/users" active={path === "/users"}>
                 Users
               </NavLink>
