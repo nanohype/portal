@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	stderrs "errors"
 	"net/http"
 	"regexp"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/nanohype/portal/internal/auth"
 	"github.com/nanohype/portal/internal/handler/respond"
+	"github.com/nanohype/portal/internal/repository"
 	"github.com/nanohype/portal/internal/service"
 )
 
@@ -80,15 +82,39 @@ func (h *TemplateHandler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *TemplateHandler) Get(w http.ResponseWriter, r *http.Request) {
-	userCtx := auth.GetUser(r.Context())
 	id := chi.URLParam(r, "templateID")
-	t, err := h.svc.Get(r.Context(), id, userCtx.OrgID)
+	t, err := h.fetchTemplateForCaller(r, id)
 	if err != nil {
 		respond.Error(w, http.StatusNotFound, "template not found")
 		return
 	}
 	respond.JSON(w, http.StatusOK, t)
 }
+
+// fetchTemplateForCaller mirrors TenantHandler.fetchTenantForCaller:
+// non-admins must have at least one team granted access to the template,
+// admins always pass. "Not found" is returned in both the missing and
+// not-visible cases to avoid existence probing.
+func (h *TemplateHandler) fetchTemplateForCaller(r *http.Request, id string) (repository.Template, error) {
+	userCtx := auth.GetUser(r.Context())
+	t, err := h.svc.Get(r.Context(), id, userCtx.OrgID)
+	if err != nil {
+		return repository.Template{}, err
+	}
+	if isAdmin(userCtx.Role) {
+		return t, nil
+	}
+	ok, err := h.accessSvc.UserHasTemplateAccess(r.Context(), userCtx.UserID, userCtx.OrgID, id)
+	if err != nil {
+		return repository.Template{}, err
+	}
+	if !ok {
+		return repository.Template{}, errTemplateNotVisible
+	}
+	return t, nil
+}
+
+var errTemplateNotVisible = stderrs.New("template not visible to caller")
 
 func (h *TemplateHandler) Create(w http.ResponseWriter, r *http.Request) {
 	userCtx := auth.GetUser(r.Context())

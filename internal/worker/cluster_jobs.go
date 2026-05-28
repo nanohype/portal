@@ -27,8 +27,13 @@ type ClusterConnectionTestJobArgs struct {
 func (ClusterConnectionTestJobArgs) Kind() string { return "cluster_connection_test" }
 
 func (ClusterConnectionTestJobArgs) InsertOpts() river.InsertOpts {
+	// MaxAttempts: 1 because the worker's fail() path returns nil after
+	// recording the failure on the cluster row. River retries are only
+	// meaningful when the worker re-raises; we explicitly don't, so the
+	// retry budget would burn for no reason. The next manual or
+	// scheduled re-trigger of the job is the recovery path.
 	return river.InsertOpts{
-		MaxAttempts: 3,
+		MaxAttempts: 1,
 	}
 }
 

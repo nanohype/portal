@@ -180,6 +180,49 @@ func (q *Queries) ListTemplateTeamAccess(ctx context.Context, arg ListTemplateTe
 	return out, rows.Err()
 }
 
+// ─── per-object access checks ─────────────────────────────────────────
+
+// UserHasTenantAccess returns true when the user belongs to at least one
+// team that has been granted access to the given (cluster, tenant) pair.
+// Used by handlers that fetch a specific tenant — list filtering happens
+// at query time, but Get/Delete/Operations need to gate single-object
+// access too or a non-admin could read any tenant ID in the org.
+// Admin-role bypass happens at the handler layer; this query trusts the
+// caller has decided to scope by team.
+func (q *Queries) UserHasTenantAccess(ctx context.Context, userID, orgID, clusterID, tenantName string) (bool, error) {
+	row := q.db.QueryRow(ctx,
+		`SELECT EXISTS(
+			SELECT 1 FROM tenant_team_access tta
+			JOIN team_members tm ON tm.team_id = tta.team_id
+			WHERE tta.cluster_id = $1
+			  AND tta.tenant_name = $2
+			  AND tta.org_id = $3
+			  AND tm.user_id = $4
+		)`,
+		clusterID, tenantName, orgID, userID,
+	)
+	var ok bool
+	err := row.Scan(&ok)
+	return ok, err
+}
+
+// UserHasTemplateAccess is the template equivalent of UserHasTenantAccess.
+func (q *Queries) UserHasTemplateAccess(ctx context.Context, userID, orgID, templateID string) (bool, error) {
+	row := q.db.QueryRow(ctx,
+		`SELECT EXISTS(
+			SELECT 1 FROM template_team_access tta
+			JOIN team_members tm ON tm.team_id = tta.team_id
+			WHERE tta.template_id = $1
+			  AND tta.org_id = $2
+			  AND tm.user_id = $3
+		)`,
+		templateID, orgID, userID,
+	)
+	var ok bool
+	err := row.Scan(&ok)
+	return ok, err
+}
+
 // ─── User → teams ──────────────────────────────────────────────────────
 
 // ListUserTeamIDs returns the team IDs a user belongs to within an org.

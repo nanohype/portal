@@ -177,13 +177,15 @@ func (s *TemplateService) ApplyToValues(template repository.Template, overrides 
 	}
 
 	if template.MaxBudgetUSD > 0 {
-		if got, ok := getPath(merged, "budget.monthlyUsd").(float64); ok {
-			if int32(got) > template.MaxBudgetUSD {
+		// budget.monthlyUsd comes through after a JSON round-trip
+		// (`deepCopy`), so the runtime type is float64. The old code also
+		// had an `int` branch as a half-defense in case the caller built
+		// the map in Go directly; in practice that path was dead.
+		// asFloat handles every numeric shape a caller could plausibly
+		// pass without us silently bypassing the cap.
+		if got, ok := asFloat(getPath(merged, "budget.monthlyUsd")); ok {
+			if got > float64(template.MaxBudgetUSD) {
 				return nil, fmt.Errorf("budget.monthlyUsd %v exceeds template cap %d", got, template.MaxBudgetUSD)
-			}
-		} else if got, ok := getPath(merged, "budget.monthlyUsd").(int); ok {
-			if int32(got) > template.MaxBudgetUSD {
-				return nil, fmt.Errorf("budget.monthlyUsd %d exceeds template cap %d", got, template.MaxBudgetUSD)
 			}
 		}
 	}
@@ -302,6 +304,34 @@ func deepCopy(m map[string]interface{}) map[string]interface{} {
 		return map[string]interface{}{}
 	}
 	return out
+}
+
+// asFloat accepts any of the numeric runtime types a JSON-decoded map can
+// carry (float64 by default; int/int32/int64 if a caller built the map in
+// Go) plus json.Number for decoders configured with UseNumber. Returns
+// (value, true) on success or (0, false) for non-numeric input. Used by the
+// budget cap so a caller can't silently bypass it by handing us an int.
+func asFloat(v interface{}) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case float32:
+		return float64(n), true
+	case int:
+		return float64(n), true
+	case int32:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	case json.Number:
+		f, err := n.Float64()
+		if err != nil {
+			return 0, false
+		}
+		return f, true
+	default:
+		return 0, false
+	}
 }
 
 func stringSliceFromPath(m map[string]interface{}, path string) []string {

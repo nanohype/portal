@@ -152,6 +152,10 @@ func (r *Repo) RemoveFile(relPath string) error {
 }
 
 // safeAbs resolves relPath within workdir, rejecting traversal attempts.
+// Defense in depth: even after filepath.Clean rejects `..`-prefixed paths,
+// we verify the joined result stays under workdir via filepath.Rel. That
+// second check catches edge cases where workdir itself contains a symlink
+// or the join would otherwise produce an unexpected absolute path.
 func (r *Repo) safeAbs(relPath string) (string, error) {
 	if relPath == "" {
 		return "", fmt.Errorf("path is empty")
@@ -167,7 +171,12 @@ func (r *Repo) safeAbs(relPath string) (string, error) {
 		// error it almost certainly is.
 		return "", fmt.Errorf("path resolves to workdir root or escapes: %s", relPath)
 	}
-	return filepath.Join(r.workdir, cleaned), nil
+	abs := filepath.Join(r.workdir, cleaned)
+	rel, err := filepath.Rel(r.workdir, abs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("path escapes workdir after join: %s", relPath)
+	}
+	return abs, nil
 }
 
 // Commit stages every change in the working tree and creates a single

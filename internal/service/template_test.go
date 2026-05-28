@@ -8,6 +8,68 @@ import (
 	"github.com/nanohype/portal/internal/repository"
 )
 
+// TestAsFloat guards the budget-cap numeric coercion. After a quality-review
+// pass found the old code had a dead `int` branch that would silently bypass
+// the cap when a caller built the values map in Go with `int` literals,
+// `asFloat` now accepts every plausible numeric runtime type. The test makes
+// sure no future "tightening" accidentally drops a case.
+func TestAsFloat(t *testing.T) {
+	cases := []struct {
+		name string
+		in   interface{}
+		want float64
+		ok   bool
+	}{
+		{"float64", 1234.5, 1234.5, true},
+		{"float32", float32(1234.5), 1234.5, true},
+		{"int", int(1234), 1234, true},
+		{"int32", int32(1234), 1234, true},
+		{"int64", int64(1234), 1234, true},
+		{"json.Number numeric", json.Number("1234"), 1234, true},
+		{"json.Number decimal", json.Number("1234.5"), 1234.5, true},
+		{"string", "1234", 0, false},
+		{"nil", nil, 0, false},
+		{"bool", true, 0, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := asFloat(tc.in)
+			if ok != tc.ok {
+				t.Errorf("asFloat(%v): ok=%v, want %v", tc.in, ok, tc.ok)
+				return
+			}
+			if ok && got != tc.want {
+				t.Errorf("asFloat(%v) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestApplyToValuesBudgetCapWithIntOverride ensures the cap is enforced
+// when an in-process caller hands us an int (not a JSON-derived float64).
+// Before the asFloat refactor this would silently pass — exactly the
+// regression the helper exists to prevent.
+func TestApplyToValuesBudgetCapWithIntOverride(t *testing.T) {
+	svc := &TemplateService{}
+	template := tpl(t,
+		[]string{"budget.monthlyUsd"},
+		5000, nil, nil,
+		map[string]interface{}{"budget": map[string]interface{}{"monthlyUsd": 2500.0}},
+	)
+	// Hand in an integer override. Without the asFloat fix the old code
+	// would have matched only float64 and silently let the cap-violating
+	// integer through.
+	_, err := svc.ApplyToValues(template, map[string]interface{}{
+		"budget": map[string]interface{}{"monthlyUsd": int(9999)},
+	})
+	if err == nil {
+		t.Fatal("expected budget cap violation for integer override")
+	}
+	if !strings.Contains(err.Error(), "exceeds template cap") {
+		t.Errorf("expected cap message; got %v", err)
+	}
+}
+
 // helper: build a template with reasonable test defaults
 func tpl(t *testing.T, overrides []string, maxBudget int32, families []string, compliance []string, defaults map[string]interface{}) repository.Template {
 	t.Helper()
