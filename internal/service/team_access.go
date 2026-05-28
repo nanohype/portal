@@ -30,6 +30,18 @@ func (s *TeamAccessService) UserTeamIDs(ctx context.Context, userID, orgID strin
 	return s.queries.ListUserTeamIDs(ctx, userID, orgID)
 }
 
+// UserHasTenantAccess returns true when the user belongs to any team
+// granted access to the tenant. Admin-role callers should bypass this
+// check at the handler layer.
+func (s *TeamAccessService) UserHasTenantAccess(ctx context.Context, userID, orgID, clusterID, tenantName string) (bool, error) {
+	return s.queries.UserHasTenantAccess(ctx, userID, orgID, clusterID, tenantName)
+}
+
+// UserHasTemplateAccess is the template-side counterpart.
+func (s *TeamAccessService) UserHasTemplateAccess(ctx context.Context, userID, orgID, templateID string) (bool, error) {
+	return s.queries.UserHasTemplateAccess(ctx, userID, orgID, templateID)
+}
+
 // ─── tenants ──────────────────────────────────────────────────────────
 
 func (s *TeamAccessService) GrantTenant(ctx context.Context, orgID, clusterID, tenantName, teamID, grantedBy string) (repository.TenantTeamAccess, error) {

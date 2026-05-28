@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	stderrs "errors"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/nanohype/portal/internal/auth"
 	"github.com/nanohype/portal/internal/handler/respond"
+	"github.com/nanohype/portal/internal/repository"
 	"github.com/nanohype/portal/internal/service"
 )
 
@@ -89,16 +91,41 @@ func (h *TenantHandler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *TenantHandler) Get(w http.ResponseWriter, r *http.Request) {
-	userCtx := auth.GetUser(r.Context())
 	tenantID := chi.URLParam(r, "tenantID")
-
-	tenant, err := h.svc.Get(r.Context(), tenantID, userCtx.OrgID)
+	tenant, err := h.fetchTenantForCaller(r, tenantID)
 	if err != nil {
 		respond.Error(w, http.StatusNotFound, "tenant not found")
 		return
 	}
 	respond.JSON(w, http.StatusOK, tenant)
 }
+
+// fetchTenantForCaller centralizes the authz gate for single-tenant
+// reads: load the row, then for non-admin callers verify one of their
+// teams has been granted access. Returns "not visible" in both the
+// "tenant doesn't exist" and "exists but you can't see it" cases —
+// intentional so unauthorized callers can't probe IDs to discover
+// existence. Admins skip the team check entirely.
+func (h *TenantHandler) fetchTenantForCaller(r *http.Request, tenantID string) (repository.Tenant, error) {
+	userCtx := auth.GetUser(r.Context())
+	tenant, err := h.svc.Get(r.Context(), tenantID, userCtx.OrgID)
+	if err != nil {
+		return repository.Tenant{}, err
+	}
+	if isAdmin(userCtx.Role) {
+		return tenant, nil
+	}
+	ok, err := h.accessSvc.UserHasTenantAccess(r.Context(), userCtx.UserID, userCtx.OrgID, tenant.ClusterID, tenant.Name)
+	if err != nil {
+		return repository.Tenant{}, err
+	}
+	if !ok {
+		return repository.Tenant{}, errTenantNotVisible
+	}
+	return tenant, nil
+}
+
+var errTenantNotVisible = stderrs.New("tenant not visible to caller")
 
 // Create enqueues a tenant_operation of kind=create. The actual k8s resource
 // will appear in the tenants table once ArgoCD applies the commit and the
@@ -222,7 +249,7 @@ func (h *TenantHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	userCtx := auth.GetUser(r.Context())
 	tenantID := chi.URLParam(r, "tenantID")
 
-	tenant, err := h.svc.Get(r.Context(), tenantID, userCtx.OrgID)
+	tenant, err := h.fetchTenantForCaller(r, tenantID)
 	if err != nil {
 		respond.Error(w, http.StatusNotFound, "tenant not found")
 		return
@@ -255,7 +282,7 @@ func (h *TenantHandler) ListAccess(w http.ResponseWriter, r *http.Request) {
 	userCtx := auth.GetUser(r.Context())
 	tenantID := chi.URLParam(r, "tenantID")
 
-	tenant, err := h.svc.Get(r.Context(), tenantID, userCtx.OrgID)
+	tenant, err := h.fetchTenantForCaller(r, tenantID)
 	if err != nil {
 		respond.Error(w, http.StatusNotFound, "tenant not found")
 		return
@@ -338,7 +365,7 @@ func (h *TenantHandler) Operations(w http.ResponseWriter, r *http.Request) {
 	userCtx := auth.GetUser(r.Context())
 	tenantID := chi.URLParam(r, "tenantID")
 
-	tenant, err := h.svc.Get(r.Context(), tenantID, userCtx.OrgID)
+	tenant, err := h.fetchTenantForCaller(r, tenantID)
 	if err != nil {
 		respond.Error(w, http.StatusNotFound, "tenant not found")
 		return
