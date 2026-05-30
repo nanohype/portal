@@ -16,7 +16,7 @@ import (
 	"github.com/nanohype/portal/internal/repository"
 )
 
-// ClusterWatchJobArgs walks one cluster's EAP custom resources (currently
+// ClusterWatchJobArgs walks one cluster's eks-agent-platform custom resources (currently
 // just Tenants) and reconciles the DB inventory. Enqueued periodically from
 // cmd/worker/main.go by a dispatch goroutine that ticks every 60s for each
 // connected cluster.

@@ -1,13 +1,13 @@
 # portal
 
 Self-hosted operations portal. Manages OpenTofu workspaces, AWS accounts,
-EKS clusters, and EAP tenants from one UI with one audit trail.
+EKS clusters, and eks-agent-platform tenants from one UI with one audit trail.
 
 Plan, apply, and manage OpenTofu workspaces through a web interface with
 pipelines, variable inheritance, team access controls, approval workflows,
 audit logging, and VCS-driven runs — the Terraform Cloud / Spacelift
 alternative tier. On top of that: a multi-account AWS surface, EKS cluster
-watching, EAP tenant CRUD via GitOps + Helm + ArgoCD, curated tenant
+watching, eks-agent-platform tenant CRUD via GitOps + Helm + ArgoCD, curated tenant
 templates, team-scoped self-service, and a unified catalog across every
 entity.
 

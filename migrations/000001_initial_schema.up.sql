@@ -416,7 +416,7 @@ CREATE TABLE clusters (
 CREATE INDEX idx_clusters_org_id ON clusters(org_id);
 CREATE INDEX idx_clusters_account_id ON clusters(account_id);
 
--- Tenants: EAP Tenant CRDs (agents.stxkxs.io/v1alpha1) discovered by the
+-- Tenants: eks-agent-platform Tenant CRDs (agents.stxkxs.io/v1alpha1) discovered by the
 -- per-cluster watcher. Read-only inventory at this stage — portal populates
 -- and prunes these rows from what the K8s API actually shows; users can't
 -- create/edit tenants from portal yet (that's phase 2c, via git).

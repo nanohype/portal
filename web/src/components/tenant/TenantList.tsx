@@ -99,7 +99,7 @@ export function TenantList() {
         <div>
           <h1 className="text-lg font-semibold tracking-tight">Tenants</h1>
           <p className="text-[12px] text-muted-foreground mt-1">
-            EAP tenants discovered by portal's cluster watcher (refreshed
+            eks-agent-platform tenants discovered by portal's cluster watcher (refreshed
             every 60s)
           </p>
         </div>
@@ -122,7 +122,7 @@ export function TenantList() {
           </div>
           <h2 className="text-sm font-semibold mb-1">No tenants yet</h2>
           <p className="text-xs text-muted-foreground max-w-[320px]">
-            None of the connected clusters report any EAP Tenant CRs. The
+            None of the connected clusters report any eks-agent-platform Tenant CRs. The
             watcher will pick them up automatically once they exist.
           </p>
         </div>
