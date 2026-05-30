@@ -20,7 +20,7 @@ Capability layers (each can be used independently):
 3. **EKS cluster surface.** Cluster entities with slim creds (api endpoint
    + CA + service-account token, encrypted). Async connection-test job.
 4. **eks-agent-platform tenant surface (read).** Periodic per-cluster watcher walks the
-   `agents.stxkxs.io/v1alpha1` Tenant CRDs and reconciles a DB inventory.
+   `platform.nanohype.dev/v1alpha1` Tenant CRDs and reconciles a DB inventory.
 5. **eks-agent-platform tenant surface (write).** UI form → helm-renders the eks-agent-platform
    `charts/tenant` chart → commits to a tenants GitOps repo → ArgoCD
    reconciles. Operations are tracked in a tenant_operations log.

@@ -34,7 +34,7 @@ func BuildDynamicClient(c SlimConfig) (dynamic.Interface, error) {
 // so the watcher and any future tenant-touching code stay in sync if the
 // CRD's apiVersion ever bumps.
 var TenantGVR = schema.GroupVersionResource{
-	Group:    "agents.stxkxs.io",
+	Group:    "platform.nanohype.dev",
 	Version:  "v1alpha1",
 	Resource: "tenants",
 }
