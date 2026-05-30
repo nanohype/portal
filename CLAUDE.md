@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Portal is a self-hosted operations portal for the nanohype stack. It started
 as an OpenTofu lifecycle management UI (Terraform Cloud / Spacelift
 alternative) and grew into a unified portal that also manages AWS accounts,
-EKS clusters, and EAP tenants. Go backend (API server + job worker) and
+EKS clusters, and eks-agent-platform tenants. Go backend (API server + job worker) and
 React frontend.
 
 Capability layers (each can be used independently):
@@ -19,9 +19,9 @@ Capability layers (each can be used independently):
    Foundation for cross-account operations.
 3. **EKS cluster surface.** Cluster entities with slim creds (api endpoint
    + CA + service-account token, encrypted). Async connection-test job.
-4. **EAP tenant surface (read).** Periodic per-cluster watcher walks the
+4. **eks-agent-platform tenant surface (read).** Periodic per-cluster watcher walks the
    `agents.stxkxs.io/v1alpha1` Tenant CRDs and reconciles a DB inventory.
-5. **EAP tenant surface (write).** UI form → helm-renders the EAP
+5. **eks-agent-platform tenant surface (write).** UI form → helm-renders the eks-agent-platform
    `charts/tenant` chart → commits to a tenants GitOps repo → ArgoCD
    reconciles. Operations are tracked in a tenant_operations log.
 6. **Curated templates.** Admins define default tenant values + caps;

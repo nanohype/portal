@@ -20,8 +20,8 @@ import (
 )
 
 // BuildDynamicClient returns a dynamic client for CRD reads — used to walk
-// EAP custom resources (Tenants, Platforms, etc.) without vendoring their
-// Go types.
+// eks-agent-platform custom resources (Tenants, Platforms, etc.) without
+// vendoring their Go types.
 func BuildDynamicClient(c SlimConfig) (dynamic.Interface, error) {
 	cfg, err := BuildRestConfig(c)
 	if err != nil {
@@ -30,7 +30,7 @@ func BuildDynamicClient(c SlimConfig) (dynamic.Interface, error) {
 	return dynamic.NewForConfig(cfg)
 }
 
-// TenantGVR is the GroupVersionResource for the EAP Tenant CRD. Centralized
+// TenantGVR is the GroupVersionResource for the eks-agent-platform Tenant CRD. Centralized
 // so the watcher and any future tenant-touching code stay in sync if the
 // CRD's apiVersion ever bumps.
 var TenantGVR = schema.GroupVersionResource{

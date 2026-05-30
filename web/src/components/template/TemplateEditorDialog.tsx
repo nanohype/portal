@@ -16,9 +16,9 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 
-// Personas, model families, and compliance flags come from the EAP chart's
+// Personas, model families, and compliance flags come from the eks-agent-platform chart's
 // known taxonomies. Keeping these hardcoded here trades chart-evolution
-// freshness for form responsiveness — when EAP adds an option, bump it here
+// freshness for form responsiveness — when eks-agent-platform adds an option, bump it here
 // and in the chart together.
 const PERSONAS = [
   "generic",
@@ -35,7 +35,7 @@ const MODEL_FAMILIES = ["anthropic", "amazon-nova", "openai", "google"];
 const COMPLIANCE_FLAGS = ["soc2", "hipaa"];
 
 // Suggested override paths the admin can pick from when defining what
-// operators can change. Matches the EAP `charts/tenant` values schema.
+// operators can change. Matches the eks-agent-platform `charts/tenant` values schema.
 const OVERRIDE_PATH_SUGGESTIONS = [
   "platform.displayName",
   "platform.tenant",

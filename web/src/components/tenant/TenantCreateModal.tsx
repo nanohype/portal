@@ -33,7 +33,7 @@ const K8S_NAME_RE = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
 
 // Personas mirrored from charts/tenant/values.yaml. Keeping the list here
 // (rather than fetching from the chart at runtime) trades chart-change
-// freshness for form responsiveness; if EAP adds a persona we update both
+// freshness for form responsiveness; if eks-agent-platform adds a persona we update both
 // the chart and this list together.
 const PERSONAS = [
   "generic",
@@ -244,7 +244,7 @@ export function TenantCreateModal({
         <DialogHeader>
           <DialogTitle>New Tenant</DialogTitle>
           <DialogDescription>
-            Renders the EAP `charts/tenant` chart with these values and
+            Renders the eks-agent-platform `charts/tenant` chart with these values and
             commits to the tenants repo. ArgoCD reconciles the result onto
             the chosen cluster.
           </DialogDescription>

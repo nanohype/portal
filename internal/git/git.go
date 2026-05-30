@@ -1,5 +1,5 @@
 // Package git wraps go-git for the two things portal needs to do with git:
-// keep a local clone in sync with a remote (used for the EAP chart cache),
+// keep a local clone in sync with a remote (used for the eks-agent-platform chart cache),
 // and write files + commit + push (used for the tenants GitOps repo).
 //
 // Authentication is SSH-only — portal's git identity comes from a private
