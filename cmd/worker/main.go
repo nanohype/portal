@@ -182,7 +182,7 @@ func main() {
 	clusterTestWorker := worker.NewClusterConnectionTestJobWorker(queries, clusterDecrypt, clusterStatusUpdate, awsProvider, k8sCache)
 	river.AddWorker(workers, clusterTestWorker)
 
-	// Cluster watcher: walks each connected cluster's EAP CRDs periodically
+	// Cluster watcher: walks each connected cluster's eks-agent-platform CRDs periodically
 	// and reconciles portal's tenant inventory. Worker = process one cluster;
 	// dispatch tick (further below) fans out one job per cluster every 60s.
 	tenantSvc := service.NewTenantService(queries, dbPool)
@@ -196,23 +196,23 @@ func main() {
 	clusterWatchWorker := worker.NewClusterWatchJobWorker(queries, clusterDecrypt, tenantReconcile)
 	river.AddWorker(workers, clusterWatchWorker)
 
-	// Tenant write path (phase 2c): renders the EAP `charts/tenant` chart
+	// Tenant write path (phase 2c): renders the eks-agent-platform `charts/tenant` chart
 	// with the user-supplied values, commits the rendered manifest into the
 	// tenants repo, lets ArgoCD reconcile. Two git repos are involved:
-	//  * EAP charts repo — read-only mirror, cloned at startup, pulled on
+	//  * eks-agent-platform charts repo — read-only mirror, cloned at startup, pulled on
 	//    each tenant op so chart edits land without a worker redeploy.
 	//  * tenants repo — read-write, where rendered manifests get committed.
 	// Both are optional: if URLs aren't set, the apply worker surfaces a
 	// clear "not configured" error rather than crashing at boot.
 	var tenantApplyWorker *worker.TenantApplyJobWorker
-	if cfg.TenantsRepoURL != "" && cfg.EAPChartsRepoURL != "" && cfg.GitSSHKeyPath != "" {
-		eapRepo, err := tofugit.NewRepo(filepath.Join(cfg.GitCacheDir, "eap"), cfg.EAPChartsRepoURL, cfg.GitSSHKeyPath)
+	if cfg.TenantsRepoURL != "" && cfg.EksAgentPlatformChartsRepoURL != "" && cfg.GitSSHKeyPath != "" {
+		eksAgentPlatformRepo, err := tofugit.NewRepo(filepath.Join(cfg.GitCacheDir, "eks-agent-platform"), cfg.EksAgentPlatformChartsRepoURL, cfg.GitSSHKeyPath)
 		if err != nil {
-			logger.Error("failed to initialize EAP charts repo", "error", err)
+			logger.Error("failed to initialize eks-agent-platform charts repo", "error", err)
 			os.Exit(1)
 		}
-		if err := eapRepo.CloneOrPull(context.Background(), cfg.EAPChartsRepoRef); err != nil {
-			logger.Warn("EAP charts initial sync failed (will retry on first tenant op)", "error", err)
+		if err := eksAgentPlatformRepo.CloneOrPull(context.Background(), cfg.EksAgentPlatformChartsRepoRef); err != nil {
+			logger.Warn("eks-agent-platform charts initial sync failed (will retry on first tenant op)", "error", err)
 		}
 		tenantsRepo, err := tofugit.NewRepo(filepath.Join(cfg.GitCacheDir, "tenants"), cfg.TenantsRepoURL, cfg.GitSSHKeyPath)
 		if err != nil {
@@ -220,13 +220,13 @@ func main() {
 			os.Exit(1)
 		}
 
-		chartCache := tofuhelm.NewCache(eapRepo.Workdir())
+		chartCache := tofuhelm.NewCache(eksAgentPlatformRepo.Workdir())
 		renderFn := func(chartName, releaseName, namespace string, values map[string]interface{}) (string, error) {
 			// Pull fresh chart on every render so chart-author edits land
 			// without a portal restart. Cheap (~few hundred ms when nothing
 			// changed); the chartCache.Reset call discards in-memory parses
 			// so the next Load re-reads.
-			if err := eapRepo.CloneOrPull(context.Background(), cfg.EAPChartsRepoRef); err != nil {
+			if err := eksAgentPlatformRepo.CloneOrPull(context.Background(), cfg.EksAgentPlatformChartsRepoRef); err != nil {
 				return "", err
 			}
 			chartCache.Reset()
@@ -253,7 +253,7 @@ func main() {
 		})
 		river.AddWorker(workers, tenantApplyWorker)
 		logger.Info("tenant write path enabled",
-			"eap_charts", cfg.EAPChartsRepoURL,
+			"eks_agent_platform_charts", cfg.EksAgentPlatformChartsRepoURL,
 			"tenants_repo", cfg.TenantsRepoURL,
 		)
 	} else {
@@ -263,15 +263,19 @@ func main() {
 		// be stuck in pending. Better to surface "not configured" on the
 		// row itself so the UI shows what's wrong.
 		stub := worker.NewTenantApplyJobWorker(worker.TenantApplyDeps{
-			Queries:    queries,
-			LoadOp:     func(ctx context.Context, id, orgID string) (repository.TenantOperation, error) { return tenantSvc.GetOperation(ctx, id, orgID) },
-			CompleteOp: func(ctx context.Context, id, orgID, status, sha, errMsg string) error { return tenantSvc.CompleteOperation(ctx, id, orgID, status, sha, errMsg) },
+			Queries: queries,
+			LoadOp: func(ctx context.Context, id, orgID string) (repository.TenantOperation, error) {
+				return tenantSvc.GetOperation(ctx, id, orgID)
+			},
+			CompleteOp: func(ctx context.Context, id, orgID, status, sha, errMsg string) error {
+				return tenantSvc.CompleteOperation(ctx, id, orgID, status, sha, errMsg)
+			},
 			Render:     nil,
 			RepoMu:     &sync.Mutex{},
 			TenantsRef: cfg.TenantsRepoRef,
 		})
 		river.AddWorker(workers, stub)
-		logger.Info("tenant write path disabled (GITOPS_TENANTS_REPO_URL / EAP_CHARTS_REPO_URL / GITOPS_SSH_KEY_PATH not set)")
+		logger.Info("tenant write path disabled (GITOPS_TENANTS_REPO_URL / EKS_AGENT_PLATFORM_CHARTS_REPO_URL / GITOPS_SSH_KEY_PATH not set)")
 	}
 
 	// Create River client

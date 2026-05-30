@@ -2,8 +2,8 @@
 // `helm` binary in its container. Used by the tenant-write path to turn a
 // form's worth of values into the YAML that ArgoCD will eventually apply.
 //
-// The chart source is a directory on disk — typically a clone of the EAP
-// charts repo maintained by internal/git's CloneOrPull. The chart cache
+// The chart source is a directory on disk — typically a clone of the
+// eks-agent-platform charts repo maintained by internal/git's CloneOrPull. The chart cache
 // here keeps loaded *chart.Chart objects in memory keyed by chart name so
 // repeated tenant writes don't re-parse the chart from disk.
 package helm
@@ -21,7 +21,7 @@ import (
 )
 
 // Cache loads + memoizes charts from a base directory (typically the local
-// clone of the EAP charts repo). Charts are loaded once per process and
+// clone of the eks-agent-platform charts repo). Charts are loaded once per process and
 // re-loaded on Reset (called after a `git pull` brings new template files
 // in).
 type Cache struct {
