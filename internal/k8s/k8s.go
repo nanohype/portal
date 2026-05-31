@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	authenticationv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -90,26 +91,38 @@ type ClusterSummary struct {
 	NodeCount     int    // best-effort count of Ready nodes
 }
 
-// Probe runs a minimal pair of API calls to verify reachability + capture the
-// summary. Used by the async connection-test job. Failures are surfaced as-is
-// so the UI can show a useful error message.
-func Probe(ctx context.Context, client *kubernetes.Clientset) (ClusterSummary, error) {
+// Probe verifies reachability + that the stored credentials authenticate, and
+// captures the summary. Used by the async connection-test job. Failures are
+// surfaced as-is so the UI can show a useful error message.
+func Probe(ctx context.Context, client kubernetes.Interface) (ClusterSummary, error) {
 	ver, err := client.Discovery().ServerVersion()
 	if err != nil {
 		return ClusterSummary{}, fmt.Errorf("server version: %w", err)
 	}
 
-	nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	// /version above proves reachability but not authentication — clusters
+	// often serve discovery to anonymous callers. A SelfSubjectReview echoes
+	// back the authenticated identity, needs no RBAC grant (so it works with a
+	// least-privilege token like `view`), and fails closed if the token is
+	// invalid. This is the load-bearing credential check.
+	review, err := client.AuthenticationV1().SelfSubjectReviews().Create(ctx, &authenticationv1.SelfSubjectReview{}, metav1.CreateOptions{})
 	if err != nil {
-		return ClusterSummary{}, fmt.Errorf("list nodes: %w", err)
+		return ClusterSummary{}, fmt.Errorf("verify credentials: %w", err)
+	}
+	if u := review.Status.UserInfo.Username; u == "" || u == "system:anonymous" {
+		return ClusterSummary{}, fmt.Errorf("credentials did not authenticate (resolved to %q)", u)
 	}
 
+	// Node count is best-effort: a least-privilege token may not list nodes,
+	// and that must not fail an otherwise-healthy, authenticated connection.
 	ready := 0
-	for _, n := range nodes.Items {
-		for _, c := range n.Status.Conditions {
-			if c.Type == corev1.NodeReady && c.Status == corev1.ConditionTrue {
-				ready++
-				break
+	if nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{}); err == nil {
+		for _, n := range nodes.Items {
+			for _, c := range n.Status.Conditions {
+				if c.Type == corev1.NodeReady && c.Status == corev1.ConditionTrue {
+					ready++
+					break
+				}
 			}
 		}
 	}
