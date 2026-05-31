@@ -42,11 +42,11 @@ func isAdmin(role string) bool { return role == "admin" || role == "owner" }
 var k8sNameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 
 type CreateTenantRequest struct {
-	ClusterID     string                 `json:"cluster_id"`
-	Name          string                 `json:"name"`
-	Values        map[string]interface{} `json:"values"`
-	TemplateID    string                 `json:"template_id,omitempty"`     // optional; when set, values are template overrides
-	OwningTeamID  string                 `json:"owning_team_id,omitempty"` // team that owns the new tenant
+	ClusterID    string                 `json:"cluster_id"`
+	Name         string                 `json:"name"`
+	Values       map[string]interface{} `json:"values"`
+	TemplateID   string                 `json:"template_id,omitempty"`    // optional; when set, values are template overrides
+	OwningTeamID string                 `json:"owning_team_id,omitempty"` // team that owns the new tenant
 }
 
 func (h *TenantHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -212,6 +212,22 @@ func (h *TenantHandler) Create(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+	}
+
+	// The CR identity is authoritative: force platform.name to the validated,
+	// access-checked req.Name so the rendered Platform's metadata.name (and the
+	// operator-derived namespace / IRSA boundary / git path) can never diverge
+	// from it — a caller-supplied values blob can't overwrite another tenant's
+	// Platform. Default platform.tenant to the same name when unset (one-to-one)
+	// so the chart render never fails on a missing tenant.
+	pf, _ := finalValues["platform"].(map[string]interface{})
+	if pf == nil {
+		pf = map[string]interface{}{}
+		finalValues["platform"] = pf
+	}
+	pf["name"] = req.Name
+	if t, _ := pf["tenant"].(string); t == "" {
+		pf["tenant"] = req.Name
 	}
 
 	op, err := h.svc.EnqueueCreate(r.Context(), userCtx.OrgID, req.ClusterID, req.Name, req.TemplateID, userCtx.UserID, finalValues)
