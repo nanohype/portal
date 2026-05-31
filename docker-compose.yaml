@@ -4,13 +4,13 @@ services:
     ports:
       - "5432:5432"
     environment:
-      POSTGRES_USER: tofui
-      POSTGRES_PASSWORD: tofui
-      POSTGRES_DB: tofui
+      POSTGRES_USER: portal
+      POSTGRES_PASSWORD: portal
+      POSTGRES_DB: portal
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U tofui"]
+      test: ["CMD-SHELL", "pg_isready -U portal"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -37,7 +37,7 @@ services:
       context: .
       dockerfile: docker/Dockerfile.migrate
     environment:
-      DATABASE_URL: "postgres://tofui:tofui@postgres:5432/tofui?sslmode=disable"
+      DATABASE_URL: "postgres://portal:portal@postgres:5432/portal?sslmode=disable"
     depends_on:
       postgres:
         condition: service_healthy

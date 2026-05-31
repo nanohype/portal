@@ -32,7 +32,7 @@ services:
     image: portal/server:latest
     ports: ["8080:8080"]
     environment:
-      DATABASE_URL: postgres://tofui:${DB_PASSWORD}@postgres:5432/tofui?sslmode=disable
+      DATABASE_URL: postgres://portal:${DB_PASSWORD}@postgres:5432/portal?sslmode=disable
       REDIS_URL: redis://redis:6379
       S3_ENDPOINT: minio:9000
       S3_ACCESS_KEY: ${S3_ACCESS_KEY}
@@ -50,7 +50,7 @@ services:
   worker:
     image: portal/worker:latest
     environment:
-      DATABASE_URL: postgres://tofui:${DB_PASSWORD}@postgres:5432/tofui?sslmode=disable
+      DATABASE_URL: postgres://portal:${DB_PASSWORD}@postgres:5432/portal?sslmode=disable
       REDIS_URL: redis://redis:6379
       S3_ENDPOINT: minio:9000
       S3_ACCESS_KEY: ${S3_ACCESS_KEY}
@@ -67,16 +67,16 @@ services:
   migrate:
     image: portal/migrate:latest
     environment:
-      DATABASE_URL: postgres://tofui:${DB_PASSWORD}@postgres:5432/tofui?sslmode=disable
+      DATABASE_URL: postgres://portal:${DB_PASSWORD}@postgres:5432/portal?sslmode=disable
     command: ["-direction", "up"]
     depends_on: [postgres]
 
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: tofui
+      POSTGRES_USER: portal
       POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: tofui
+      POSTGRES_DB: portal
     volumes: [pgdata:/var/lib/postgresql/data]
 
   redis:

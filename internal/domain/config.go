@@ -18,7 +18,7 @@ type Config struct {
 	ShutdownTimeout time.Duration `env:"SHUTDOWN_TIMEOUT" envDefault:"15s"`
 
 	// Database
-	DatabaseURL         string        `env:"DATABASE_URL" envDefault:"postgres://tofui:tofui@localhost:5432/tofui?sslmode=disable"`
+	DatabaseURL         string        `env:"DATABASE_URL" envDefault:"postgres://portal:portal@localhost:5432/portal?sslmode=disable"`
 	DBMaxConns          int32         `env:"DB_MAX_CONNS" envDefault:"25"`
 	DBMinConns          int32         `env:"DB_MIN_CONNS" envDefault:"5"`
 	DBMaxConnIdleTime   time.Duration `env:"DB_MAX_CONN_IDLE_TIME" envDefault:"5m"`
