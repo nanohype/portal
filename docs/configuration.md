@@ -25,7 +25,7 @@ To use GitHub sign-in locally, set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DATABASE_URL` | `postgres://tofui:tofui@localhost:5432/tofui?sslmode=disable` | Postgres connection string |
+| `DATABASE_URL` | `postgres://portal:portal@localhost:5432/portal?sslmode=disable` | Postgres connection string |
 | `DB_MAX_CONNS` | `25` | Maximum open connections |
 | `DB_MIN_CONNS` | `5` | Minimum idle connections |
 | `DB_MAX_CONN_IDLE_TIME` | `5m` | Close idle connections after this duration |
