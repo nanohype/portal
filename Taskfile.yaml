@@ -1,7 +1,7 @@
 version: "3"
 
 vars:
-  DATABASE_URL: "postgres://tofui:tofui@localhost:5432/tofui?sslmode=disable"
+  DATABASE_URL: "postgres://portal:portal@localhost:5432/portal?sslmode=disable"
 
 tasks:
   default:
@@ -64,7 +64,7 @@ tasks:
   db:up:
     desc: Start PostgreSQL (Docker)
     cmds:
-      - docker run -d --name portal-postgres -p 5432:5432 -e POSTGRES_USER=tofui -e POSTGRES_PASSWORD=tofui -e POSTGRES_DB=tofui postgres:16-alpine 2>/dev/null || docker start portal-postgres
+      - docker run -d --name portal-postgres -p 5432:5432 -e POSTGRES_USER=portal -e POSTGRES_PASSWORD=portal -e POSTGRES_DB=portal postgres:16-alpine 2>/dev/null || docker start portal-postgres
 
   db:down:
     desc: Stop PostgreSQL
@@ -88,7 +88,7 @@ tasks:
   db:reset:
     desc: Reset database (drop and recreate)
     cmds:
-      - docker exec portal-postgres psql -U tofui -c "DROP DATABASE IF EXISTS tofui; CREATE DATABASE tofui;"
+      - docker exec portal-postgres psql -U portal -c "DROP DATABASE IF EXISTS portal; CREATE DATABASE portal;"
       - task: db:migrate
 
   # === Redis ===
