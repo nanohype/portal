@@ -1,16 +1,29 @@
 package k8s
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"math/big"
 	"sync"
 	"testing"
 	"time"
+
+	authenticationv1 "k8s.io/api/authentication/v1"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/version"
+	fakediscovery "k8s.io/client-go/discovery/fake"
+	"k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 )
 
 // generateTestCA returns a self-signed PEM-encoded CA. Kubernetes
@@ -149,4 +162,79 @@ func TestClientCacheInvalidate(t *testing.T) {
 	if c3 == c1 {
 		t.Errorf("expected new client after Invalidate, got cached")
 	}
+}
+
+// probeClient builds a fake clientset wired so Probe's three checks can be
+// driven independently: a server version, a SelfSubjectReview outcome (the
+// load-bearing auth proof), and node listing. nodesForbidden simulates a
+// least-privilege token (e.g. `view`) that may not list nodes.
+func probeClient(username string, ssrErr error, nodesForbidden bool, nodes ...runtime.Object) *fake.Clientset {
+	cs := fake.NewSimpleClientset(nodes...)
+	cs.Discovery().(*fakediscovery.FakeDiscovery).FakedServerVersion = &version.Info{GitVersion: "v1.35.0"}
+	cs.PrependReactor("create", "selfsubjectreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
+		if ssrErr != nil {
+			return true, nil, ssrErr
+		}
+		return true, &authenticationv1.SelfSubjectReview{
+			Status: authenticationv1.SelfSubjectReviewStatus{
+				UserInfo: authenticationv1.UserInfo{Username: username},
+			},
+		}, nil
+	})
+	if nodesForbidden {
+		cs.PrependReactor("list", "nodes", func(k8stesting.Action) (bool, runtime.Object, error) {
+			return true, nil, apierrors.NewForbidden(schema.GroupResource{Resource: "nodes"}, "", errors.New("forbidden"))
+		})
+	}
+	return cs
+}
+
+func readyNode(name string, ready bool) *corev1.Node {
+	st := corev1.ConditionFalse
+	if ready {
+		st = corev1.ConditionTrue
+	}
+	return &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Status:     corev1.NodeStatus{Conditions: []corev1.NodeCondition{{Type: corev1.NodeReady, Status: st}}},
+	}
+}
+
+func TestProbe(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("authenticated, nodes forbidden -> connected, best-effort node count", func(t *testing.T) {
+		s, err := Probe(ctx, probeClient("system:serviceaccount:kube-system:portal", nil, true))
+		if err != nil {
+			t.Fatalf("expected success, got %v", err)
+		}
+		if s.ServerVersion != "v1.35.0" {
+			t.Errorf("server version = %q, want v1.35.0", s.ServerVersion)
+		}
+		if s.NodeCount != 0 {
+			t.Errorf("node count = %d, want 0 (list forbidden -> best effort)", s.NodeCount)
+		}
+	})
+
+	t.Run("authenticated, nodes listed -> counts ready nodes", func(t *testing.T) {
+		s, err := Probe(ctx, probeClient("u", nil, false, readyNode("a", true), readyNode("b", false), readyNode("c", true)))
+		if err != nil {
+			t.Fatalf("expected success, got %v", err)
+		}
+		if s.NodeCount != 2 {
+			t.Errorf("node count = %d, want 2", s.NodeCount)
+		}
+	})
+
+	t.Run("anonymous identity -> error (auth proof is load-bearing)", func(t *testing.T) {
+		if _, err := Probe(ctx, probeClient("system:anonymous", nil, true)); err == nil {
+			t.Fatal("expected error for anonymous identity, got nil")
+		}
+	})
+
+	t.Run("credential check fails -> error", func(t *testing.T) {
+		if _, err := Probe(ctx, probeClient("", errors.New("401 unauthorized"), true)); err == nil {
+			t.Fatal("expected error when SelfSubjectReview fails, got nil")
+		}
+	})
 }

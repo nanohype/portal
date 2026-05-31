@@ -154,23 +154,33 @@ func (h *AccountHandler) Create(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusBadRequest, "description must be at most 4096 characters")
 		return
 	}
-	if !isValidAWSAccountID(req.AWSAccountID) {
+	// AWS wiring is optional. An account with no assume-role ARN is a no-AWS
+	// grouping — for local/kind clusters or any cluster portal reaches
+	// directly with its own kubeconfig credentials. When an ARN is set it must
+	// be well-formed and consistent with a 12-digit account id; absent it, the
+	// AWS-only fields are skipped entirely so a name is enough.
+	if req.AssumeRoleARN != "" {
+		if len(req.AssumeRoleARN) > 2048 {
+			respond.Error(w, http.StatusBadRequest, "assume_role_arn must be at most 2048 characters")
+			return
+		}
+		if !isValidRoleARN(req.AssumeRoleARN) {
+			respond.Error(w, http.StatusBadRequest, "assume_role_arn must be a valid IAM role ARN (arn:aws:iam::<account>:role/<name>)")
+			return
+		}
+		if !isValidAWSAccountID(req.AWSAccountID) {
+			respond.Error(w, http.StatusBadRequest, "aws_account_id (exactly 12 digits) is required when assume_role_arn is set")
+			return
+		}
+		if accountIDFromARN(req.AssumeRoleARN) != req.AWSAccountID {
+			respond.Error(w, http.StatusBadRequest, "assume_role_arn account does not match aws_account_id")
+			return
+		}
+	} else if req.AWSAccountID != "" && !isValidAWSAccountID(req.AWSAccountID) {
 		respond.Error(w, http.StatusBadRequest, "aws_account_id must be exactly 12 digits")
 		return
 	}
-	if len(req.AssumeRoleARN) > 2048 {
-		respond.Error(w, http.StatusBadRequest, "assume_role_arn must be at most 2048 characters")
-		return
-	}
-	if !isValidRoleARN(req.AssumeRoleARN) {
-		respond.Error(w, http.StatusBadRequest, "assume_role_arn must be a valid IAM role ARN (arn:aws:iam::<account>:role/<name>)")
-		return
-	}
-	if accountIDFromARN(req.AssumeRoleARN) != req.AWSAccountID {
-		respond.Error(w, http.StatusBadRequest, "assume_role_arn account does not match aws_account_id")
-		return
-	}
-	if !isValidRegion(req.DefaultRegion) {
+	if req.DefaultRegion != "" && !isValidRegion(req.DefaultRegion) {
 		respond.Error(w, http.StatusBadRequest, "default_region must look like 'us-west-2' (lowercase, hyphenated, ends with a digit)")
 		return
 	}

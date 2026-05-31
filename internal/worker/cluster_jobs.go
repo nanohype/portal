@@ -110,14 +110,21 @@ func (w *ClusterConnectionTestJobWorker) Work(ctx context.Context, job *river.Jo
 		return w.fail(ctx, cluster, logger, fmt.Errorf("load parent account: %w", err))
 	}
 
-	// Prove the cross-account assume-role works. If this fails the k8s probe
-	// will too (and with a less useful error message), so check it first.
-	if w.aws != nil {
+	// The cross-account assume-role only applies to AWS-backed clusters. An
+	// account with no role ARN is a no-AWS grouping (local/kind, or any
+	// cluster portal reaches directly with its kubeconfig creds) — skip STS
+	// and let the kubernetes probe below be the sole reachability + auth check.
+	// When an ARN is present we prove it first: if it fails the k8s probe will
+	// too, with a less useful error.
+	switch {
+	case account.AssumeRoleARN == "":
+		logger.Info("account has no assume-role ARN; probing kubernetes directly")
+	case w.aws == nil:
+		logger.Warn("aws provider not configured; skipping sts verification")
+	default:
 		if _, err := w.aws.VerifyAssumeRole(ctx, account.AssumeRoleARN, "", account.DefaultRegion); err != nil {
 			return w.fail(ctx, cluster, logger, fmt.Errorf("aws assume-role failed: %w", err))
 		}
-	} else {
-		logger.Warn("aws provider not configured; skipping sts verification")
 	}
 
 	creds, err := w.decrypt(cluster)
