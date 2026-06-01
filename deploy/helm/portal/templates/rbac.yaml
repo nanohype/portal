@@ -1,0 +1,63 @@
+{{- if .Values.argocdSync.enabled }}
+# RBAC for the worker's ArgoCD cluster-registry sync + tenant watcher. Created
+# only when argocdSync is enabled. The worker reads ArgoCD's cluster Secrets
+# (scoped to argocdSync.namespace) to discover clusters, and watches Platform/
+# Tenant CRs cluster-wide.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-worker
+  labels:
+    app.kubernetes.io/name: portal-worker
+    app.kubernetes.io/instance: {{ .Release.Name }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-worker
+rules:
+  - apiGroups: ["platform.nanohype.dev"]
+    resources: ["tenants", "platforms"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["nodes", "namespaces"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-worker
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-worker
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-worker
+    namespace: {{ .Release.Namespace }}
+---
+# Read only ArgoCD's cluster Secrets, scoped to the argocd namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-argocd-reader
+  namespace: {{ .Values.argocdSync.namespace }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-argocd-reader
+  namespace: {{ .Values.argocdSync.namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ .Release.Name }}-argocd-reader
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-worker
+    namespace: {{ .Release.Namespace }}
+{{- end }}

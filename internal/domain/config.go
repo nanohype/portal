@@ -70,6 +70,20 @@ type Config struct {
 	GitAuthorEmail                string `env:"GITOPS_AUTHOR_EMAIL" envDefault:"portal@local"`
 	EksAgentPlatformChartsRepoURL string `env:"EKS_AGENT_PLATFORM_CHARTS_REPO_URL"`
 	EksAgentPlatformChartsRepoRef string `env:"EKS_AGENT_PLATFORM_CHARTS_REPO_REF" envDefault:"main"`
+
+	// ArgoCD cluster-registry sync (read path). When enabled, the worker reads
+	// ArgoCD's cluster Secrets (in ArgoCDNamespace, via the pod's in-cluster
+	// ServiceAccount) every ArgoCDSyncInterval and upserts the cluster inventory
+	// — so a cluster registered with ArgoCD is onboarded with no manual portal
+	// registration. Discovered clusters attach to the configured org + account,
+	// attributed to the configured user. Inert unless all three IDs are set and
+	// the worker runs in-cluster.
+	ArgoCDClusterSync   bool          `env:"ARGOCD_CLUSTER_SYNC" envDefault:"false"`
+	ArgoCDNamespace     string        `env:"ARGOCD_NAMESPACE" envDefault:"argocd"`
+	ArgoCDSyncInterval  time.Duration `env:"ARGOCD_SYNC_INTERVAL" envDefault:"120s"`
+	ArgoCDSyncOrgID     string        `env:"ARGOCD_SYNC_ORG_ID"`
+	ArgoCDSyncAccountID string        `env:"ARGOCD_SYNC_ACCOUNT_ID"`
+	ArgoCDSyncCreatedBy string        `env:"ARGOCD_SYNC_CREATED_BY"`
 }
 
 // Validate checks that the configuration is safe for the target environment.

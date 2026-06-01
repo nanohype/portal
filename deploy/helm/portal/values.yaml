@@ -129,3 +129,17 @@ resources:
     requests:
       cpu: 50m
       memory: 64Mi
+
+# -- ArgoCD cluster-registry sync (read path). When enabled, the worker
+# discovers clusters from ArgoCD's cluster Secrets (no manual portal
+# registration) and the chart creates the RBAC it needs: read Secrets in
+# `namespace`, and watch Platform/Tenant CRs cluster-wide. Point orgID/
+# accountID/createdBy at existing portal IDs. Requires the worker to run
+# in-cluster.
+argocdSync:
+  enabled: false
+  namespace: argocd
+  syncInterval: "120s"
+  orgID: ""
+  accountID: ""
+  createdBy: ""
