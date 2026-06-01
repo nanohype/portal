@@ -40,13 +40,22 @@ var TenantGVR = schema.GroupVersionResource{
 	Resource: "tenants",
 }
 
+// InClusterAPIEndpoint is the API server address a pod uses to reach its own
+// cluster. An ArgoCD "in-cluster" registry entry carries this as its server and
+// has no bearer token — the portal watches it with its own mounted
+// ServiceAccount rather than stored credentials.
+const InClusterAPIEndpoint = "https://kubernetes.default.svc"
+
 // SlimConfig is the minimum set of fields needed to talk to a Kubernetes API
 // server. Equivalent to a kubeconfig that has exactly one cluster + one user
-// with a bearer token — no contexts, no exec plugins, no auth providers.
+// with a bearer token — no contexts, no exec plugins, no auth providers. When
+// InCluster is set (or APIEndpoint is the in-cluster address), the pod's own
+// mounted ServiceAccount is used and CABundle/BearerToken are ignored.
 type SlimConfig struct {
 	APIEndpoint string // e.g. https://A1B2C3.gr7.us-west-2.eks.amazonaws.com
 	CABundle    []byte // PEM-encoded CA cert (decrypted)
 	BearerToken string // service-account token (decrypted)
+	InCluster   bool   // use the pod's mounted ServiceAccount (no stored creds)
 }
 
 // BuildRestConfig assembles a *rest.Config from the slim creds. Returned
@@ -55,6 +64,18 @@ type SlimConfig struct {
 func BuildRestConfig(c SlimConfig) (*rest.Config, error) {
 	if c.APIEndpoint == "" {
 		return nil, fmt.Errorf("api endpoint is required")
+	}
+	// In-cluster: authenticate with the pod's own mounted ServiceAccount. Used
+	// for the local cluster the portal runs in (e.g. an ArgoCD in-cluster
+	// registry entry, which has no bearer token). Errors if not actually
+	// running in a pod.
+	if c.InCluster || c.APIEndpoint == InClusterAPIEndpoint {
+		cfg, err := rest.InClusterConfig()
+		if err != nil {
+			return nil, fmt.Errorf("in-cluster config: %w", err)
+		}
+		cfg.Timeout = 30 * time.Second
+		return cfg, nil
 	}
 	if c.BearerToken == "" {
 		return nil, fmt.Errorf("bearer token is required")

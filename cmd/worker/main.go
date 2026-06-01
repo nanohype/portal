@@ -14,6 +14,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 
 	tofuaws "github.com/nanohype/portal/internal/aws"
 	"github.com/nanohype/portal/internal/domain"
@@ -299,6 +301,7 @@ func main() {
 		tenantApplyWorker.SetRiverClient(riverClient, dbPool)
 	}
 	runSvc.SetRiverClient(riverClient)
+	clusterSvc.SetRiverClient(riverClient) // so the ArgoCD sync can enqueue connection-tests
 
 	// Health endpoint for K8s liveness probe
 	go func() {
@@ -349,6 +352,43 @@ func main() {
 			}
 		}
 	}()
+
+	// ArgoCD cluster-registry sync: when enabled and running in-cluster, read
+	// ArgoCD's cluster Secrets and upsert the inventory, so a cluster registered
+	// with ArgoCD is onboarded without a manual portal registration. Inert
+	// unless ARGOCD_CLUSTER_SYNC and the org/account/created-by IDs are set.
+	if cfg.ArgoCDClusterSync && cfg.ArgoCDSyncOrgID != "" && cfg.ArgoCDSyncAccountID != "" && cfg.ArgoCDSyncCreatedBy != "" {
+		restCfg, err := rest.InClusterConfig()
+		if err != nil {
+			logger.Warn("argocd sync enabled but worker is not running in-cluster; skipping", "error", err)
+		} else if argocdClient, err := kubernetes.NewForConfig(restCfg); err != nil {
+			logger.Warn("argocd sync: failed to build in-cluster client; skipping", "error", err)
+		} else {
+			syncSvc := service.NewArgoCDSyncService(clusterSvc, argocdClient, cfg.ArgoCDNamespace,
+				cfg.ArgoCDSyncOrgID, cfg.ArgoCDSyncAccountID, cfg.ArgoCDSyncCreatedBy)
+			go func() {
+				t := time.NewTicker(cfg.ArgoCDSyncInterval)
+				defer t.Stop()
+				runSync := func() {
+					created, updated, skipped, err := syncSvc.Sync(context.Background())
+					if err != nil {
+						logger.Warn("argocd sync", "error", err)
+						return
+					}
+					logger.Info("argocd sync tick", "created", created, "updated", updated, "skipped", skipped)
+				}
+				runSync()
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-t.C:
+						runSync()
+					}
+				}
+			}()
+		}
+	}
 
 	if err := riverClient.Start(context.Background()); err != nil {
 		logger.Error("failed to start river client", "error", err)
