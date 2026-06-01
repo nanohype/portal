@@ -371,10 +371,17 @@ CREATE TABLE accounts (
     created_by            TEXT NOT NULL REFERENCES users(id),
     created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(org_id, name),
-    UNIQUE(org_id, aws_account_id)
+    UNIQUE(org_id, name)
 );
 
+-- aws_account_id is unique per org only when it's set. A no-AWS account (for a
+-- local/kind cluster, or any cluster portal reaches directly with its own
+-- kubeconfig credentials) leaves it empty, and an org may have more than one of
+-- those — so uniqueness is a partial index, not a plain UNIQUE constraint (which
+-- would collide every empty string against the one already stored).
+CREATE UNIQUE INDEX accounts_org_id_aws_account_id_uniq
+    ON accounts (org_id, aws_account_id)
+    WHERE aws_account_id <> '';
 CREATE INDEX idx_accounts_org_id ON accounts(org_id);
 
 -- Kubernetes clusters portal watches. One row per managed EKS cluster.
