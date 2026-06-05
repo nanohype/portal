@@ -8,6 +8,7 @@ package k8s
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
@@ -54,8 +55,13 @@ const InClusterAPIEndpoint = "https://kubernetes.default.svc"
 type SlimConfig struct {
 	APIEndpoint string // e.g. https://A1B2C3.gr7.us-west-2.eks.amazonaws.com
 	CABundle    []byte // PEM-encoded CA cert (decrypted)
-	BearerToken string // service-account token (decrypted)
+	BearerToken string // service-account token (decrypted) — static-token mode
 	InCluster   bool   // use the pod's mounted ServiceAccount (no stored creds)
+	// TokenSource, when set, supplies a fresh bearer token per request — EKS IAM
+	// auth mode. Used instead of the static BearerToken; it caches + refreshes
+	// internally (aws.Provider.EKSTokenSource), so a cached client keeps working
+	// as the short-lived token rotates and portal stores no long-lived credential.
+	TokenSource func(ctx context.Context) (string, error)
 }
 
 // BuildRestConfig assembles a *rest.Config from the slim creds. Returned
@@ -77,20 +83,47 @@ func BuildRestConfig(c SlimConfig) (*rest.Config, error) {
 		cfg.Timeout = 30 * time.Second
 		return cfg, nil
 	}
-	if c.BearerToken == "" {
-		return nil, fmt.Errorf("bearer token is required")
-	}
 	if len(c.CABundle) == 0 {
 		return nil, fmt.Errorf("ca bundle is required")
 	}
-	return &rest.Config{
-		Host:        c.APIEndpoint,
-		BearerToken: c.BearerToken,
-		TLSClientConfig: rest.TLSClientConfig{
-			CAData: c.CABundle,
-		},
-		Timeout: 30 * time.Second,
-	}, nil
+	cfg := &rest.Config{
+		Host:            c.APIEndpoint,
+		TLSClientConfig: rest.TLSClientConfig{CAData: c.CABundle},
+		Timeout:         30 * time.Second,
+	}
+	// EKS IAM mode: a transport wrapper injects a freshly-minted token per
+	// request, so the built client can be cached while the token underneath
+	// rotates. No static credential is stored.
+	if c.TokenSource != nil {
+		ts := c.TokenSource
+		cfg.WrapTransport = func(rt http.RoundTripper) http.RoundTripper {
+			return &bearerInjector{rt: rt, token: ts}
+		}
+		return cfg, nil
+	}
+	if c.BearerToken == "" {
+		return nil, fmt.Errorf("bearer token or token source is required")
+	}
+	cfg.BearerToken = c.BearerToken
+	return cfg, nil
+}
+
+// bearerInjector sets a freshly-minted bearer token on each request — the
+// transport behind EKS IAM auth, where tokens are short-lived.
+type bearerInjector struct {
+	rt    http.RoundTripper
+	token func(ctx context.Context) (string, error)
+}
+
+func (b *bearerInjector) RoundTrip(req *http.Request) (*http.Response, error) {
+	tok, err := b.token(req.Context())
+	if err != nil {
+		return nil, fmt.Errorf("mint bearer token: %w", err)
+	}
+	// Clone so the caller's request isn't mutated (RoundTripper contract).
+	r := req.Clone(req.Context())
+	r.Header.Set("Authorization", "Bearer "+tok)
+	return b.rt.RoundTrip(r)
 }
 
 // BuildClient returns a *kubernetes.Clientset from slim creds. Convenience
