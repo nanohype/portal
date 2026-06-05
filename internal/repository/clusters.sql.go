@@ -10,11 +10,11 @@ import (
 	"time"
 )
 
-const clusterColumns = `id, org_id, account_id, name, description, environment, api_endpoint, ca_bundle_encrypted, sa_token_encrypted, region, connection_status, last_connected_at, connection_error, node_count, k8s_version, created_by, created_at, updated_at`
+const clusterColumns = `id, org_id, account_id, name, description, environment, api_endpoint, ca_bundle_encrypted, sa_token_encrypted, region, auth_mode, eks_cluster_name, connection_status, last_connected_at, connection_error, node_count, k8s_version, created_by, created_at, updated_at`
 
 func scanCluster(row interface{ Scan(...interface{}) error }) (Cluster, error) {
 	var c Cluster
-	err := row.Scan(&c.ID, &c.OrgID, &c.AccountID, &c.Name, &c.Description, &c.Environment, &c.APIEndpoint, &c.CABundleEncrypted, &c.SATokenEncrypted, &c.Region, &c.ConnectionStatus, &c.LastConnectedAt, &c.ConnectionError, &c.NodeCount, &c.K8sVersion, &c.CreatedBy, &c.CreatedAt, &c.UpdatedAt)
+	err := row.Scan(&c.ID, &c.OrgID, &c.AccountID, &c.Name, &c.Description, &c.Environment, &c.APIEndpoint, &c.CABundleEncrypted, &c.SATokenEncrypted, &c.Region, &c.AuthMode, &c.EKSClusterName, &c.ConnectionStatus, &c.LastConnectedAt, &c.ConnectionError, &c.NodeCount, &c.K8sVersion, &c.CreatedBy, &c.CreatedAt, &c.UpdatedAt)
 	return c, err
 }
 
@@ -93,15 +93,17 @@ type CreateClusterParams struct {
 	CABundleEncrypted string `json:"ca_bundle_encrypted"`
 	SATokenEncrypted  string `json:"sa_token_encrypted"`
 	Region            string `json:"region"`
+	AuthMode          string `json:"auth_mode"`
+	EKSClusterName    string `json:"eks_cluster_name"`
 	CreatedBy         string `json:"created_by"`
 }
 
 func (q *Queries) CreateCluster(ctx context.Context, arg CreateClusterParams) (Cluster, error) {
 	row := q.db.QueryRow(ctx,
-		`INSERT INTO clusters (id, org_id, account_id, name, description, environment, api_endpoint, ca_bundle_encrypted, sa_token_encrypted, region, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		`INSERT INTO clusters (id, org_id, account_id, name, description, environment, api_endpoint, ca_bundle_encrypted, sa_token_encrypted, region, auth_mode, eks_cluster_name, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING `+clusterColumns,
-		arg.ID, arg.OrgID, arg.AccountID, arg.Name, arg.Description, arg.Environment, arg.APIEndpoint, arg.CABundleEncrypted, arg.SATokenEncrypted, arg.Region, arg.CreatedBy,
+		arg.ID, arg.OrgID, arg.AccountID, arg.Name, arg.Description, arg.Environment, arg.APIEndpoint, arg.CABundleEncrypted, arg.SATokenEncrypted, arg.Region, arg.AuthMode, arg.EKSClusterName, arg.CreatedBy,
 	)
 	return scanCluster(row)
 }
