@@ -270,6 +270,26 @@ type TenantOperation struct {
 	CompletedAt   *time.Time      `json:"completed_at"`
 }
 
+// ClusterOperation is the vend order-desk log row. spec_json holds the
+// clusterspec.Input the portal templated the Cluster CR from; cluster_id is set
+// when the watch-back auto-registers the vended cluster (status -> 'active').
+type ClusterOperation struct {
+	ID           string          `json:"id"`
+	OrgID        string          `json:"org_id"`
+	Name         string          `json:"name"`
+	Environment  string          `json:"environment"`
+	Team         string          `json:"team"`
+	Operation    string          `json:"operation"`
+	Status       string          `json:"status"`
+	GitCommitSHA string          `json:"git_commit_sha"`
+	Error        string          `json:"error"`
+	SpecJSON     json.RawMessage `json:"spec_json"`
+	ClusterID    *string         `json:"cluster_id"`
+	CreatedBy    string          `json:"created_by"`
+	CreatedAt    time.Time       `json:"created_at"`
+	CompletedAt  *time.Time      `json:"completed_at"`
+}
+
 type Template struct {
 	ID                   string          `json:"id"`
 	OrgID                string          `json:"org_id"`

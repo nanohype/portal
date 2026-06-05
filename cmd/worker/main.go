@@ -17,6 +17,9 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
+	"path/filepath"
+	"sync"
+
 	tofuaws "github.com/nanohype/portal/internal/aws"
 	"github.com/nanohype/portal/internal/domain"
 	tofugit "github.com/nanohype/portal/internal/git"
@@ -29,8 +32,6 @@ import (
 	"github.com/nanohype/portal/internal/storage"
 	"github.com/nanohype/portal/internal/worker"
 	"github.com/nanohype/portal/internal/worker/executor"
-	"path/filepath"
-	"sync"
 )
 
 func main() {
@@ -198,6 +199,8 @@ func main() {
 	clusterWatchWorker := worker.NewClusterWatchJobWorker(queries, clusterDecrypt, tenantReconcile)
 	river.AddWorker(workers, clusterWatchWorker)
 
+	clusterOrderSvc := service.NewClusterOrderService(queries, dbPool)
+
 	// Tenant write path (phase 2c): renders the eks-agent-platform `charts/tenant` chart
 	// with the user-supplied values, commits the rendered manifest into the
 	// tenants repo, lets ArgoCD reconcile. Two git repos are involved:
@@ -280,6 +283,46 @@ func main() {
 		logger.Info("tenant write path disabled (GITOPS_TENANTS_REPO_URL / EKS_AGENT_PLATFORM_CHARTS_REPO_URL / GITOPS_SSH_KEY_PATH not set)")
 	}
 
+	// Cluster vend path: templates the eks-fleet Cluster CR (no chart — the CR is
+	// small + flat) and commits it to the clusters repo for the hub's ArgoCD to
+	// reconcile. Optional: if GITOPS_CLUSTERS_REPO_URL / GITOPS_SSH_KEY_PATH aren't
+	// set, the worker surfaces a clear "not configured" error rather than crashing.
+	var clusterApplyWorker *worker.ClusterApplyJobWorker
+	if cfg.ClustersRepoURL != "" && cfg.GitSSHKeyPath != "" {
+		clustersRepo, err := tofugit.NewRepo(filepath.Join(cfg.GitCacheDir, "clusters"), cfg.ClustersRepoURL, cfg.GitSSHKeyPath)
+		if err != nil {
+			logger.Error("failed to initialize clusters repo", "error", err)
+			os.Exit(1)
+		}
+		clusterApplyWorker = worker.NewClusterApplyJobWorker(worker.ClusterApplyDeps{
+			LoadOp: func(ctx context.Context, id, orgID string) (repository.ClusterOperation, error) {
+				return clusterOrderSvc.GetOperation(ctx, id, orgID)
+			},
+			CompleteOp: func(ctx context.Context, id, orgID, status, sha, errMsg string) error {
+				return clusterOrderSvc.CompleteOperation(ctx, id, orgID, status, sha, errMsg)
+			},
+			ClustersRepo: clustersRepo,
+			RepoMu:       &sync.Mutex{},
+			ClustersRef:  cfg.ClustersRepoRef,
+			Author:       tofugit.Author{Name: cfg.GitAuthorName, Email: cfg.GitAuthorEmail},
+		})
+		river.AddWorker(workers, clusterApplyWorker)
+		logger.Info("cluster vend path enabled", "clusters_repo", cfg.ClustersRepoURL)
+	} else {
+		stub := worker.NewClusterApplyJobWorker(worker.ClusterApplyDeps{
+			LoadOp: func(ctx context.Context, id, orgID string) (repository.ClusterOperation, error) {
+				return clusterOrderSvc.GetOperation(ctx, id, orgID)
+			},
+			CompleteOp: func(ctx context.Context, id, orgID, status, sha, errMsg string) error {
+				return clusterOrderSvc.CompleteOperation(ctx, id, orgID, status, sha, errMsg)
+			},
+			RepoMu:      &sync.Mutex{},
+			ClustersRef: cfg.ClustersRepoRef,
+		})
+		river.AddWorker(workers, stub)
+		logger.Info("cluster vend path disabled (GITOPS_CLUSTERS_REPO_URL / GITOPS_SSH_KEY_PATH not set)")
+	}
+
 	// Create River client
 	riverClient, err := river.NewClient[pgx.Tx](riverpgxv5.New(dbPool), &river.Config{
 		Queues: map[string]river.QueueConfig{
@@ -300,8 +343,12 @@ func main() {
 	if tenantApplyWorker != nil {
 		tenantApplyWorker.SetRiverClient(riverClient, dbPool)
 	}
+	if clusterApplyWorker != nil {
+		clusterApplyWorker.SetRiverClient(riverClient, dbPool)
+	}
 	runSvc.SetRiverClient(riverClient)
 	clusterSvc.SetRiverClient(riverClient) // so the ArgoCD sync can enqueue connection-tests
+	clusterOrderSvc.SetRiverClient(riverClient)
 
 	// Health endpoint for K8s liveness probe
 	go func() {
