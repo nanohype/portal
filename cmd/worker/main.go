@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
@@ -451,6 +452,45 @@ func main() {
 						return
 					case <-t.C:
 						runSync()
+					}
+				}
+			}()
+		}
+	}
+
+	// Cluster provision watch-back: the vend loop's closing leg. When enabled
+	// and running in-cluster on the hub, poll each committed provision op's
+	// eks-fleet Cluster XR and, once its EKS endpoint + CA are up, auto-register
+	// the new cluster (as eks_iam — no stored token) and flip the op to 'active'.
+	// Inert in dev / off the hub, where there's no in-cluster config.
+	if cfg.ClusterWatchback {
+		restCfg, err := rest.InClusterConfig()
+		if err != nil {
+			logger.Warn("cluster watch-back enabled but worker is not running in-cluster; skipping", "error", err)
+		} else if hubDyn, err := dynamic.NewForConfig(restCfg); err != nil {
+			logger.Warn("cluster watch-back: failed to build in-cluster dynamic client; skipping", "error", err)
+		} else {
+			watchSvc := service.NewClusterProvisionWatchService(clusterSvc, queries, hubDyn)
+			go func() {
+				t := time.NewTicker(cfg.ClusterWatchbackInterval)
+				defer t.Stop()
+				runWatchback := func() {
+					registered, pending, err := watchSvc.Sync(context.Background())
+					if err != nil {
+						logger.Warn("cluster watch-back", "error", err)
+						return
+					}
+					if registered > 0 || pending > 0 {
+						logger.Info("cluster watch-back tick", "registered", registered, "pending", pending)
+					}
+				}
+				runWatchback()
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-t.C:
+						runWatchback()
 					}
 				}
 			}()

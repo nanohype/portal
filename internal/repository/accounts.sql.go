@@ -28,6 +28,23 @@ func (q *Queries) GetAccount(ctx context.Context, arg GetAccountParams) (Account
 	return scanAccount(row)
 }
 
+type GetAccountByAWSIDParams struct {
+	OrgID        string `json:"org_id"`
+	AWSAccountID string `json:"aws_account_id"`
+}
+
+// GetAccountByAWSID resolves a portal account row from a 12-digit AWS account
+// number. The provision watch-back uses it to map a vended Cluster's
+// spec.account back to the portal account that carries the assume-role used to
+// mint the new cluster's EKS tokens.
+func (q *Queries) GetAccountByAWSID(ctx context.Context, arg GetAccountByAWSIDParams) (Account, error) {
+	row := q.db.QueryRow(ctx,
+		`SELECT `+accountColumns+` FROM accounts WHERE org_id = $1 AND aws_account_id = $2`,
+		arg.OrgID, arg.AWSAccountID,
+	)
+	return scanAccount(row)
+}
+
 type ListAccountsParams struct {
 	OrgID  string `json:"org_id"`
 	Limit  int32  `json:"limit"`
