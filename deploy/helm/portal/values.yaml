@@ -143,3 +143,25 @@ argocdSync:
   orgID: ""
   accountID: ""
   createdBy: ""
+
+# -- GitOps write paths. The worker commits rendered manifests (tenant charts,
+# cluster CRs) to these repos over SSH. Set sshKey to a deploy key with write
+# access to the repos; setting a repo URL enables that vend path. The key is
+# mounted read-only on the worker and never exposed as an env var.
+gitops:
+  sshKey: ""                 # private deploy key (PEM); enables the SSH git remote
+  authorName: "portal"
+  authorEmail: "portal@local"
+  clustersRepoURL: ""        # e.g. git@github.com:nanohype/clusters.git — enables cluster vend
+  clustersRepoRef: "main"
+  tenantsRepoURL: ""         # e.g. git@github.com:nanohype/tenants.git — enables tenant vend
+  tenantsRepoRef: "main"
+
+# -- Cluster provision watch-back (the vend loop's closing leg). When enabled,
+# the worker — running in-cluster on the hub — polls each committed provision
+# op's eks-fleet Cluster XR and auto-registers the cluster (as eks_iam) once its
+# endpoint+CA are up. Enabling it grants the worker read RBAC on
+# fleet.nanohype.dev/clusters. Inert off the hub (no in-cluster config).
+clusterWatchback:
+  enabled: false
+  interval: "60s"
