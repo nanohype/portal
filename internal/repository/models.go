@@ -231,6 +231,8 @@ type Cluster struct {
 	CABundleEncrypted string     `json:"-"`
 	SATokenEncrypted  string     `json:"-"`
 	Region            string     `json:"region"`
+	AuthMode          string     `json:"auth_mode"`
+	EKSClusterName    string     `json:"eks_cluster_name"`
 	ConnectionStatus  string     `json:"connection_status"`
 	LastConnectedAt   *time.Time `json:"last_connected_at"`
 	ConnectionError   string     `json:"connection_error"`
@@ -255,19 +257,19 @@ type Tenant struct {
 }
 
 type TenantOperation struct {
-	ID            string          `json:"id"`
-	OrgID         string          `json:"org_id"`
-	ClusterID     string          `json:"cluster_id"`
-	TenantName    string          `json:"tenant_name"`
-	Operation     string          `json:"operation"`
-	Status        string          `json:"status"`
-	GitCommitSHA  string          `json:"git_commit_sha"`
-	Error         string          `json:"error"`
-	ValuesJSON    json.RawMessage `json:"values_json"`
-	TemplateID    *string         `json:"template_id"`
-	CreatedBy     string          `json:"created_by"`
-	CreatedAt     time.Time       `json:"created_at"`
-	CompletedAt   *time.Time      `json:"completed_at"`
+	ID           string          `json:"id"`
+	OrgID        string          `json:"org_id"`
+	ClusterID    string          `json:"cluster_id"`
+	TenantName   string          `json:"tenant_name"`
+	Operation    string          `json:"operation"`
+	Status       string          `json:"status"`
+	GitCommitSHA string          `json:"git_commit_sha"`
+	Error        string          `json:"error"`
+	ValuesJSON   json.RawMessage `json:"values_json"`
+	TemplateID   *string         `json:"template_id"`
+	CreatedBy    string          `json:"created_by"`
+	CreatedAt    time.Time       `json:"created_at"`
+	CompletedAt  *time.Time      `json:"completed_at"`
 }
 
 // ClusterOperation is the vend order-desk log row. spec_json holds the

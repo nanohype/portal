@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -173,11 +174,30 @@ func main() {
 		if err != nil {
 			return k8s.SlimConfig{}, err
 		}
-		return k8s.SlimConfig{
+		cfg := k8s.SlimConfig{
 			APIEndpoint: creds.APIEndpoint,
 			CABundle:    creds.CABundle,
-			BearerToken: creds.SAToken,
-		}, nil
+		}
+		// eks_iam clusters store no token — mint a short-lived EKS token per
+		// request by assuming the parent account's role and presigning STS. The
+		// built k8s client is cached while the token underneath rotates, so
+		// nothing long-lived is held. sa_token clusters use the stored token.
+		if c.AuthMode == service.AuthModeEKSIAM {
+			if awsProvider == nil {
+				return k8s.SlimConfig{}, fmt.Errorf("eks_iam cluster %q requires an AWS provider, but none is configured", c.Name)
+			}
+			account, err := queries.GetAccount(context.Background(), repository.GetAccountParams{ID: c.AccountID, OrgID: c.OrgID})
+			if err != nil {
+				return k8s.SlimConfig{}, fmt.Errorf("load account for eks_iam cluster %q: %w", c.Name, err)
+			}
+			if account.AssumeRoleARN == "" {
+				return k8s.SlimConfig{}, fmt.Errorf("eks_iam cluster %q account has no assume-role ARN", c.Name)
+			}
+			cfg.TokenSource = awsProvider.EKSTokenSource(account.AssumeRoleARN, "", c.Region, c.EKSClusterName)
+			return cfg, nil
+		}
+		cfg.BearerToken = creds.SAToken
+		return cfg, nil
 	}
 	clusterStatusUpdate := func(ctx context.Context, id, orgID, status, errMsg, k8sVersion string, nodeCount int32) error {
 		return clusterSvc.SetConnectionStatus(ctx, id, orgID, status, errMsg, k8sVersion, nodeCount)

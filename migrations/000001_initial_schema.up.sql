@@ -409,6 +409,14 @@ CREATE TABLE clusters (
     ca_bundle_encrypted TEXT NOT NULL,
     sa_token_encrypted  TEXT NOT NULL,
     region              TEXT NOT NULL,
+    -- How portal authenticates to this cluster's API server:
+    --   'sa_token' — a stored, encrypted ServiceAccount bearer token (sa_token_encrypted).
+    --   'eks_iam'  — no stored token; portal mints a short-lived EKS token per
+    --                request by assuming the parent account's role and presigning
+    --                STS for eks_cluster_name. The credential-hygiene path for
+    --                vended clusters — no long-lived secret at rest.
+    auth_mode           TEXT NOT NULL DEFAULT 'sa_token',
+    eks_cluster_name    TEXT NOT NULL DEFAULT '',
     connection_status   cluster_connection_status NOT NULL DEFAULT 'pending',
     last_connected_at   TIMESTAMPTZ,
     connection_error    TEXT NOT NULL DEFAULT '',
