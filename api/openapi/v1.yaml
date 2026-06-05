@@ -735,6 +735,90 @@ paths:
                     type: string
                     enum: [pending]
 
+  /cluster-orders:
+    post:
+      operationId: provisionCluster
+      summary: Order a new EKS cluster (admin only)
+      description: |
+        Templates an eks-fleet Cluster CR from the supplied spec and commits it
+        to the clusters GitOps repo, where the hub's ArgoCD applies it and
+        Crossplane vends the cluster. Records a cluster_operation row of
+        kind=provision. When the cluster's API comes up, the provision
+        watch-back auto-registers it as an eks_iam cluster and flips the
+        operation to active.
+      tags: [clusters]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClusterOrderInput"
+      responses:
+        "202":
+          description: Provision operation enqueued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClusterOperation"
+
+  /cluster-orders/{environment}/{name}:
+    delete:
+      operationId: deprovisionCluster
+      summary: Tear down a vended cluster (admin only)
+      description: |
+        Removes the cluster's CR from the clusters GitOps repo; ArgoCD prunes
+        it and Crossplane destroys the cluster. Records a cluster_operation row
+        of kind=deprovision.
+      tags: [clusters]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: environment
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "202":
+          description: Deprovision operation enqueued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClusterOperation"
+
+  /cluster-orders/{environment}/{name}/operations:
+    get:
+      operationId: listClusterOperations
+      summary: List the vend operation log for a cluster
+      tags: [clusters]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: environment
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Operation log, newest first
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClusterOperationList"
+
   /teams:
     get:
       operationId: listTeams
@@ -2290,6 +2374,82 @@ components:
         ca_bundle: { type: string }
         sa_token: { type: string }
         region: { type: string }
+
+    ClusterOrderInput:
+      type: object
+      required: [name, account, region, team]
+      description: |
+        The vend spec. Portal templates an eks-fleet Cluster CR from it. account
+        is the 12-digit AWS account number (resolved server-side to the portal
+        account that carries the assume-role). Optional fields fall back to the
+        fleet defaults.
+      properties:
+        name:
+          type: string
+          description: Cluster name (also the CR name); k8s-name shaped
+        account:
+          type: string
+          pattern: "^[0-9]{12}$"
+        region:
+          type: string
+          pattern: "^[a-z]{2}-[a-z]+-[0-9]$"
+        team:
+          type: string
+          description: Owning team; becomes the CR namespace
+        environment:
+          type: string
+          enum: [dev, staging, production]
+        cluster_version:
+          type: string
+          description: EKS version; defaults to the fleet default
+        endpoint_public_access:
+          type: boolean
+
+    ClusterOperation:
+      type: object
+      required: [id, org_id, name, environment, team, operation, status, git_commit_sha, error, spec_json, created_by, created_at]
+      description: A row in the cluster vend order-desk log.
+      properties:
+        id: { type: string }
+        org_id: { type: string }
+        name: { type: string }
+        environment: { type: string }
+        team: { type: string }
+        operation:
+          type: string
+          enum: [provision, deprovision]
+        status:
+          type: string
+          enum: [pending, committed, failed, active]
+        git_commit_sha: { type: string }
+        error: { type: string }
+        spec_json:
+          type: object
+          additionalProperties: true
+        cluster_id:
+          type: string
+          nullable: true
+          description: Set when the watch-back auto-registers the vended cluster
+        created_by: { type: string }
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    ClusterOperationList:
+      type: object
+      required: [items, total, page, per_page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ClusterOperation"
+        total: { type: integer }
+        page: { type: integer }
+        per_page: { type: integer }
 
     Tenant:
       type: object
