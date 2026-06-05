@@ -498,6 +498,43 @@ export interface UpdateClusterRequest {
   region?: string;
 }
 
+// ClusterOrderInput is the vend form: portal templates an eks-fleet Cluster CR
+// from it and commits it to the clusters GitOps repo. account is the 12-digit
+// AWS account number (not a portal account id); the rest default server-side.
+export interface ClusterOrderInput {
+  name: string;
+  account: string;
+  region: string;
+  team: string;
+  environment?: "dev" | "staging" | "production";
+  cluster_version?: string;
+  endpoint_public_access?: boolean;
+}
+
+export type ClusterOperationKind = "provision" | "deprovision";
+export type ClusterOperationStatus =
+  | "pending"
+  | "committed"
+  | "failed"
+  | "active";
+
+export interface ClusterOperation {
+  id: string;
+  org_id: string;
+  name: string;
+  environment: string;
+  team: string;
+  operation: ClusterOperationKind;
+  status: ClusterOperationStatus;
+  git_commit_sha: string;
+  error: string;
+  spec_json: Record<string, unknown>;
+  cluster_id: string | null;
+  created_by: string;
+  created_at: string;
+  completed_at: string | null;
+}
+
 export interface Tenant {
   id: string;
   org_id: string;
@@ -755,6 +792,22 @@ export interface paths {
       parameters: { path: { clusterId: string } };
       responses: {
         202: { content: { "application/json": { status: string } } };
+      };
+    };
+  };
+  "/cluster-orders": {
+    post: {
+      requestBody: { content: { "application/json": ClusterOrderInput } };
+      responses: {
+        202: { content: { "application/json": ClusterOperation } };
+      };
+    };
+  };
+  "/cluster-orders/{environment}/{name}/operations": {
+    get: {
+      parameters: { path: { environment: string; name: string } };
+      responses: {
+        200: { content: { "application/json": ListResponse<ClusterOperation> } };
       };
     };
   };

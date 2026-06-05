@@ -8,8 +8,9 @@ import { Spinner } from "@/components/ui/spinner";
 import { Link } from "@/components/ui/link";
 import { formatRelativeTime } from "@/lib/utils";
 import type { Account, Cluster, ClusterConnectionStatus } from "@/api/types";
-import { Server, Plus } from "lucide-react";
+import { Server, Plus, Cloud } from "lucide-react";
 import { ClusterCreateModal } from "./ClusterCreateModal";
+import { ClusterOrderModal } from "./ClusterOrderModal";
 
 export function statusBadge(status: ClusterConnectionStatus) {
   switch (status) {
@@ -28,6 +29,7 @@ export function ClusterList() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin" || user?.role === "owner";
   const [showCreate, setShowCreate] = useState(false);
+  const [showOrder, setShowOrder] = useState(false);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["clusters"],
@@ -95,14 +97,25 @@ export function ClusterList() {
           </p>
         </div>
         {isAdmin && (
-          <Button
-            size="sm"
-            onClick={() => setShowCreate(true)}
-            disabled={!accounts || accounts.length === 0}
-          >
-            <Plus className="w-3.5 h-3.5" />
-            New Cluster
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setShowCreate(true)}
+              disabled={!accounts || accounts.length === 0}
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Register
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => setShowOrder(true)}
+              disabled={!accounts || accounts.length === 0}
+            >
+              <Cloud className="w-3.5 h-3.5" />
+              Provision
+            </Button>
+          </div>
         )}
       </div>
 
@@ -178,6 +191,12 @@ export function ClusterList() {
       <ClusterCreateModal
         open={showCreate}
         onClose={() => setShowCreate(false)}
+        accounts={accounts ?? []}
+      />
+
+      <ClusterOrderModal
+        open={showOrder}
+        onClose={() => setShowOrder(false)}
         accounts={accounts ?? []}
       />
     </div>
