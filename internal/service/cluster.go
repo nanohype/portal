@@ -15,6 +15,18 @@ import (
 	"github.com/nanohype/portal/internal/worker"
 )
 
+// Cluster auth modes — how portal authenticates to a cluster's API server.
+const (
+	// AuthModeSAToken stores an encrypted ServiceAccount bearer token and sends
+	// it on every request. The path for hand-registered clusters.
+	AuthModeSAToken = "sa_token"
+	// AuthModeEKSIAM stores no token. The worker mints a short-lived EKS token
+	// per request by assuming the parent account's role and presigning STS for
+	// the cluster. The credential-hygiene path for vended EKS clusters — nothing
+	// long-lived sits at rest.
+	AuthModeEKSIAM = "eks_iam"
+)
+
 type ClusterService struct {
 	queries     *repository.Queries
 	db          *pgxpool.Pool
@@ -46,16 +58,18 @@ func (s *ClusterService) EnqueueConnectionTest(ctx context.Context, clusterID, o
 }
 
 type CreateClusterParams struct {
-	OrgID       string
-	AccountID   string
-	Name        string
-	Description string
-	Environment string
-	APIEndpoint string
-	CABundle    string // plaintext PEM; encrypted before persist
-	SAToken     string // plaintext bearer token; encrypted before persist
-	Region      string
-	CreatedBy   string
+	OrgID          string
+	AccountID      string
+	Name           string
+	Description    string
+	Environment    string
+	APIEndpoint    string
+	CABundle       string // plaintext PEM; encrypted before persist
+	SAToken        string // plaintext bearer token; encrypted before persist (sa_token mode)
+	Region         string
+	AuthMode       string // "sa_token" (default) | "eks_iam"
+	EKSClusterName string // required for eks_iam: the EKS cluster name to mint tokens for
+	CreatedBy      string
 }
 
 type UpdateClusterParams struct {
@@ -106,13 +120,24 @@ func (s *ClusterService) Get(ctx context.Context, id, orgID string) (repository.
 }
 
 func (s *ClusterService) Create(ctx context.Context, params CreateClusterParams) (repository.Cluster, error) {
+	authMode := params.AuthMode
+	if authMode == "" {
+		authMode = AuthModeSAToken
+	}
+
 	caEnc, err := s.enc.Encrypt(params.CABundle)
 	if err != nil {
 		return repository.Cluster{}, fmt.Errorf("encrypt ca bundle: %w", err)
 	}
-	tokenEnc, err := s.enc.Encrypt(params.SAToken)
-	if err != nil {
-		return repository.Cluster{}, fmt.Errorf("encrypt sa token: %w", err)
+
+	// eks_iam clusters carry no stored token — the worker mints one per request
+	// from the account's assume-role, so there's nothing to encrypt at rest.
+	var tokenEnc string
+	if authMode == AuthModeSAToken {
+		tokenEnc, err = s.enc.Encrypt(params.SAToken)
+		if err != nil {
+			return repository.Cluster{}, fmt.Errorf("encrypt sa token: %w", err)
+		}
 	}
 
 	return s.queries.CreateCluster(ctx, repository.CreateClusterParams{
@@ -126,6 +151,8 @@ func (s *ClusterService) Create(ctx context.Context, params CreateClusterParams)
 		CABundleEncrypted: caEnc,
 		SATokenEncrypted:  tokenEnc,
 		Region:            params.Region,
+		AuthMode:          authMode,
+		EKSClusterName:    params.EKSClusterName,
 		CreatedBy:         params.CreatedBy,
 	})
 }
@@ -164,15 +191,18 @@ func (s *ClusterService) Decrypt(c repository.Cluster) (ClusterCreds, error) {
 	if err != nil {
 		return ClusterCreds{}, fmt.Errorf("decrypt ca bundle: %w", err)
 	}
+	creds := ClusterCreds{APIEndpoint: c.APIEndpoint, CABundle: []byte(ca)}
+	// eks_iam clusters store no token; the caller mints one from the account
+	// role. Only sa_token clusters have an encrypted token to recover.
+	if c.AuthMode == AuthModeEKSIAM {
+		return creds, nil
+	}
 	token, err := s.enc.Decrypt(c.SATokenEncrypted)
 	if err != nil {
 		return ClusterCreds{}, fmt.Errorf("decrypt sa token: %w", err)
 	}
-	return ClusterCreds{
-		APIEndpoint: c.APIEndpoint,
-		CABundle:    []byte(ca),
-		SAToken:     token,
-	}, nil
+	creds.SAToken = token
+	return creds, nil
 }
 
 // SetConnectionStatus is the write path the connection-test worker uses to

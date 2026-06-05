@@ -33,6 +33,11 @@ type CreateClusterRequest struct {
 	CABundle    string `json:"ca_bundle"`
 	SAToken     string `json:"sa_token"`
 	Region      string `json:"region"`
+	// AuthMode selects how portal authenticates: "sa_token" (default, uses
+	// SAToken) or "eks_iam" (no token; mints one from the account role for
+	// EKSClusterName). EKSClusterName is required when AuthMode is "eks_iam".
+	AuthMode       string `json:"auth_mode"`
+	EKSClusterName string `json:"eks_cluster_name"`
 }
 
 type UpdateClusterRequest struct {
@@ -162,12 +167,39 @@ func (h *ClusterHandler) Create(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusBadRequest, "ca_bundle must be at most 64KB")
 		return
 	}
-	if strings.TrimSpace(req.SAToken) == "" {
-		respond.Error(w, http.StatusBadRequest, "sa_token is required")
-		return
+	// Credential shape depends on auth_mode. sa_token (default) wants a stored
+	// bearer token; eks_iam wants no token but the EKS cluster name to mint
+	// short-lived tokens for, and needs the parent account to carry an
+	// assume-role (the connection test fails clearly if it doesn't).
+	authMode := req.AuthMode
+	if authMode == "" {
+		authMode = service.AuthModeSAToken
 	}
-	if len(req.SAToken) > 8*1024 {
-		respond.Error(w, http.StatusBadRequest, "sa_token must be at most 8KB")
+	switch authMode {
+	case service.AuthModeSAToken:
+		if strings.TrimSpace(req.SAToken) == "" {
+			respond.Error(w, http.StatusBadRequest, "sa_token is required")
+			return
+		}
+		if len(req.SAToken) > 8*1024 {
+			respond.Error(w, http.StatusBadRequest, "sa_token must be at most 8KB")
+			return
+		}
+	case service.AuthModeEKSIAM:
+		if strings.TrimSpace(req.EKSClusterName) == "" {
+			respond.Error(w, http.StatusBadRequest, "eks_cluster_name is required for eks_iam auth")
+			return
+		}
+		if len(req.EKSClusterName) > 128 {
+			respond.Error(w, http.StatusBadRequest, "eks_cluster_name must be at most 128 characters")
+			return
+		}
+		if account.AssumeRoleARN == "" {
+			respond.Error(w, http.StatusBadRequest, "eks_iam auth requires the parent account to have an assume-role ARN")
+			return
+		}
+	default:
+		respond.Error(w, http.StatusBadRequest, "auth_mode must be sa_token or eks_iam")
 		return
 	}
 	// Region defaults to the parent account's region when not supplied —
@@ -182,16 +214,18 @@ func (h *ClusterHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cluster, err := h.svc.Create(r.Context(), service.CreateClusterParams{
-		OrgID:       userCtx.OrgID,
-		AccountID:   req.AccountID,
-		Name:        req.Name,
-		Description: req.Description,
-		Environment: req.Environment,
-		APIEndpoint: req.APIEndpoint,
-		CABundle:    req.CABundle,
-		SAToken:     req.SAToken,
-		Region:      region,
-		CreatedBy:   userCtx.UserID,
+		OrgID:          userCtx.OrgID,
+		AccountID:      req.AccountID,
+		Name:           req.Name,
+		Description:    req.Description,
+		Environment:    req.Environment,
+		APIEndpoint:    req.APIEndpoint,
+		CABundle:       req.CABundle,
+		SAToken:        req.SAToken,
+		Region:         region,
+		AuthMode:       authMode,
+		EKSClusterName: req.EKSClusterName,
+		CreatedBy:      userCtx.UserID,
 	})
 	if err != nil {
 		if isUniqueViolation(err) {
