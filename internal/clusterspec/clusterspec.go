@@ -1,0 +1,180 @@
+// Package clusterspec turns a portal cluster-vend form into a namespaced
+// eks-fleet Cluster custom resource (fleet.nanohype.dev/v1alpha1). The portal
+// commits the rendered manifest to the clusters GitOps repo; the hub's ArgoCD
+// applies it and Crossplane vends the EKS cluster. Required inputs are name,
+// account, region, and team; everything else carries eks-fleet's defaults when
+// unset (matching apis/cluster/definition.yaml).
+package clusterspec
+
+import (
+	"fmt"
+	"regexp"
+
+	"sigs.k8s.io/yaml"
+)
+
+const (
+	apiVersion            = "fleet.nanohype.dev/v1alpha1"
+	kind                  = "Cluster"
+	defaultEnvironment    = "dev"
+	defaultClusterVersion = "1.35"
+)
+
+// k8sName is the RFC 1123 label/subdomain shape Kubernetes requires for the
+// Cluster's metadata.name and namespace.
+var (
+	k8sName  = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+	awsAcct  = regexp.MustCompile(`^[0-9]{12}$`)
+	awsRegn  = regexp.MustCompile(`^[a-z]{2}-[a-z]+-[0-9]$`)
+	validEnv = map[string]bool{"dev": true, "staging": true, "production": true}
+)
+
+// Input is the portal-facing shape (snake_case JSON for the API + the
+// cluster_operations.spec_json column). Render maps it to the camelCase CR.
+type Input struct {
+	Name                      string       `json:"name"`
+	Account                   string       `json:"account"`
+	Region                    string       `json:"region"`
+	Team                      string       `json:"team"`
+	Environment               string       `json:"environment,omitempty"`
+	ClusterVersion            string       `json:"cluster_version,omitempty"`
+	SystemNodes               *SystemNodes `json:"system_nodes,omitempty"`
+	Network                   *Network     `json:"network,omitempty"`
+	EndpointPublicAccess      *bool        `json:"endpoint_public_access,omitempty"`
+	EndpointPublicAccessCidrs []string     `json:"endpoint_public_access_cidrs,omitempty"`
+	VendRoleArn               string       `json:"vend_role_arn,omitempty"`
+}
+
+// SystemNodes is the system node group sizing.
+type SystemNodes struct {
+	InstanceTypes []string `json:"instance_types,omitempty"`
+	MinSize       *int     `json:"min_size,omitempty"`
+	MaxSize       *int     `json:"max_size,omitempty"`
+	DesiredSize   *int     `json:"desired_size,omitempty"`
+	DiskSize      *int     `json:"disk_size,omitempty"`
+}
+
+// Network is the VPC the cluster lands in.
+type Network struct {
+	VpcCidr     string `json:"vpc_cidr,omitempty"`
+	MaxAzs      *int   `json:"max_azs,omitempty"`
+	NatGateways *int   `json:"nat_gateways,omitempty"`
+}
+
+// Validate checks the required fields and their shapes. The eks-fleet defaults
+// cover the optional fields, so only the four identity inputs are enforced here.
+func (in Input) Validate() error {
+	switch {
+	case !k8sName.MatchString(in.Name):
+		return fmt.Errorf("name %q must be a lowercase RFC-1123 label", in.Name)
+	case !awsAcct.MatchString(in.Account):
+		return fmt.Errorf("account %q must be a 12-digit AWS account id", in.Account)
+	case !awsRegn.MatchString(in.Region):
+		return fmt.Errorf("region %q is not a valid AWS region", in.Region)
+	case !k8sName.MatchString(in.Team):
+		return fmt.Errorf("team %q must be a lowercase RFC-1123 label (it is the Cluster's namespace)", in.Team)
+	}
+	if in.Environment != "" && !validEnv[in.Environment] {
+		return fmt.Errorf("environment %q must be dev, staging, or production", in.Environment)
+	}
+	return nil
+}
+
+// EffectiveEnvironment is the environment after defaulting — also the GitOps
+// path segment (clusters/<environment>/<name>.yaml).
+func (in Input) EffectiveEnvironment() string {
+	if in.Environment != "" {
+		return in.Environment
+	}
+	return defaultEnvironment
+}
+
+// the camelCase CR shape (matches apis/cluster/definition.yaml).
+type clusterCR struct {
+	APIVersion string     `json:"apiVersion"`
+	Kind       string     `json:"kind"`
+	Metadata   crMetadata `json:"metadata"`
+	Spec       crSpec     `json:"spec"`
+}
+
+type crMetadata struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
+}
+
+type crSpec struct {
+	Account                   string         `json:"account"`
+	Region                    string         `json:"region"`
+	Team                      string         `json:"team"`
+	Environment               string         `json:"environment"`
+	ClusterVersion            string         `json:"clusterVersion"`
+	SystemNodes               *crSystemNodes `json:"systemNodes,omitempty"`
+	Network                   *crNetwork     `json:"network,omitempty"`
+	EndpointPublicAccess      *bool          `json:"endpointPublicAccess,omitempty"`
+	EndpointPublicAccessCidrs []string       `json:"endpointPublicAccessCidrs,omitempty"`
+	VendRoleArn               string         `json:"vendRoleArn,omitempty"`
+}
+
+type crSystemNodes struct {
+	InstanceTypes []string `json:"instanceTypes,omitempty"`
+	MinSize       *int     `json:"minSize,omitempty"`
+	MaxSize       *int     `json:"maxSize,omitempty"`
+	DesiredSize   *int     `json:"desiredSize,omitempty"`
+	DiskSize      *int     `json:"diskSize,omitempty"`
+}
+
+type crNetwork struct {
+	VpcCidr     string `json:"vpcCidr,omitempty"`
+	MaxAzs      *int   `json:"maxAzs,omitempty"`
+	NatGateways *int   `json:"natGateways,omitempty"`
+}
+
+// Render validates the input and returns a complete namespaced Cluster CR as
+// YAML, ready to commit to the clusters repo.
+func (in Input) Render() (string, error) {
+	if err := in.Validate(); err != nil {
+		return "", err
+	}
+	clusterVersion := in.ClusterVersion
+	if clusterVersion == "" {
+		clusterVersion = defaultClusterVersion
+	}
+	cr := clusterCR{
+		APIVersion: apiVersion,
+		Kind:       kind,
+		Metadata:   crMetadata{Name: in.Name, Namespace: in.Team},
+		Spec: crSpec{
+			Account:                   in.Account,
+			Region:                    in.Region,
+			Team:                      in.Team,
+			Environment:               in.EffectiveEnvironment(),
+			ClusterVersion:            clusterVersion,
+			EndpointPublicAccess:      in.EndpointPublicAccess,
+			EndpointPublicAccessCidrs: in.EndpointPublicAccessCidrs,
+			VendRoleArn:               in.VendRoleArn,
+		},
+	}
+	if in.SystemNodes != nil {
+		cr.Spec.SystemNodes = &crSystemNodes{
+			InstanceTypes: in.SystemNodes.InstanceTypes,
+			MinSize:       in.SystemNodes.MinSize,
+			MaxSize:       in.SystemNodes.MaxSize,
+			DesiredSize:   in.SystemNodes.DesiredSize,
+			DiskSize:      in.SystemNodes.DiskSize,
+		}
+	}
+	if in.Network != nil {
+		cr.Spec.Network = &crNetwork{
+			VpcCidr:     in.Network.VpcCidr,
+			MaxAzs:      in.Network.MaxAzs,
+			NatGateways: in.Network.NatGateways,
+		}
+	}
+	out, err := yaml.Marshal(cr)
+	if err != nil {
+		return "", fmt.Errorf("marshal Cluster CR: %w", err)
+	}
+	header := fmt.Sprintf("# Generated by portal — eks-fleet Cluster vend for %q (%s).\n# Do not edit by hand; manage via the portal order desk.\n",
+		in.Name, in.EffectiveEnvironment())
+	return header + string(out), nil
+}

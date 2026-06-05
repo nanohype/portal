@@ -71,6 +71,13 @@ type Config struct {
 	EksAgentPlatformChartsRepoURL string `env:"EKS_AGENT_PLATFORM_CHARTS_REPO_URL"`
 	EksAgentPlatformChartsRepoRef string `env:"EKS_AGENT_PLATFORM_CHARTS_REPO_REF" envDefault:"main"`
 
+	// GitOps (cluster vend path). When ClustersRepoURL is empty the worker
+	// surfaces "not configured" on any cluster_apply attempt. The Cluster CR is
+	// templated directly (no chart), so unlike the tenant path this needs no
+	// charts repo — just the clusters repo + the shared SSH key + author.
+	ClustersRepoURL string `env:"GITOPS_CLUSTERS_REPO_URL"`
+	ClustersRepoRef string `env:"GITOPS_CLUSTERS_REPO_REF" envDefault:"main"`
+
 	// ArgoCD cluster-registry sync (read path). When enabled, the worker reads
 	// ArgoCD's cluster Secrets (in ArgoCDNamespace, via the pod's in-cluster
 	// ServiceAccount) every ArgoCDSyncInterval and upserts the cluster inventory
