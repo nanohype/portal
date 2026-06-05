@@ -17,7 +17,7 @@ spec:
         app.kubernetes.io/name: portal-worker
         app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
-      {{- if .Values.argocdSync.enabled }}
+      {{- if or .Values.argocdSync.enabled .Values.clusterWatchback.enabled }}
       serviceAccountName: {{ .Release.Name }}-worker
       {{- end }}
       securityContext:
@@ -54,8 +54,19 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- if .Values.gitops.sshKey }}
+            - name: git-ssh
+              mountPath: /etc/portal/git-ssh
+              readOnly: true
+            {{- end }}
           resources:
             {{- toYaml .Values.resources.worker | nindent 12 }}
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- if .Values.gitops.sshKey }}
+        - name: git-ssh
+          secret:
+            secretName: {{ .Release.Name }}-git-ssh
+            defaultMode: 0400
+        {{- end }}
