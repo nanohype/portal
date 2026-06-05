@@ -1,8 +1,8 @@
-{{- if .Values.argocdSync.enabled }}
-# RBAC for the worker's ArgoCD cluster-registry sync + tenant watcher. Created
-# only when argocdSync is enabled. The worker reads ArgoCD's cluster Secrets
-# (scoped to argocdSync.namespace) to discover clusters, and watches Platform/
-# Tenant CRs cluster-wide.
+{{- if or .Values.argocdSync.enabled .Values.clusterWatchback.enabled }}
+# RBAC for the worker's in-cluster reads. Created when argocdSync OR
+# clusterWatchback is enabled. The worker watches Platform/Tenant CRs and (for
+# the provision watch-back) the eks-fleet Cluster XRs cluster-wide; with
+# argocdSync it also reads ArgoCD's cluster Secrets in argocdSync.namespace.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -19,6 +19,12 @@ rules:
   - apiGroups: ["platform.nanohype.dev"]
     resources: ["tenants", "platforms"]
     verbs: ["get", "list", "watch"]
+  {{- if .Values.clusterWatchback.enabled }}
+  # The provision watch-back reads vended-cluster XRs on the hub.
+  - apiGroups: ["fleet.nanohype.dev"]
+    resources: ["clusters"]
+    verbs: ["get", "list", "watch"]
+  {{- end }}
   - apiGroups: [""]
     resources: ["nodes", "namespaces"]
     verbs: ["get", "list"]
@@ -35,6 +41,7 @@ subjects:
   - kind: ServiceAccount
     name: {{ .Release.Name }}-worker
     namespace: {{ .Release.Namespace }}
+{{- if .Values.argocdSync.enabled }}
 ---
 # Read only ArgoCD's cluster Secrets, scoped to the argocd namespace.
 apiVersion: rbac.authorization.k8s.io/v1
@@ -60,4 +67,5 @@ subjects:
   - kind: ServiceAccount
     name: {{ .Release.Name }}-worker
     namespace: {{ .Release.Namespace }}
+{{- end }}
 {{- end }}
