@@ -31,6 +31,23 @@ func (q *Queries) GetCluster(ctx context.Context, arg GetClusterParams) (Cluster
 	return scanCluster(row)
 }
 
+type GetClusterByNameParams struct {
+	OrgID string `json:"org_id"`
+	Name  string `json:"name"`
+}
+
+// GetClusterByName looks up a cluster by its org-unique name. The provision
+// watch-back uses it to stay idempotent: if a prior tick already registered
+// the vended cluster but crashed before activating the op, the next tick finds
+// the existing row instead of colliding on the UNIQUE(org_id, name) constraint.
+func (q *Queries) GetClusterByName(ctx context.Context, arg GetClusterByNameParams) (Cluster, error) {
+	row := q.db.QueryRow(ctx,
+		`SELECT `+clusterColumns+` FROM clusters WHERE org_id = $1 AND name = $2`,
+		arg.OrgID, arg.Name,
+	)
+	return scanCluster(row)
+}
+
 type ListClustersParams struct {
 	OrgID     string `json:"org_id"`
 	AccountID string `json:"account_id"`

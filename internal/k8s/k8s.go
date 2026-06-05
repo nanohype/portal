@@ -41,6 +41,15 @@ var TenantGVR = schema.GroupVersionResource{
 	Resource: "tenants",
 }
 
+// ClusterGVR is the GroupVersionResource for the eks-fleet Cluster XR. The
+// provision watch-back reads these on the hub to learn when a vended cluster's
+// EKS endpoint + CA are up, so it can auto-register the new cluster.
+var ClusterGVR = schema.GroupVersionResource{
+	Group:    "fleet.nanohype.dev",
+	Version:  "v1alpha1",
+	Resource: "clusters",
+}
+
 // InClusterAPIEndpoint is the API server address a pod uses to reach its own
 // cluster. An ArgoCD "in-cluster" registry entry carries this as its server and
 // has no bearer token — the portal watches it with its own mounted

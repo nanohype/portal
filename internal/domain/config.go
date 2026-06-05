@@ -91,6 +91,14 @@ type Config struct {
 	ArgoCDSyncOrgID     string        `env:"ARGOCD_SYNC_ORG_ID"`
 	ArgoCDSyncAccountID string        `env:"ARGOCD_SYNC_ACCOUNT_ID"`
 	ArgoCDSyncCreatedBy string        `env:"ARGOCD_SYNC_CREATED_BY"`
+
+	// Cluster provision watch-back (the vend loop's closing leg). When enabled,
+	// the worker — running in-cluster on the hub — reads each committed
+	// provision op's eks-fleet Cluster XR every ClusterWatchbackInterval, and
+	// once the EKS endpoint + CA are up, auto-registers the new cluster as
+	// eks_iam and flips the op to 'active'. Inert unless enabled and in-cluster.
+	ClusterWatchback         bool          `env:"CLUSTER_WATCHBACK_ENABLED" envDefault:"false"`
+	ClusterWatchbackInterval time.Duration `env:"CLUSTER_WATCHBACK_INTERVAL" envDefault:"60s"`
 }
 
 // Validate checks that the configuration is safe for the target environment.

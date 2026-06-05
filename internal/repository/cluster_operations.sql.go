@@ -135,3 +135,25 @@ func (q *Queries) CompleteClusterOperation(ctx context.Context, arg CompleteClus
 	)
 	return err
 }
+
+type ActivateClusterOperationParams struct {
+	ID          string    `json:"id"`
+	OrgID       string    `json:"org_id"`
+	ClusterID   string    `json:"cluster_id"`
+	CompletedAt time.Time `json:"completed_at"`
+}
+
+// ActivateClusterOperation is the watch-back's terminal transition for a
+// provision op: the vended cluster came up and was auto-registered, so the op
+// goes to 'active' linked to the new clusters row. Idempotent on (id, org_id).
+func (q *Queries) ActivateClusterOperation(ctx context.Context, arg ActivateClusterOperationParams) error {
+	_, err := q.db.Exec(ctx,
+		`UPDATE cluster_operations
+		SET status = 'active'::cluster_op_status,
+		    cluster_id = $3,
+		    completed_at = $4
+		WHERE id = $1 AND org_id = $2`,
+		arg.ID, arg.OrgID, arg.ClusterID, arg.CompletedAt,
+	)
+	return err
+}
