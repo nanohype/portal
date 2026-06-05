@@ -423,6 +423,36 @@ CREATE TABLE clusters (
 CREATE INDEX idx_clusters_org_id ON clusters(org_id);
 CREATE INDEX idx_clusters_account_id ON clusters(account_id);
 
+-- Cluster operations: the vend "order desk" log. portal templates an eks-fleet
+-- Cluster CR (fleet.nanohype.dev/v1alpha1) from the provision form and commits it
+-- to the clusters GitOps repo; the hub's ArgoCD reconciles it and Crossplane vends
+-- the EKS cluster. Unlike tenant_operations this has no FK to clusters — the
+-- cluster doesn't exist yet during a provision; `cluster_id` is filled in only when
+-- the watch-back auto-registers the vended cluster (status -> 'active').
+CREATE TYPE cluster_op_kind AS ENUM ('provision', 'deprovision');
+CREATE TYPE cluster_op_status AS ENUM ('pending', 'committed', 'failed', 'active');
+
+CREATE TABLE cluster_operations (
+    id              TEXT PRIMARY KEY,
+    org_id          TEXT NOT NULL REFERENCES organizations(id),
+    name            TEXT NOT NULL,
+    environment     TEXT NOT NULL,
+    team            TEXT NOT NULL,
+    operation       cluster_op_kind NOT NULL,
+    status          cluster_op_status NOT NULL DEFAULT 'pending',
+    git_commit_sha  TEXT NOT NULL DEFAULT '',
+    error           TEXT NOT NULL DEFAULT '',
+    spec_json       JSONB NOT NULL DEFAULT '{}'::jsonb,
+    cluster_id      TEXT REFERENCES clusters(id) ON DELETE SET NULL,
+    created_by      TEXT NOT NULL REFERENCES users(id),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at    TIMESTAMPTZ
+);
+
+CREATE INDEX idx_cluster_operations_org_id ON cluster_operations(org_id);
+CREATE INDEX idx_cluster_operations_name_env ON cluster_operations(name, environment);
+CREATE INDEX idx_cluster_operations_status ON cluster_operations(status);
+
 -- Tenants: eks-agent-platform Tenant CRDs (platform.nanohype.dev/v1alpha1) discovered by the
 -- per-cluster watcher. Read-only inventory at this stage — portal populates
 -- and prunes these rows from what the K8s API actually shows; users can't

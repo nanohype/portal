@@ -32,6 +32,7 @@ type Server struct {
 	pipelineSvc     *service.PipelineService
 	clusterSvc      *service.ClusterService
 	tenantSvc       *service.TenantService
+	clusterOrderSvc *service.ClusterOrderService
 }
 
 func New(cfg *domain.Config, db *pgxpool.Pool, logger *slog.Logger) *Server {
@@ -67,6 +68,10 @@ func (s *Server) ClusterService() *service.ClusterService {
 
 func (s *Server) TenantService() *service.TenantService {
 	return s.tenantSvc
+}
+
+func (s *Server) ClusterOrderService() *service.ClusterOrderService {
+	return s.clusterOrderSvc
 }
 
 func (s *Server) ApprovalHandler() *handler.ApprovalHandler {
@@ -151,6 +156,8 @@ func (s *Server) setupRouter() {
 	accessSvc := service.NewTeamAccessService(queries, s.db)
 	templateHandler := handler.NewTemplateHandler(templateSvc, accessSvc, auditSvc)
 	tenantHandler := handler.NewTenantHandler(s.tenantSvc, templateSvc, accessSvc, auditSvc)
+	s.clusterOrderSvc = service.NewClusterOrderService(queries, s.db)
+	clusterOrderHandler := handler.NewClusterOrderHandler(s.clusterOrderSvc, auditSvc)
 	wsOrigins := []string{s.cfg.WebURL}
 	if s.cfg.Environment == "development" {
 		wsOrigins = append(wsOrigins, "http://localhost:5173")
@@ -254,6 +261,16 @@ func (s *Server) setupRouter() {
 						r.With(auth.RequireRole("admin")).Put("/", clusterHandler.Update)
 						r.With(auth.RequireRole("admin")).Delete("/", clusterHandler.Delete)
 						r.With(auth.RequireRole("admin")).Post("/test-connection", clusterHandler.TestConnection)
+					})
+				})
+
+				// Cluster vend order desk: provision/deprovision EKS clusters by
+				// committing eks-fleet Cluster CRs to the clusters GitOps repo.
+				r.Route("/cluster-orders", func(r chi.Router) {
+					r.With(auth.RequireRole("admin")).Post("/", clusterOrderHandler.Provision)
+					r.Route("/{environment}/{name}", func(r chi.Router) {
+						r.Get("/operations", clusterOrderHandler.Operations)
+						r.With(auth.RequireRole("admin")).Delete("/", clusterOrderHandler.Deprovision)
 					})
 				})
 

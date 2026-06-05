@@ -71,6 +71,7 @@ func main() {
 		srv.PipelineService().SetRiverClient(riverClient)
 		srv.ClusterService().SetRiverClient(riverClient)
 		srv.TenantService().SetRiverClient(riverClient)
+		srv.ClusterOrderService().SetRiverClient(riverClient)
 		logger.Info("river client connected for job enqueue")
 	}
 
