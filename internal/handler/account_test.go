@@ -7,11 +7,11 @@ func TestIsValidAWSAccountID(t *testing.T) {
 		in   string
 		want bool
 	}{
-		{"351619759866", true},
+		{"111111111111", true},
 		{"000000000000", true},
-		{"12345", false},      // too short
+		{"12345", false},         // too short
 		{"1234567890123", false}, // too long
-		{"abcdefghijkl", false}, // not digits
+		{"abcdefghijkl", false},  // not digits
 		{"", false},
 		{"3516-1975-9866", false},
 	}
@@ -29,15 +29,15 @@ func TestIsValidRoleARN(t *testing.T) {
 		in   string
 		want bool
 	}{
-		{"arn:aws:iam::351619759866:role/portal-cross-account", true},
-		{"arn:aws:iam::351619759866:role/path/role-name", true},
-		{"arn:aws-us-gov:iam::351619759866:role/gov-role", true},
-		{"arn:aws-cn:iam::351619759866:role/cn-role", true},
-		{"arn:aws:iam::abc:role/foo", false},      // non-digit account
-		{"arn:aws:iam:::role/no-account", false},  // missing account
-		{"arn:aws:iam::351619759866:user/foo", false}, // wrong resource type
-		{"arn:aws:iam::351619759866:role/", false},    // empty role name
-		{"351619759866:role/foo", false},              // no arn prefix
+		{"arn:aws:iam::111111111111:role/portal-cross-account", true},
+		{"arn:aws:iam::111111111111:role/path/role-name", true},
+		{"arn:aws-us-gov:iam::111111111111:role/gov-role", true},
+		{"arn:aws-cn:iam::111111111111:role/cn-role", true},
+		{"arn:aws:iam::abc:role/foo", false},          // non-digit account
+		{"arn:aws:iam:::role/no-account", false},      // missing account
+		{"arn:aws:iam::111111111111:user/foo", false}, // wrong resource type
+		{"arn:aws:iam::111111111111:role/", false},    // empty role name
+		{"111111111111:role/foo", false},              // no arn prefix
 		{"", false},
 	}
 	for _, tc := range tests {
@@ -84,9 +84,9 @@ func TestAccountIDFromARN(t *testing.T) {
 		arn  string
 		want string
 	}{
-		{"arn:aws:iam::351619759866:role/portal", "351619759866"},
+		{"arn:aws:iam::111111111111:role/portal", "111111111111"},
 		{"arn:aws-us-gov:iam::123456789012:role/gov", "123456789012"},
-		{"arn:aws:iam::351619759866:role/with/path/role", "351619759866"},
+		{"arn:aws:iam::111111111111:role/with/path/role", "111111111111"},
 		{"arn:aws:s3:::bucket-not-a-role", ""},
 		{"not an arn", ""},
 		{"", ""},
@@ -103,15 +103,15 @@ func TestAccountIDFromARN(t *testing.T) {
 // Sanity check that ARN-account cross-field matching catches the most common
 // mistake: pasted the wrong role ARN, account portion no longer matches.
 func TestCrossFieldARNAccountMatch(t *testing.T) {
-	const submittedAccount = "351619759866"
+	const submittedAccount = "111111111111"
 	cases := []struct {
-		name      string
-		arn       string
+		name        string
+		arn         string
 		shouldMatch bool
 	}{
-		{"matches", "arn:aws:iam::351619759866:role/portal", true},
+		{"matches", "arn:aws:iam::111111111111:role/portal", true},
 		{"mismatched account", "arn:aws:iam::999999999999:role/portal", false},
-		{"off by one digit", "arn:aws:iam::351619759867:role/portal", false},
+		{"off by one digit", "arn:aws:iam::111111111112:role/portal", false},
 		{"junk arn", "not-an-arn", false},
 	}
 	for _, tc := range cases {
