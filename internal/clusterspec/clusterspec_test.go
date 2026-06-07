@@ -80,6 +80,50 @@ func TestRender_FullSpec(t *testing.T) {
 	}
 }
 
+func TestWithCrossAccountBootstrap(t *testing.T) {
+	const hub = "arn:aws:iam::111111111111:role/eks-fleet-crossplane"
+	const vend = "arn:aws:iam::222222222222:role/production-eks-fleet-vend"
+	cases := []struct {
+		name     string
+		in       Input
+		hubRole  string
+		wantBoot string
+	}{
+		{"cross-account stamps the hub role", Input{VendRoleArn: vend}, hub, hub},
+		{"same-account leaves it empty", Input{VendRoleArn: ""}, hub, ""},
+		{"explicit override is preserved", Input{VendRoleArn: vend, BootstrapAccessRoleArn: "arn:aws:iam::1:role/custom"}, hub, "arn:aws:iam::1:role/custom"},
+		{"empty hub role is a no-op", Input{VendRoleArn: vend}, "", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.in.WithCrossAccountBootstrap(tc.hubRole).BootstrapAccessRoleArn; got != tc.wantBoot {
+				t.Errorf("BootstrapAccessRoleArn = %q, want %q", got, tc.wantBoot)
+			}
+		})
+	}
+}
+
+func TestRender_BootstrapAccessRoleArn(t *testing.T) {
+	in := Input{
+		Name: "prod-eks", Account: "222222222222", Region: "us-west-2", Team: "platform",
+		VendRoleArn: "arn:aws:iam::222222222222:role/production-eks-fleet-vend",
+	}.WithCrossAccountBootstrap("arn:aws:iam::111111111111:role/eks-fleet-crossplane")
+	out, err := in.Render()
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	var cr clusterCR
+	if err := yaml.Unmarshal([]byte(out), &cr); err != nil {
+		t.Fatalf("invalid YAML: %v", err)
+	}
+	if cr.Spec.BootstrapAccessRoleArn != "arn:aws:iam::111111111111:role/eks-fleet-crossplane" {
+		t.Errorf("bootstrapAccessRoleArn not rendered: %q", cr.Spec.BootstrapAccessRoleArn)
+	}
+	if !strings.Contains(out, "bootstrapAccessRoleArn:") {
+		t.Errorf("rendered YAML missing camelCase bootstrapAccessRoleArn:\n%s", out)
+	}
+}
+
 func TestValidate_Errors(t *testing.T) {
 	base := Input{Name: "ok", Account: "111111111111", Region: "us-west-2", Team: "platform"}
 	cases := map[string]func(*Input){

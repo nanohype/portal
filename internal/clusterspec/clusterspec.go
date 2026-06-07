@@ -43,6 +43,10 @@ type Input struct {
 	EndpointPublicAccess      *bool        `json:"endpoint_public_access,omitempty"`
 	EndpointPublicAccessCidrs []string     `json:"endpoint_public_access_cidrs,omitempty"`
 	VendRoleArn               string       `json:"vend_role_arn,omitempty"`
+	// BootstrapAccessRoleArn is normally left unset and stamped by the worker for
+	// cross-account vends (see WithCrossAccountBootstrap); an explicit value here
+	// overrides that.
+	BootstrapAccessRoleArn string `json:"bootstrap_access_role_arn,omitempty"`
 }
 
 // SystemNodes is the system node group sizing.
@@ -89,6 +93,22 @@ func (in Input) EffectiveEnvironment() string {
 	return defaultEnvironment
 }
 
+// WithCrossAccountBootstrap stamps the hub's Crossplane role ARN onto
+// BootstrapAccessRoleArn for cross-account vends, returning the (possibly
+// updated) Input. A vend is cross-account when VendRoleArn is set; for those the
+// spoke must trust the hub role directly — cluster-stack grants it a cluster-admin
+// EKS access entry so the bootstrap Workspace's ambient get-token can reach the
+// spoke API (get-token can't present the fleet-vend external_id). Same-account
+// vends, an empty hubRoleArn, and an already-set BootstrapAccessRoleArn (an
+// explicit override) are all left untouched.
+func (in Input) WithCrossAccountBootstrap(hubRoleArn string) Input {
+	if hubRoleArn == "" || in.VendRoleArn == "" || in.BootstrapAccessRoleArn != "" {
+		return in
+	}
+	in.BootstrapAccessRoleArn = hubRoleArn
+	return in
+}
+
 // the camelCase CR shape (matches apis/cluster/definition.yaml).
 type clusterCR struct {
 	APIVersion string     `json:"apiVersion"`
@@ -113,6 +133,7 @@ type crSpec struct {
 	EndpointPublicAccess      *bool          `json:"endpointPublicAccess,omitempty"`
 	EndpointPublicAccessCidrs []string       `json:"endpointPublicAccessCidrs,omitempty"`
 	VendRoleArn               string         `json:"vendRoleArn,omitempty"`
+	BootstrapAccessRoleArn    string         `json:"bootstrapAccessRoleArn,omitempty"`
 }
 
 type crSystemNodes struct {
@@ -152,6 +173,7 @@ func (in Input) Render() (string, error) {
 			EndpointPublicAccess:      in.EndpointPublicAccess,
 			EndpointPublicAccessCidrs: in.EndpointPublicAccessCidrs,
 			VendRoleArn:               in.VendRoleArn,
+			BootstrapAccessRoleArn:    in.BootstrapAccessRoleArn,
 		},
 	}
 	if in.SystemNodes != nil {

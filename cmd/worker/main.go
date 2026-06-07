@@ -326,6 +326,7 @@ func main() {
 			RepoMu:       &sync.Mutex{},
 			ClustersRef:  cfg.ClustersRepoRef,
 			Author:       tofugit.Author{Name: cfg.GitAuthorName, Email: cfg.GitAuthorEmail},
+			HubRoleArn:   cfg.FleetHubRoleArn,
 		})
 		river.AddWorker(workers, clusterApplyWorker)
 		logger.Info("cluster vend path enabled", "clusters_repo", cfg.ClustersRepoURL)

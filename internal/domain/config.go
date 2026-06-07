@@ -78,6 +78,13 @@ type Config struct {
 	ClustersRepoURL string `env:"GITOPS_CLUSTERS_REPO_URL"`
 	ClustersRepoRef string `env:"GITOPS_CLUSTERS_REPO_REF" envDefault:"main"`
 
+	// FleetHubRoleArn is the hub's Crossplane role ARN (eks-fleet-crossplane).
+	// On a cross-account vend (the Cluster sets vendRoleArn) the worker stamps it
+	// onto spec.bootstrapAccessRoleArn so cluster-stack grants the hub a
+	// cluster-admin EKS access entry and the bootstrap Workspace's get-token can
+	// reach the spoke API. Empty = same-account only (no stamping).
+	FleetHubRoleArn string `env:"FLEET_HUB_ROLE_ARN"`
+
 	// ArgoCD cluster-registry sync (read path). When enabled, the worker reads
 	// ArgoCD's cluster Secrets (in ArgoCDNamespace, via the pod's in-cluster
 	// ServiceAccount) every ArgoCDSyncInterval and upserts the cluster inventory

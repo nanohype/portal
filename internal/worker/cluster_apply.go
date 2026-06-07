@@ -51,6 +51,7 @@ type ClusterApplyJobWorker struct {
 	repoMu       *sync.Mutex
 	clustersRef  string
 	author       git.Author
+	hubRoleArn   string
 	riverClient  *river.Client[pgx.Tx]
 	db           *pgxpool.Pool
 }
@@ -66,6 +67,7 @@ type ClusterApplyDeps struct {
 	RepoMu       *sync.Mutex
 	ClustersRef  string // branch in clusters repo (typically "main")
 	Author       git.Author
+	HubRoleArn   string // eks-fleet-crossplane role ARN; stamped onto cross-account vends
 }
 
 func NewClusterApplyJobWorker(d ClusterApplyDeps) *ClusterApplyJobWorker {
@@ -80,6 +82,7 @@ func NewClusterApplyJobWorker(d ClusterApplyDeps) *ClusterApplyJobWorker {
 		repoMu:       d.RepoMu,
 		clustersRef:  ref,
 		author:       d.Author,
+		hubRoleArn:   d.HubRoleArn,
 	}
 }
 
@@ -126,6 +129,9 @@ func (w *ClusterApplyJobWorker) Work(ctx context.Context, job *river.Job[Cluster
 				return w.fail(ctx, op.ID, op.OrgID, logger, fmt.Errorf("unmarshal spec: %w", err))
 			}
 		}
+		// cross-account vends need the hub role trusted on the spoke (see
+		// clusterspec.WithCrossAccountBootstrap); same-account is a no-op.
+		input = input.WithCrossAccountBootstrap(w.hubRoleArn)
 		manifest, err := input.Render()
 		if err != nil {
 			return w.fail(ctx, op.ID, op.OrgID, logger, fmt.Errorf("render Cluster CR: %w", err))

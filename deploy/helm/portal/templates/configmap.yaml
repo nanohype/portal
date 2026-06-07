@@ -35,6 +35,9 @@ data:
   GITOPS_CLUSTERS_REPO_URL: {{ .Values.gitops.clustersRepoURL | quote }}
   GITOPS_CLUSTERS_REPO_REF: {{ .Values.gitops.clustersRepoRef | quote }}
   {{- end }}
+  {{- if .Values.fleet.hubRoleArn }}
+  FLEET_HUB_ROLE_ARN: {{ .Values.fleet.hubRoleArn | quote }}
+  {{- end }}
   {{- if .Values.gitops.tenantsRepoURL }}
   GITOPS_TENANTS_REPO_URL: {{ .Values.gitops.tenantsRepoURL | quote }}
   GITOPS_TENANTS_REPO_REF: {{ .Values.gitops.tenantsRepoRef | quote }}
