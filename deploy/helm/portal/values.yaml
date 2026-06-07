@@ -157,6 +157,13 @@ gitops:
   tenantsRepoURL: ""         # e.g. git@github.com:nanohype/tenants.git — enables tenant vend
   tenantsRepoRef: "main"
 
+# -- The hub's Crossplane role ARN (eks-fleet-crossplane). On a CROSS-ACCOUNT vend
+# (the Cluster sets vendRoleArn), portal stamps this onto spec.bootstrapAccessRoleArn
+# so cluster-stack grants the hub a cluster-admin EKS access entry and the bootstrap
+# Workspace's get-token can reach the spoke API. Empty = same-account vends only.
+fleet:
+  hubRoleArn: ""             # e.g. arn:aws:iam::111111111111:role/eks-fleet-crossplane
+
 # -- Cluster provision watch-back (the vend loop's closing leg). When enabled,
 # the worker — running in-cluster on the hub — polls each committed provision
 # op's eks-fleet Cluster XR and auto-registers the cluster (as eks_iam) once its
