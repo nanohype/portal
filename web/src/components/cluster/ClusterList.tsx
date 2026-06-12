@@ -72,14 +72,18 @@ export function ClusterList() {
     },
   });
 
+  // Distinct key from AccountList's ["accounts"] (which caches the paginated
+  // envelope, not the bare array): a shared key let the envelope shape reach
+  // this page's accounts.find()/.length and crash on rapid navigation. The
+  // ["accounts"] prefix still matches account invalidations.
   const { data: accounts } = useQuery({
-    queryKey: ["accounts"],
+    queryKey: ["accounts", "list"],
     queryFn: async () => {
       const { data, error } = await api.GET("/accounts", {
         params: { query: { per_page: 100 } },
       });
       if (error) throw error;
-      return data!.data;
+      return data?.data ?? [];
     },
   });
 
