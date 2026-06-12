@@ -144,6 +144,11 @@ function AppLayoutRoute() {
         FallbackComponent={ErrorFallback}
         resetKeys={[location.pathname]}
         onReset={() => window.location.reload()}
+        onError={(error, info) =>
+          // Name the throwing component in the console / pod logs so a render
+          // crash is debuggable without reproducing it interactively.
+          console.error("[ui] render error:", error, info.componentStack)
+        }
       >
         <Outlet />
       </ErrorBoundary>

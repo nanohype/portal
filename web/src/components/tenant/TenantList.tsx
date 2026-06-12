@@ -54,14 +54,18 @@ export function TenantList() {
     refetchInterval: 10000,
   });
 
+  // Distinct key from ClusterList's ["clusters"] (which caches the paginated
+  // envelope, not the bare array): a shared key let one page's shape poison the
+  // other's render and crash on rapid navigation. The ["clusters"] prefix still
+  // matches cluster invalidations, so this stays fresh on mutations.
   const { data: clusters } = useQuery({
-    queryKey: ["clusters"],
+    queryKey: ["clusters", "list"],
     queryFn: async () => {
       const { data, error } = await api.GET("/clusters", {
         params: { query: { per_page: 100 } },
       });
       if (error) throw error;
-      return data!.data;
+      return data?.data ?? [];
     },
   });
 
