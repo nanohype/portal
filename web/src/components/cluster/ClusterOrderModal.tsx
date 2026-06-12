@@ -188,7 +188,7 @@ export function ClusterOrderModal({
             <Input
               value={clusterVersion}
               onChange={(e) => setClusterVersion(e.target.value)}
-              placeholder="Defaults to the fleet default (e.g. 1.35)"
+              placeholder="Defaults to the fleet default (e.g. 1.36)"
               className="font-mono"
             />
           </Field>

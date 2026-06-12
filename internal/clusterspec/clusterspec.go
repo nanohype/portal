@@ -17,7 +17,7 @@ const (
 	apiVersion            = "fleet.nanohype.dev/v1alpha1"
 	kind                  = "Cluster"
 	defaultEnvironment    = "dev"
-	defaultClusterVersion = "1.35"
+	defaultClusterVersion = "1.36"
 )
 
 // k8sName is the RFC 1123 label/subdomain shape Kubernetes requires for the
