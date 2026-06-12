@@ -7,7 +7,7 @@
   --color-card-foreground: #EDEDEF;
   --color-popover: #111113;
   --color-popover-foreground: #EDEDEF;
-  --color-primary: #6E7CF1;
+  --color-primary: #3E8E82;
   --color-primary-foreground: #FFFFFF;
   --color-secondary: #1A1A1D;
   --color-secondary-foreground: #EDEDEF;
@@ -20,7 +20,7 @@
   --color-border: rgba(255, 255, 255, 0.06);
   --color-input: #161618;
   --color-input-border: rgba(255, 255, 255, 0.08);
-  --color-ring: #6E7CF1;
+  --color-ring: #3E8E82;
   --color-success: #2DA44E;
   --color-warning: #D4A72C;
   --color-dim: #52525A;
@@ -83,8 +83,8 @@ a, button, [role="tab"], input, select {
   100% { background-position: 200% 0; }
 }
 @keyframes glow-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(110, 124, 241, 0); }
-  50% { box-shadow: 0 0 12px 2px rgba(110, 124, 241, 0.15); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(62, 142, 130, 0); }
+  50% { box-shadow: 0 0 12px 2px rgba(62, 142, 130, 0.15); }
 }
 @keyframes fade-overlay {
   from { opacity: 0; }
@@ -101,7 +101,7 @@ a, button, [role="tab"], input, select {
   animation: scale-in 0.15s cubic-bezier(0.32, 0.72, 0, 1) both;
 }
 .animate-shimmer {
-  background: linear-gradient(90deg, transparent 0%, rgba(110, 124, 241, 0.06) 50%, transparent 100%);
+  background: linear-gradient(90deg, transparent 0%, rgba(62, 142, 130, 0.06) 50%, transparent 100%);
   background-size: 200% 100%;
   animation: shimmer 2s ease-in-out infinite;
 }
@@ -124,4 +124,17 @@ a, button, [role="tab"], input, select {
 }
 .bg-frosted {
   background-color: color-mix(in srgb, var(--color-background) 80%, transparent);
+}
+
+/* Command palette (cmdk) — group heading matches the sidebar category labels */
+[cmdk-group-heading] {
+  padding: 0.375rem 0.625rem 0.25rem;
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-dim);
+}
+[cmdk-group]:not(:first-child) {
+  margin-top: 0.25rem;
 }

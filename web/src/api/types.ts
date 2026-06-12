@@ -796,6 +796,11 @@ export interface paths {
     };
   };
   "/cluster-orders": {
+    get: {
+      responses: {
+        200: { content: { "application/json": ClusterOperation[] } };
+      };
+    };
     post: {
       requestBody: { content: { "application/json": ClusterOrderInput } };
       responses: {

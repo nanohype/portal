@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useAuthStore } from "@/stores/auth";
+import { navigate } from "@/hooks/useNavigate";
 import { Spinner } from "@/components/ui/spinner";
 
 export function AuthCallbackPage() {
@@ -8,12 +9,13 @@ export function AuthCallbackPage() {
     const token = params.get("token");
 
     if (token) {
-      // Store token — user will be fetched by useAuth hook
+      // Store the token, then navigate client-side — the protected route's
+      // beforeLoad resolves /auth/me before rendering, so there's no reload flash.
       localStorage.setItem("portal_token", token);
       useAuthStore.setState({ token, isAuthenticated: true });
-      window.location.href = "/";
+      navigate("/");
     } else {
-      window.location.href = "/login";
+      navigate("/login");
     }
   }, []);
 

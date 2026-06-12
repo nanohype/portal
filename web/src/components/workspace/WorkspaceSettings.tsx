@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useForm, useWatch } from "react-hook-form";
+import { useForm, useWatch, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -94,7 +94,9 @@ export function WorkspaceSettings({ workspace }: Props) {
     setValue,
     formState: { errors, isDirty },
   } = useForm<FormValues>({
-    resolver: zodResolver(schema),
+    // schema is one of two concrete object schemas at runtime; the conditional
+    // union doesn't unify through useForm's generic, so type the resolver.
+    resolver: zodResolver(schema) as unknown as Resolver<FormValues>,
     defaultValues: {
       name: workspace.name,
       description: workspace.description || "",

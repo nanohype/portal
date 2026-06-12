@@ -372,9 +372,9 @@ export function RunView({ workspaceId, runId }: Props) {
       )}
 
       {/* Changes tab */}
-      {activeTab === "changes" && hasChanges && (
+      {activeTab === "changes" && hasChanges && run.plan_output && (
         <div className="flex-1 min-h-0 overflow-auto">
-          <PlanDiffViewer planOutput={run.plan_output!} planJSON={planJSON} />
+          <PlanDiffViewer planOutput={run.plan_output} planJSON={planJSON} />
         </div>
       )}
 

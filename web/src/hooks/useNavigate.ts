@@ -1,27 +1,15 @@
-import { useSyncExternalStore } from "react";
+import { useLocation as useRouterLocation } from "@tanstack/react-router";
+import { getRouter } from "@/lib/router-ref";
 
-// Custom event for client-side navigation
-const NAV_EVENT = "portal:navigate";
-
+// Shims over TanStack Router so existing call sites keep their import surface.
+// navigate() is a standalone helper (used outside hook scope), so it reaches the
+// router via the ref holder rather than a hook.
 export function navigate(to: string) {
-  window.history.pushState({}, "", to);
-  window.dispatchEvent(new PopStateEvent(NAV_EVENT));
+  getRouter().navigate({ to });
 }
 
-// Subscribe to both popstate (back/forward) and our custom nav event
-function subscribe(callback: () => void) {
-  window.addEventListener("popstate", callback);
-  window.addEventListener(NAV_EVENT, callback);
-  return () => {
-    window.removeEventListener("popstate", callback);
-    window.removeEventListener(NAV_EVENT, callback);
-  };
-}
-
-function getSnapshot() {
-  return window.location.pathname + window.location.search;
-}
-
+// Returns "pathname + search" to match the prior contract (AppLayout splits on "?").
 export function useLocation() {
-  return useSyncExternalStore(subscribe, getSnapshot);
+  const loc = useRouterLocation();
+  return loc.pathname + loc.searchStr;
 }

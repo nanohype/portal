@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useForm, useWatch } from "react-hook-form";
+import { useForm, useWatch, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import type { CreateWorkspaceRequest } from "@/api/types";
@@ -65,7 +65,9 @@ export function CreateWorkspaceDialog({
     setValue,
     formState: { errors },
   } = useForm<CreateWorkspaceRequest>({
-    resolver: zodResolver(schema),
+    // schema is one of two concrete object schemas at runtime; the conditional
+    // union doesn't unify through useForm's generic, so type the resolver.
+    resolver: zodResolver(schema) as Resolver<CreateWorkspaceRequest>,
     defaultValues: {
       source,
       repo_branch: "main",

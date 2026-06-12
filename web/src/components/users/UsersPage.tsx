@@ -105,7 +105,7 @@ export function UsersPage() {
                   />
                 ) : (
                   <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-sm font-medium">
-                    {u.name[0]}
+                    {u.name?.[0] ?? "?"}
                   </div>
                 )}
                 <div>

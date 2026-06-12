@@ -63,6 +63,32 @@ func (q *Queries) ListClusterOperations(ctx context.Context, arg ListClusterOper
 	return ops, rows.Err()
 }
 
+// ListClusterOperationsByOrg returns the most recent operations across every
+// cluster in an org, newest first — powers the Clusters-tab order feed so an
+// in-flight or failed vend is visible without knowing the cluster name first.
+func (q *Queries) ListClusterOperationsByOrg(ctx context.Context, orgID string) ([]ClusterOperation, error) {
+	rows, err := q.db.Query(ctx,
+		`SELECT `+clusterOperationColumns+` FROM cluster_operations
+		WHERE org_id = $1
+		ORDER BY created_at DESC
+		LIMIT 50`,
+		orgID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ops := []ClusterOperation{}
+	for rows.Next() {
+		op, err := scanClusterOperation(rows)
+		if err != nil {
+			return nil, err
+		}
+		ops = append(ops, op)
+	}
+	return ops, rows.Err()
+}
+
 // ListClusterOperationsByStatus returns operations in a given status across all
 // orgs, newest first. The provision watch-back uses it (status='committed') to
 // find vended clusters whose status to poll; the worker is global like the tenant
