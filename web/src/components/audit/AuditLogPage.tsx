@@ -83,11 +83,11 @@ export function AuditLogPage() {
                         {log.entity_type}
                       </Badge>
                       <span className="text-xs text-muted-foreground font-mono">
-                        {log.entity_id.slice(0, 12)}
+                        {log.entity_id ? log.entity_id.slice(0, 12) : "—"}
                       </span>
                     </div>
                     <div className="text-xs text-muted-foreground mt-0.5">
-                      by {log.user_id.slice(0, 12)} · {formatRelativeTime(log.created_at)}
+                      by {log.user_id ? log.user_id.slice(0, 12) : "system"} · {formatRelativeTime(log.created_at)}
                       {log.ip_address && <>{" · "}{log.ip_address}</>}
                     </div>
                   </div>
@@ -145,7 +145,7 @@ export function AuditLogPage() {
             <span className="text-sm text-muted-foreground">Page {page}</span>
             <button
               onClick={() => setPage((p) => p + 1)}
-              disabled={(logs as AuditLog[]).length < 50}
+              disabled={(logs?.length ?? 0) < 50}
               className="text-sm text-muted-foreground hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
               Next

@@ -236,12 +236,30 @@ function parseOptions(children: ReactNode): SelectOption[] {
     if (!child || typeof child !== "object" || !("props" in child)) continue;
     const props = child.props as Record<string, unknown>;
     if (child.type === "option") {
+      const text = optionChildText(props.children);
       opts.push({
-        value: String(props.value ?? props.children ?? ""),
-        label: String(props.children ?? props.value ?? ""),
+        value: String(props.value ?? text),
+        label: text || String(props.value ?? ""),
         disabled: Boolean(props.disabled),
       });
     }
   }
   return opts;
+}
+
+/**
+ * Flatten an <option>'s children into a label string, joining with "" — NOT
+ * String(children), which coerces a multi-child array (e.g. `{a.name} ({a.id})`
+ * → ["prod"," (","111111111111",")"]) via Array.toString and splices commas
+ * into the label ("prod, (,111111111111,)").
+ */
+function optionChildText(children: unknown): string {
+  if (children == null || typeof children === "boolean") return "";
+  if (Array.isArray(children)) return children.map(optionChildText).join("");
+  if (typeof children === "object" && "props" in children) {
+    return optionChildText(
+      (children as { props?: { children?: unknown } }).props?.children
+    );
+  }
+  return String(children);
 }

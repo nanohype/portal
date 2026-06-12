@@ -146,7 +146,7 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
     (editingCreds && (caBundle.trim() !== "" || saToken.trim() !== ""));
 
   return (
-    <div className="p-6 animate-fade-up">
+    <div className="p-6 w-full max-w-3xl mx-auto flex-1 flex flex-col justify-center animate-fade-up">
       <Link
         href="/clusters"
         className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1 mb-3 transition-colors"
@@ -221,7 +221,7 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
         </p>
       )}
 
-      <div className="space-y-5 max-w-2xl">
+      <div className="space-y-5">
         <FormRow label="Name">
           <Input
             value={name}

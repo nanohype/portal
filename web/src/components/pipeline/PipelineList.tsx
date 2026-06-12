@@ -172,7 +172,7 @@ function CreatePipelineDialog({
         params: { query: { per_page: 100 } },
       });
       if (error) throw error;
-      return data!.data;
+      return data?.data ?? [];
     },
     enabled: open,
   });

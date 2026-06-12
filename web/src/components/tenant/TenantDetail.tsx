@@ -98,7 +98,7 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
   }
 
   return (
-    <div className="p-6 animate-fade-up">
+    <div className="p-6 w-full max-w-3xl mx-auto flex-1 flex flex-col justify-center animate-fade-up">
       <Link
         href="/tenants"
         className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1 mb-3 transition-colors"

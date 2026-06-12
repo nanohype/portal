@@ -104,3 +104,10 @@ func (s *ClusterOrderService) ListOperations(ctx context.Context, orgID, name, e
 		OrgID: orgID, Name: name, Environment: environment,
 	})
 }
+
+// ListAllOperations returns recent cluster operations across the org — the
+// Clusters-tab order feed (so in-flight/failed vends are visible without
+// having to know the cluster name first).
+func (s *ClusterOrderService) ListAllOperations(ctx context.Context, orgID string) ([]repository.ClusterOperation, error) {
+	return s.queries.ListClusterOperationsByOrg(ctx, orgID)
+}

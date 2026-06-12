@@ -267,6 +267,7 @@ func (s *Server) setupRouter() {
 				// Cluster vend order desk: provision/deprovision EKS clusters by
 				// committing eks-fleet Cluster CRs to the clusters GitOps repo.
 				r.Route("/cluster-orders", func(r chi.Router) {
+					r.Get("/", clusterOrderHandler.List)
 					r.With(auth.RequireRole("admin")).Post("/", clusterOrderHandler.Provision)
 					r.Route("/{environment}/{name}", func(r chi.Router) {
 						r.Get("/operations", clusterOrderHandler.Operations)
