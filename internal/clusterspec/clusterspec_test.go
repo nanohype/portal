@@ -26,7 +26,7 @@ func TestRender_MinimalDefaults(t *testing.T) {
 	if cr.Metadata.Name != "dev-eks" || cr.Metadata.Namespace != "platform" {
 		t.Errorf("metadata = %+v, want name=dev-eks namespace=platform", cr.Metadata)
 	}
-	if cr.Spec.Environment != "dev" || cr.Spec.ClusterVersion != "1.35" {
+	if cr.Spec.Environment != "dev" || cr.Spec.ClusterVersion != "1.36" {
 		t.Errorf("defaults not applied: env=%q version=%q", cr.Spec.Environment, cr.Spec.ClusterVersion)
 	}
 	if cr.Spec.Account != "111111111111" || cr.Spec.Region != "us-west-2" || cr.Spec.Team != "platform" {
