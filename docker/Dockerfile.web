@@ -1,7 +1,10 @@
 FROM node:22-alpine AS builder
 
 WORKDIR /app
-COPY web/package.json web/package-lock.json ./
+# .npmrc carries legacy-peer-deps=true (openapi-typescript pins a conservative
+# typescript ^5 peer; the app is on TS 6). Without copying it, `npm ci` ERESOLVEs
+# in the container even though it resolves locally.
+COPY web/package.json web/package-lock.json web/.npmrc ./
 RUN npm ci
 
 COPY web/ .
