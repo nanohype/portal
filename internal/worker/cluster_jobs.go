@@ -44,11 +44,17 @@ func (ClusterConnectionTestJobArgs) InsertOpts() river.InsertOpts {
 type ClusterDecryptor func(c repository.Cluster) (k8s.SlimConfig, error)
 type ClusterStatusUpdater func(ctx context.Context, id, orgID, status, errMsg, k8sVersion string, nodeCount int32) error
 
+// ExternalIDResolver decrypts an account's sts:ExternalId (or returns "" when
+// none). Supplied by the cmd/worker wiring (AccountService.DecryptExternalID) so
+// this package needn't import service.
+type ExternalIDResolver func(repository.Account) (string, error)
+
 type ClusterConnectionTestJobWorker struct {
 	river.WorkerDefaults[ClusterConnectionTestJobArgs]
 	queries     *repository.Queries
 	decrypt     ClusterDecryptor
 	updateState ClusterStatusUpdater
+	externalID  ExternalIDResolver
 	aws         *aws.Provider
 	k8s         *k8s.ClientCache
 	riverClient *river.Client[pgx.Tx]
@@ -59,6 +65,7 @@ func NewClusterConnectionTestJobWorker(
 	queries *repository.Queries,
 	decrypt ClusterDecryptor,
 	updateState ClusterStatusUpdater,
+	externalID ExternalIDResolver,
 	awsProvider *aws.Provider,
 	k8sCache *k8s.ClientCache,
 ) *ClusterConnectionTestJobWorker {
@@ -66,6 +73,7 @@ func NewClusterConnectionTestJobWorker(
 		queries:     queries,
 		decrypt:     decrypt,
 		updateState: updateState,
+		externalID:  externalID,
 		aws:         awsProvider,
 		k8s:         k8sCache,
 	}
@@ -122,7 +130,11 @@ func (w *ClusterConnectionTestJobWorker) Work(ctx context.Context, job *river.Jo
 	case w.aws == nil:
 		logger.Warn("aws provider not configured; skipping sts verification")
 	default:
-		if _, err := w.aws.VerifyAssumeRole(ctx, account.AssumeRoleARN, "", account.DefaultRegion); err != nil {
+		externalID, err := w.externalID(account)
+		if err != nil {
+			return w.fail(ctx, cluster, logger, fmt.Errorf("decrypt account external_id: %w", err))
+		}
+		if _, err := w.aws.VerifyAssumeRole(ctx, account.AssumeRoleARN, externalID, account.DefaultRegion); err != nil {
 			return w.fail(ctx, cluster, logger, fmt.Errorf("aws assume-role failed: %w", err))
 		}
 	}

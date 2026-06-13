@@ -28,17 +28,18 @@ import (
 // a cluster portal can't connect to can still report ArgoCD/control-plane health.
 type ClusterHealthService struct {
 	clusters *ClusterService
+	accounts *AccountService
 	queries  *repository.Queries
 	hub      dynamic.Interface
 	aws      *aws.Provider // optional — nil disables the EKS control-plane read
 	argocdNS string        // namespace the per-cluster Applications live in (hub)
 }
 
-func NewClusterHealthService(clusters *ClusterService, queries *repository.Queries, hub dynamic.Interface, awsProvider *aws.Provider, argocdNS string) *ClusterHealthService {
+func NewClusterHealthService(clusters *ClusterService, accounts *AccountService, queries *repository.Queries, hub dynamic.Interface, awsProvider *aws.Provider, argocdNS string) *ClusterHealthService {
 	if argocdNS == "" {
 		argocdNS = "argocd"
 	}
-	return &ClusterHealthService{clusters: clusters, queries: queries, hub: hub, aws: awsProvider, argocdNS: argocdNS}
+	return &ClusterHealthService{clusters: clusters, accounts: accounts, queries: queries, hub: hub, aws: awsProvider, argocdNS: argocdNS}
 }
 
 // Sync runs one pass over every registered cluster. Per-cluster failures are
@@ -95,7 +96,12 @@ func (s *ClusterHealthService) reconcileEKS(ctx context.Context, t repository.Cl
 	if account.AssumeRoleARN == "" {
 		return // no role to assume — nothing to describe
 	}
-	st, err := s.aws.DescribeCluster(ctx, account.AssumeRoleARN, "", t.Region, t.EKSClusterName)
+	externalID, err := s.accounts.DecryptExternalID(account)
+	if err != nil {
+		slog.Debug("cluster health: decrypt external_id", "cluster", t.ID, "error", err)
+		return // graceful — preserve last-known
+	}
+	st, err := s.aws.DescribeCluster(ctx, account.AssumeRoleARN, externalID, t.Region, t.EKSClusterName)
 	if err != nil {
 		slog.Debug("cluster health: describe cluster", "cluster", t.ID, "error", err)
 		return // graceful (commonly AccessDenied) — preserve last-known

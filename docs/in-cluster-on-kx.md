@@ -18,9 +18,12 @@ You drive this; it's a runbook, not a script. First run — a few bits are marke
 - ✅ Deprovision teardown watch (→ deprovisioned)
 - ✅ Org-wide ops feed (`/ops`)
 - ✅ Per-cluster **ArgoCD** sync·health badge (read from kx's ArgoCD on the hub)
-- ❌ Per-cluster **EKS control-plane** badge — kind has no IRSA, so
-  `eks:DescribeCluster` can't authenticate and that half stays blank. Expected.
-  It needs a real EKS hub + the `eks:DescribeCluster` grant (portal#41).
+- ⚠️ Per-cluster **EKS control-plane** badge — blank on **kx only**. kind has no
+  IRSA, so `eks:DescribeCluster` can't authenticate. On a real EKS hub it works:
+  the worker's IRSA role assumes the per-account role (which grants
+  `eks:DescribeCluster` and carries the trust-policy ExternalId), the SDK + S3 run
+  on IRSA, and the badge fills in. The portal code path is ready; the hub-side IAM
+  is the remaining piece (portal#41).
 
 ## Prerequisites
 
