@@ -184,6 +184,27 @@ func (q *Queries) ActivateClusterOperation(ctx context.Context, arg ActivateClus
 	return err
 }
 
+type DeprovisionClusterOperationParams struct {
+	ID          string    `json:"id"`
+	OrgID       string    `json:"org_id"`
+	CompletedAt time.Time `json:"completed_at"`
+}
+
+// DeprovisionClusterOperation is the watch-back's terminal transition for a
+// deprovision op: the Cluster XR is gone from the hub, so Crossplane finished
+// tearing the cluster down. Guarded WHERE status='committed' so it's idempotent
+// across ticks and can't double-close or resurrect a row.
+func (q *Queries) DeprovisionClusterOperation(ctx context.Context, arg DeprovisionClusterOperationParams) error {
+	_, err := q.db.Exec(ctx,
+		`UPDATE cluster_operations
+		SET status = 'deprovisioned'::cluster_op_status,
+		    completed_at = $3
+		WHERE id = $1 AND org_id = $2 AND status = 'committed'`,
+		arg.ID, arg.OrgID, arg.CompletedAt,
+	)
+	return err
+}
+
 // SetVendPhase merges a single phase checkpoint into vend_phases (a regressible
 // map keyed by phase). jsonb `||` overwrites the key, so a phase can advance or
 // move backward as the substrate's truth changes. `phase` is a one-key object,

@@ -476,13 +476,13 @@ func main() {
 				t := time.NewTicker(cfg.ClusterWatchbackInterval)
 				defer t.Stop()
 				runWatchback := func() {
-					registered, pending, err := watchSvc.Sync(context.Background())
+					completed, pending, err := watchSvc.Sync(context.Background())
 					if err != nil {
 						logger.Warn("cluster watch-back", "error", err)
 						return
 					}
-					if registered > 0 || pending > 0 {
-						logger.Info("cluster watch-back tick", "registered", registered, "pending", pending)
+					if completed > 0 || pending > 0 {
+						logger.Info("cluster watch-back tick", "completed", completed, "pending", pending)
 					}
 				}
 				runWatchback()

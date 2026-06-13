@@ -2420,7 +2420,11 @@ components:
           enum: [provision, deprovision]
         status:
           type: string
-          enum: [pending, committed, failed, active]
+          enum: [pending, committed, failed, active, deprovisioned]
+          description: >
+            Coarse portal-side lifecycle. provision: pending → committed → active.
+            deprovision: pending → committed → deprovisioned. failed is the terminal
+            commit failure for either. Finer substrate progress lives in vend_phases.
         git_commit_sha: { type: string }
         error: { type: string }
         spec_json:
@@ -2442,7 +2446,12 @@ components:
           type: object
           additionalProperties:
             $ref: "#/components/schemas/VendPhaseEntry"
-          description: Regressible map keyed by phase (committed, tofu_running, active, ...) projecting the substrate's vend journey onto the order.
+          description: >
+            Regressible map keyed by phase projecting the substrate's journey onto
+            the order — provision (committed, tofu_running, active) and deprovision
+            (committed, deprovisioning, deprovisioned). A phase's detail carries the
+            current tofu error while running/destroying; it clears as the substrate
+            recovers (the provider retries), so it is not a terminal failure.
 
     VendPhaseEntry:
       type: object

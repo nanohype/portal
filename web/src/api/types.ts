@@ -516,7 +516,8 @@ export type ClusterOperationStatus =
   | "pending"
   | "committed"
   | "failed"
-  | "active";
+  | "active"
+  | "deprovisioned";
 
 export interface ClusterOperation {
   id: string;
