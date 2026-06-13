@@ -34,6 +34,13 @@ spec:
                 name: {{ .Release.Name }}-config
             - secretRef:
                 name: {{ .Release.Name }}-secret
+            {{- with .Values.worker.extraEnvFrom }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.worker.extraEnv }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

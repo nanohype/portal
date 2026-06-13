@@ -138,6 +138,23 @@ resources:
       cpu: 50m
       memory: 64Mi
 
+# -- Per-process extra env, appended to the configmap + secret the chart already
+# wires. extraEnvFrom pulls Secret/ConfigMap refs; extraEnv adds inline
+# name/value (or valueFrom) entries. Main use: AWS credentials for the worker on a
+# non-IRSA hub like kx — create a Secret with AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY
+# / AWS_REGION and reference it here so the worker can mint EKS tokens (survives
+# helm upgrade, unlike `kubectl set env`). On a real hub use serviceAccount.roleArn
+# (IRSA) instead and leave these empty.
+server:
+  extraEnv: []
+  extraEnvFrom: []
+worker:
+  extraEnv: []
+  extraEnvFrom: []
+  # extraEnvFrom:
+  #   - secretRef:
+  #       name: portal-aws
+
 # -- ArgoCD cluster-registry sync (read path). When enabled, the worker
 # discovers clusters from ArgoCD's cluster Secrets (no manual portal
 # registration) and the chart creates the RBAC it needs: read Secrets in
