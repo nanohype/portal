@@ -533,6 +533,14 @@ export interface ClusterOperation {
   created_by: string;
   created_at: string;
   completed_at: string | null;
+  // Regressible map keyed by phase (committed, tofu_running, active, ...). Only
+  // portal-side phases advance locally; substrate phases need the in-cluster watcher.
+  vend_phases: Record<string, VendPhaseEntry>;
+}
+
+export interface VendPhaseEntry {
+  at: string;
+  detail?: string;
 }
 
 export interface Tenant {

@@ -290,6 +290,7 @@ type ClusterOperation struct {
 	CreatedBy    string          `json:"created_by"`
 	CreatedAt    time.Time       `json:"created_at"`
 	CompletedAt  *time.Time      `json:"completed_at"`
+	VendPhases   json.RawMessage `json:"vend_phases"`
 }
 
 type Template struct {

@@ -11,11 +11,11 @@ import (
 	"time"
 )
 
-const clusterOperationColumns = `id, org_id, name, environment, team, operation, status, git_commit_sha, error, spec_json, cluster_id, created_by, created_at, completed_at`
+const clusterOperationColumns = `id, org_id, name, environment, team, operation, status, git_commit_sha, error, spec_json, cluster_id, created_by, created_at, completed_at, vend_phases`
 
 func scanClusterOperation(row interface{ Scan(...interface{}) error }) (ClusterOperation, error) {
 	var op ClusterOperation
-	err := row.Scan(&op.ID, &op.OrgID, &op.Name, &op.Environment, &op.Team, &op.Operation, &op.Status, &op.GitCommitSHA, &op.Error, &op.SpecJSON, &op.ClusterID, &op.CreatedBy, &op.CreatedAt, &op.CompletedAt)
+	err := row.Scan(&op.ID, &op.OrgID, &op.Name, &op.Environment, &op.Team, &op.Operation, &op.Status, &op.GitCommitSHA, &op.Error, &op.SpecJSON, &op.ClusterID, &op.CreatedBy, &op.CreatedAt, &op.CompletedAt, &op.VendPhases)
 	return op, err
 }
 
@@ -180,6 +180,18 @@ func (q *Queries) ActivateClusterOperation(ctx context.Context, arg ActivateClus
 		    completed_at = $4
 		WHERE id = $1 AND org_id = $2`,
 		arg.ID, arg.OrgID, arg.ClusterID, arg.CompletedAt,
+	)
+	return err
+}
+
+// SetVendPhase merges a single phase checkpoint into vend_phases (a regressible
+// map keyed by phase). jsonb `||` overwrites the key, so a phase can advance or
+// move backward as the substrate's truth changes. `phase` is a one-key object,
+// e.g. {"committed": {"at": "...", "detail": ""}}.
+func (q *Queries) SetVendPhase(ctx context.Context, id, orgID string, phase json.RawMessage) error {
+	_, err := q.db.Exec(ctx,
+		`UPDATE cluster_operations SET vend_phases = vend_phases || $3::jsonb WHERE id = $1 AND org_id = $2`,
+		id, orgID, phase,
 	)
 	return err
 }

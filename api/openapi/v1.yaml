@@ -2438,6 +2438,21 @@ components:
           type: string
           format: date-time
           nullable: true
+        vend_phases:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/VendPhaseEntry"
+          description: Regressible map keyed by phase (committed, tofu_running, active, ...) projecting the substrate's vend journey onto the order.
+
+    VendPhaseEntry:
+      type: object
+      required: [at]
+      properties:
+        at:
+          type: string
+          format: date-time
+        detail:
+          type: string
 
     ClusterOperationList:
       type: object

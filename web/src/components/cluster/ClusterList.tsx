@@ -11,6 +11,7 @@ import type { Account, Cluster, ClusterConnectionStatus, ClusterOperation } from
 import { Server, Plus, Cloud } from "lucide-react";
 import { ClusterCreateModal } from "./ClusterCreateModal";
 import { ClusterOrderModal } from "./ClusterOrderModal";
+import { VendTimeline } from "./VendTimeline";
 
 export function statusBadge(status: ClusterConnectionStatus) {
   switch (status) {
@@ -250,7 +251,11 @@ export function ClusterList() {
                   <span className="text-[11px] text-muted-foreground/70">
                     {op.environment} · {op.operation}
                   </span>
-                  {operationBadge(op.status)}
+                  {op.operation === "provision" ? (
+                    <VendTimeline op={op} />
+                  ) : (
+                    operationBadge(op.status)
+                  )}
                   <div className="ml-auto flex items-center gap-3 text-[11px] text-muted-foreground/70">
                     {op.git_commit_sha && (
                       <span className="font-mono">{op.git_commit_sha.slice(0, 7)}</span>

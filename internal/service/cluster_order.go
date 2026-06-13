@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -83,14 +84,57 @@ func (s *ClusterOrderService) enqueue(ctx context.Context, orgID, kind, createdB
 
 // CompleteOperation is the write path the worker uses to mark an operation done.
 func (s *ClusterOrderService) CompleteOperation(ctx context.Context, id, orgID, status, sha, errMsg string) error {
-	return s.queries.CompleteClusterOperation(ctx, repository.CompleteClusterOperationParams{
+	if err := s.queries.CompleteClusterOperation(ctx, repository.CompleteClusterOperationParams{
 		ID:           id,
 		OrgID:        orgID,
 		Status:       status,
 		GitCommitSHA: sha,
 		Error:        errMsg,
 		CompletedAt:  time.Now(),
-	})
+	}); err != nil {
+		return err
+	}
+	// Project the portal-side terminal transition onto the vend timeline. status
+	// is "committed" or "failed"; the substrate phases (tofu_running, active) are
+	// written later by the in-cluster watcher. vend_phases is a best-effort
+	// projection, not the verdict — the status row above is authoritative, so a
+	// projection-write hiccup must not fail a job whose operation actually
+	// completed. Log and move on.
+	detail := ""
+	if status == "failed" {
+		detail = errMsg
+	}
+	if err := s.setVendPhase(ctx, id, orgID, status, detail); err != nil {
+		slog.WarnContext(ctx, "vend phase projection failed", "op", id, "phase", status, "error", err)
+	}
+	return nil
+}
+
+// setVendPhase merges one checkpoint into the operation's vend_phases map. It's
+// the single helper both the order service and (later) the in-cluster watcher
+// use to advance the timeline.
+func (s *ClusterOrderService) setVendPhase(ctx context.Context, id, orgID, phase, detail string) error {
+	raw, err := vendPhaseFragment(phase, detail, time.Now().UTC())
+	if err != nil {
+		return err
+	}
+	return s.queries.SetVendPhase(ctx, id, orgID, raw)
+}
+
+// vendPhaseFragment builds the single-key jsonb fragment merged into vend_phases.
+// Exactly one key keeps the merge (`vend_phases || fragment`) regressible — it
+// overwrites only that phase and leaves the rest of the timeline intact.
+func vendPhaseFragment(phase, detail string, at time.Time) (json.RawMessage, error) {
+	raw, err := json.Marshal(map[string]vendPhase{phase: {At: at, Detail: detail}})
+	if err != nil {
+		return nil, fmt.Errorf("marshal vend phase: %w", err)
+	}
+	return raw, nil
+}
+
+type vendPhase struct {
+	At     time.Time `json:"at"`
+	Detail string    `json:"detail,omitempty"`
 }
 
 // GetOperation reads an operation row by ID. Used by the worker on job start.
