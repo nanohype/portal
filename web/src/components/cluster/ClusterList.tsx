@@ -12,6 +12,7 @@ import { Server, Plus, Cloud } from "lucide-react";
 import { ClusterCreateModal } from "./ClusterCreateModal";
 import { ClusterOrderModal } from "./ClusterOrderModal";
 import { VendTimeline } from "./VendTimeline";
+import { DeprovisionTimeline } from "./DeprovisionTimeline";
 
 export function statusBadge(status: ClusterConnectionStatus) {
   switch (status) {
@@ -23,23 +24,6 @@ export function statusBadge(status: ClusterConnectionStatus) {
       return <Badge variant="destructive">Failed</Badge>;
     default:
       return <Badge variant="secondary">Pending</Badge>;
-  }
-}
-
-// Status of a vend ORDER (the cluster_operations row) — distinct from the
-// connection status of a registered cluster above.
-export function operationBadge(status: string) {
-  switch (status) {
-    case "active":
-      return <Badge variant="success">Active</Badge>;
-    case "committed":
-      return <Badge variant="default">Committed</Badge>;
-    case "failed":
-      return <Badge variant="destructive">Failed</Badge>;
-    case "pending":
-      return <Badge variant="secondary">Pending</Badge>;
-    default:
-      return <Badge variant="secondary">{status}</Badge>;
   }
 }
 
@@ -98,17 +82,18 @@ export function ClusterList() {
       if (error) throw error;
       return data!;
     },
-    // Poll while anything is still moving: a pending op, or a committed provision
-    // still working toward active. The in-cluster watcher advances tofu_running →
-    // active live; locally they rest at committed (and the page is the only thing
-    // polling, so it stops on nav). A tofu error is regressible — it rides on
-    // tofu_running and clears, so it does NOT stop the poll; only a portal-side
-    // "failed" phase does. Cap at an hour so a vend that never reaches active
-    // (watcher off, order abandoned) can't poll forever.
+    // Poll while anything is still moving: a pending op, or a committed
+    // provision/deprovision still advancing on the hub. The in-cluster watcher
+    // drives tofu_running → active (provision) and deprovisioning → deprovisioned
+    // (teardown) live; locally they rest at committed (and the page is the only
+    // thing polling, so it stops on nav). A regressible tofu error (running /
+    // destroying detail) does NOT stop the poll; only a portal-side "failed"
+    // phase does. Cap at an hour so an op that never reaches a terminal (watcher
+    // off, order abandoned) can't poll forever.
     refetchInterval: (query) =>
       query.state.data?.some((o: ClusterOperation) => {
         if (o.status === "pending") return true;
-        if (o.operation !== "provision" || o.status === "active" || o.status === "failed")
+        if (o.status === "active" || o.status === "failed" || o.status === "deprovisioned")
           return false;
         const p = o.vend_phases ?? {};
         if ("failed" in p) return false;
@@ -269,7 +254,7 @@ export function ClusterList() {
                   {op.operation === "provision" ? (
                     <VendTimeline op={op} />
                   ) : (
-                    operationBadge(op.status)
+                    <DeprovisionTimeline op={op} />
                   )}
                   <div className="ml-auto flex items-center gap-3 text-[11px] text-muted-foreground/70">
                     {op.git_commit_sha && (

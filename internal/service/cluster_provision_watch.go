@@ -37,28 +37,36 @@ func NewClusterProvisionWatchService(clusters *ClusterService, queries *reposito
 	return &ClusterProvisionWatchService{clusters: clusters, queries: queries, hub: hub}
 }
 
-// Sync runs one pass: auto-register every committed provision op whose Cluster
-// XR is ready, and leave the rest for a later tick. Returns counts for logging.
-func (s *ClusterProvisionWatchService) Sync(ctx context.Context) (registered, pending int, err error) {
+// Sync runs one pass over the committed operations: auto-register every
+// provision whose Cluster XR is ready, close out every deprovision whose XR is
+// gone, and leave the rest for a later tick. Returns counts for logging —
+// completed = a terminal transition this tick (registered or deprovisioned).
+func (s *ClusterProvisionWatchService) Sync(ctx context.Context) (completed, pending int, err error) {
 	ops, err := s.queries.ListClusterOperationsByStatus(ctx, "committed")
 	if err != nil {
 		return 0, 0, fmt.Errorf("list committed operations: %w", err)
 	}
 	for _, op := range ops {
-		if op.Operation != "provision" {
+		var done bool
+		var rErr error
+		switch op.Operation {
+		case "provision":
+			done, rErr = s.reconcile(ctx, op)
+		case "deprovision":
+			done, rErr = s.reconcileDeprovision(ctx, op)
+		default:
 			continue
 		}
-		done, rErr := s.reconcile(ctx, op)
 		switch {
 		case rErr != nil:
-			slog.Warn("provision watch-back: reconcile op", "op", op.ID, "name", op.Name, "error", rErr)
+			slog.Warn("cluster watch-back: reconcile op", "op", op.ID, "name", op.Name, "operation", op.Operation, "error", rErr)
 		case done:
-			registered++
+			completed++
 		default:
 			pending++
 		}
 	}
-	return registered, pending, nil
+	return completed, pending, nil
 }
 
 // reconcile registers one op's cluster if its XR is ready. (done=false, err=nil)
@@ -89,6 +97,36 @@ func (s *ClusterProvisionWatchService) reconcile(ctx context.Context, op reposit
 		return false, fmt.Errorf("activate op: %w", err)
 	}
 	slog.Info("provision watch-back: cluster registered", "op", op.ID, "name", op.Name, "cluster_id", clusterID)
+	return true, nil
+}
+
+// reconcileDeprovision closes out a committed deprovision once Crossplane has
+// torn the cluster down. The Cluster XR going NotFound on the hub IS the
+// completion signal — ArgoCD prunes the CR, Crossplane runs tofu destroy on the
+// composed Workspaces, and only when they're gone does the XR disappear. While
+// the XR still exists, teardown is in flight: project a regressible
+// 'deprovisioning' phase carrying any tofu-destroy error so a wedged teardown is
+// visible. (done=false, err=nil) means "still tearing down — try the next tick".
+func (s *ClusterProvisionWatchService) reconcileDeprovision(ctx context.Context, op repository.ClusterOperation) (bool, error) {
+	_, err := s.hub.Resource(k8s.ClusterGVR).Namespace(op.Team).Get(ctx, op.Name, metav1.GetOptions{})
+	if err != nil && !apierrors.IsNotFound(err) {
+		return false, fmt.Errorf("get Cluster XR %s/%s: %w", op.Team, op.Name, err)
+	}
+	if err == nil {
+		// XR still present — teardown in progress. Surface destroy progress/errors.
+		s.projectDeprovisionPhase(ctx, op)
+		return false, nil
+	}
+	// XR gone — teardown complete. Record the terminal phase first (best-effort),
+	// then flip the op; the status query is guarded WHERE status='committed', so a
+	// retry next tick is harmless if either write hiccups.
+	s.setVendPhase(ctx, op, "deprovisioned", "")
+	if err := s.queries.DeprovisionClusterOperation(ctx, repository.DeprovisionClusterOperationParams{
+		ID: op.ID, OrgID: op.OrgID, CompletedAt: time.Now(),
+	}); err != nil {
+		return false, fmt.Errorf("close deprovision op: %w", err)
+	}
+	slog.Info("cluster watch-back: cluster deprovisioned", "op", op.ID, "name", op.Name)
 	return true, nil
 }
 
@@ -197,23 +235,41 @@ func clusterStatus(obj map[string]interface{}) clusterXRStatus {
 // snapshot must not permanently brand a vend failed. The definitive failed state
 // is reserved for the portal-side commit failure.
 func (s *ClusterProvisionWatchService) projectTofuPhase(ctx context.Context, op repository.ClusterOperation) {
-	var present [][]condition
-	for _, suffix := range []string{"stack", "bootstrap"} {
-		ws, err := s.hub.Resource(k8s.WorkspaceGVR).Namespace(op.Team).Get(ctx, op.Name+"-"+suffix, metav1.GetOptions{})
-		if apierrors.IsNotFound(err) {
-			continue // not composed yet
-		}
-		if err != nil {
-			slog.Warn("provision watch-back: get workspace", "workspace", op.Name+"-"+suffix, "error", err)
-			continue
-		}
-		present = append(present, conditions(ws.Object))
-	}
-	building, errMsg := tofuState(present)
+	building, errMsg := tofuState(s.workspaceConditions(ctx, op))
 	if !building {
 		return // nothing composed yet — leave the timeline at committed
 	}
 	s.setVendPhase(ctx, op, "tofu_running", truncate(errMsg, 1000))
+}
+
+// projectDeprovisionPhase advances the timeline to 'deprovisioning' while the
+// cluster's Workspaces are being torn down, carrying any current tofu-destroy
+// error as a regressible detail (same model as the build phase). The XR's
+// presence already told reconcileDeprovision we're tearing down, so the phase is
+// written regardless of whether the Workspaces are still readable.
+func (s *ClusterProvisionWatchService) projectDeprovisionPhase(ctx context.Context, op repository.ClusterOperation) {
+	_, errMsg := tofuState(s.workspaceConditions(ctx, op))
+	s.setVendPhase(ctx, op, "deprovisioning", truncate(errMsg, 1000))
+}
+
+// workspaceConditions reads the .status.conditions of the provider-opentofu
+// Workspaces the Cluster XR composes (<name>-stack, <name>-bootstrap) on the
+// hub — one slice per Workspace that currently exists. Missing Workspaces (not
+// composed yet, or already destroyed) are skipped.
+func (s *ClusterProvisionWatchService) workspaceConditions(ctx context.Context, op repository.ClusterOperation) [][]condition {
+	var present [][]condition
+	for _, suffix := range []string{"stack", "bootstrap"} {
+		ws, err := s.hub.Resource(k8s.WorkspaceGVR).Namespace(op.Team).Get(ctx, op.Name+"-"+suffix, metav1.GetOptions{})
+		if apierrors.IsNotFound(err) {
+			continue // not composed yet, or already torn down
+		}
+		if err != nil {
+			slog.Warn("cluster watch-back: get workspace", "workspace", op.Name+"-"+suffix, "error", err)
+			continue
+		}
+		present = append(present, conditions(ws.Object))
+	}
+	return present
 }
 
 // setVendPhase records one timeline checkpoint, best-effort — the status row is
