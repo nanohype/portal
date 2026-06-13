@@ -38,3 +38,7 @@ docker-compose.override.yml
 
 # Local planning notes
 .plans/
+
+# Helm chart build artifacts (resolved via `helm dependency build`)
+deploy/helm/portal/charts/
+deploy/helm/portal/Chart.lock
