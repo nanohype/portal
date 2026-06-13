@@ -106,6 +106,15 @@ type Config struct {
 	// eks_iam and flips the op to 'active'. Inert unless enabled and in-cluster.
 	ClusterWatchback         bool          `env:"CLUSTER_WATCHBACK_ENABLED" envDefault:"false"`
 	ClusterWatchbackInterval time.Duration `env:"CLUSTER_WATCHBACK_INTERVAL" envDefault:"60s"`
+
+	// Cluster health watcher (steady-state per-cluster health). When enabled, the
+	// worker — running in-cluster on the hub — reads each registered cluster's
+	// per-cluster ArgoCD Application (sync+health) and, for eks_iam clusters, its
+	// EKS control plane via eks:DescribeCluster, every ClusterHealthInterval, and
+	// projects them onto the cluster row. ArgoCDNamespace is the hub namespace the
+	// per-cluster Applications live in. Inert unless enabled and in-cluster.
+	ClusterHealth         bool          `env:"CLUSTER_HEALTH_ENABLED" envDefault:"false"`
+	ClusterHealthInterval time.Duration `env:"CLUSTER_HEALTH_INTERVAL" envDefault:"120s"`
 }
 
 // Validate checks that the configuration is safe for the target environment.

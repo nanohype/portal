@@ -46,9 +46,17 @@ data:
   CLUSTER_WATCHBACK_ENABLED: "true"
   CLUSTER_WATCHBACK_INTERVAL: {{ .Values.clusterWatchback.interval | quote }}
   {{- end }}
+  {{- if .Values.clusterHealth.enabled }}
+  CLUSTER_HEALTH_ENABLED: "true"
+  CLUSTER_HEALTH_INTERVAL: {{ .Values.clusterHealth.interval | quote }}
+  {{- end }}
+  {{- if or .Values.argocdSync.enabled .Values.clusterHealth.enabled }}
+  # The argocd namespace on the hub — holds the cluster-registry Secrets
+  # (argocdSync) and the per-cluster Applications (clusterHealth).
+  ARGOCD_NAMESPACE: {{ .Values.argocdSync.namespace | quote }}
+  {{- end }}
   {{- if .Values.argocdSync.enabled }}
   ARGOCD_CLUSTER_SYNC: "true"
-  ARGOCD_NAMESPACE: {{ .Values.argocdSync.namespace | quote }}
   ARGOCD_SYNC_INTERVAL: {{ .Values.argocdSync.syncInterval | quote }}
   ARGOCD_SYNC_ORG_ID: {{ .Values.argocdSync.orgID | quote }}
   ARGOCD_SYNC_ACCOUNT_ID: {{ .Values.argocdSync.accountID | quote }}

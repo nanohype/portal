@@ -459,42 +459,72 @@ func main() {
 		}
 	}
 
-	// Cluster provision watch-back: the vend loop's closing leg. When enabled
-	// and running in-cluster on the hub, poll each committed provision op's
-	// eks-fleet Cluster XR and, once its EKS endpoint + CA are up, auto-register
-	// the new cluster (as eks_iam — no stored token) and flip the op to 'active'.
-	// Inert in dev / off the hub, where there's no in-cluster config.
-	if cfg.ClusterWatchback {
+	// Hub-side cluster watchers. Both run in-cluster on the hub off one dynamic
+	// client and are inert in dev / off the hub (no in-cluster config):
+	//   - watch-back: the vend loop's closing leg — poll each committed provision
+	//     op's eks-fleet Cluster XR and, once its EKS endpoint + CA are up,
+	//     auto-register the new cluster (eks_iam) and flip the op to 'active'.
+	//   - health: steady-state per-cluster ArgoCD Application sync/health + (for
+	//     eks_iam clusters) EKS control-plane status, projected onto the row.
+	if cfg.ClusterWatchback || cfg.ClusterHealth {
 		restCfg, err := rest.InClusterConfig()
 		if err != nil {
-			logger.Warn("cluster watch-back enabled but worker is not running in-cluster; skipping", "error", err)
+			logger.Warn("hub watchers enabled but worker is not running in-cluster; skipping", "error", err)
 		} else if hubDyn, err := dynamic.NewForConfig(restCfg); err != nil {
-			logger.Warn("cluster watch-back: failed to build in-cluster dynamic client; skipping", "error", err)
+			logger.Warn("hub watchers: failed to build in-cluster dynamic client; skipping", "error", err)
 		} else {
-			watchSvc := service.NewClusterProvisionWatchService(clusterSvc, queries, hubDyn)
-			go func() {
-				t := time.NewTicker(cfg.ClusterWatchbackInterval)
-				defer t.Stop()
-				runWatchback := func() {
-					completed, pending, err := watchSvc.Sync(context.Background())
-					if err != nil {
-						logger.Warn("cluster watch-back", "error", err)
-						return
+			if cfg.ClusterWatchback {
+				watchSvc := service.NewClusterProvisionWatchService(clusterSvc, queries, hubDyn)
+				go func() {
+					t := time.NewTicker(cfg.ClusterWatchbackInterval)
+					defer t.Stop()
+					runWatchback := func() {
+						completed, pending, err := watchSvc.Sync(context.Background())
+						if err != nil {
+							logger.Warn("cluster watch-back", "error", err)
+							return
+						}
+						if completed > 0 || pending > 0 {
+							logger.Info("cluster watch-back tick", "completed", completed, "pending", pending)
+						}
 					}
-					if completed > 0 || pending > 0 {
-						logger.Info("cluster watch-back tick", "completed", completed, "pending", pending)
+					runWatchback()
+					for {
+						select {
+						case <-ctx.Done():
+							return
+						case <-t.C:
+							runWatchback()
+						}
 					}
-				}
-				runWatchback()
-				for {
-					select {
-					case <-ctx.Done():
-						return
-					case <-t.C:
-						runWatchback()
+				}()
+			}
+			if cfg.ClusterHealth {
+				healthSvc := service.NewClusterHealthService(clusterSvc, queries, hubDyn, awsProvider, cfg.ArgoCDNamespace)
+				go func() {
+					t := time.NewTicker(cfg.ClusterHealthInterval)
+					defer t.Stop()
+					runHealth := func() {
+						checked, err := healthSvc.Sync(context.Background())
+						if err != nil {
+							logger.Warn("cluster health", "error", err)
+							return
+						}
+						if checked > 0 {
+							logger.Info("cluster health tick", "checked", checked)
+						}
 					}
-				}
-			}()
+					runHealth()
+					for {
+						select {
+						case <-ctx.Done():
+							return
+						case <-t.C:
+							runHealth()
+						}
+					}
+				}()
+			}
 		}
 	}
 

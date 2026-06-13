@@ -50,6 +50,16 @@ var ClusterGVR = schema.GroupVersionResource{
 	Resource: "clusters",
 }
 
+// ApplicationGVR is the GroupVersionResource for ArgoCD Applications. The
+// cluster-health watcher reads the per-cluster Application (named
+// cluster-<environment>-<name> by the eks-gitops clusters appset) in the argocd
+// namespace on the hub to surface its .status.sync.status + .status.health.status.
+var ApplicationGVR = schema.GroupVersionResource{
+	Group:    "argoproj.io",
+	Version:  "v1alpha1",
+	Resource: "applications",
+}
+
 // WorkspaceGVR is the GroupVersionResource for the provider-opentofu Workspaces
 // an eks-fleet Cluster XR composes (<name>-stack + <name>-bootstrap). The
 // provision watch-back reads their .status.conditions on the hub to project the

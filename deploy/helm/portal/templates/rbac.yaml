@@ -1,8 +1,9 @@
-{{- if or .Values.argocdSync.enabled .Values.clusterWatchback.enabled }}
-# RBAC for the worker's in-cluster reads. Created when argocdSync OR
-# clusterWatchback is enabled. The worker watches Platform/Tenant CRs and (for
-# the provision watch-back) the eks-fleet Cluster XRs cluster-wide; with
-# argocdSync it also reads ArgoCD's cluster Secrets in argocdSync.namespace.
+{{- if or .Values.argocdSync.enabled .Values.clusterWatchback.enabled .Values.clusterHealth.enabled }}
+# RBAC for the worker's in-cluster reads. Created when argocdSync, clusterWatchback,
+# OR clusterHealth is enabled. The worker watches Platform/Tenant CRs and (for the
+# provision watch-back) the eks-fleet Cluster XRs cluster-wide; with argocdSync it
+# reads ArgoCD's cluster Secrets, and with clusterHealth the per-cluster ArgoCD
+# Applications — both scoped to argocdSync.namespace.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -72,6 +73,34 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
   name: {{ .Release.Name }}-argocd-reader
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-worker
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- if .Values.clusterHealth.enabled }}
+---
+# Read the per-cluster ArgoCD Applications (cluster-<env>-<name>) the health
+# watcher surfaces, scoped to the argocd namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-argocd-apps-reader
+  namespace: {{ .Values.argocdSync.namespace }}
+rules:
+  - apiGroups: ["argoproj.io"]
+    resources: ["applications"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-argocd-apps-reader
+  namespace: {{ .Values.argocdSync.namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ .Release.Name }}-argocd-apps-reader
 subjects:
   - kind: ServiceAccount
     name: {{ .Release.Name }}-worker

@@ -27,6 +27,49 @@ export function statusBadge(status: ClusterConnectionStatus) {
   }
 }
 
+type BadgeVariant = "success" | "warning" | "destructive" | "secondary";
+
+// argoBadge folds the per-cluster ArgoCD Application's sync + health into one
+// badge whose colour follows health (Progressing is the transitional/warning
+// state, matching the rest of the UI). Returns null when the watcher hasn't
+// observed a per-cluster Application — so it renders nothing for hand-registered
+// clusters or before the first health tick.
+export function argoBadge(sync: string, health: string) {
+  if (!sync && !health) return null;
+  const variant: BadgeVariant =
+    health === "Healthy"
+      ? "success"
+      : health === "Progressing"
+        ? "warning"
+        : health === "Degraded" || health === "Missing"
+          ? "destructive"
+          : sync === "OutOfSync"
+            ? "warning"
+            : "secondary";
+  const label = [sync, health].filter(Boolean).join(" · ");
+  return <Badge variant={variant}>{label}</Badge>;
+}
+
+// controlPlaneBadge renders the EKS control-plane lifecycle from
+// eks:DescribeCluster. Returns null when not observed (non-EKS, or describe not
+// permitted yet).
+export function controlPlaneBadge(status: string) {
+  if (!status) return null;
+  const titled = status.charAt(0) + status.slice(1).toLowerCase();
+  switch (status) {
+    case "ACTIVE":
+      return <Badge variant="success">{titled}</Badge>;
+    case "UPDATING":
+    case "CREATING":
+      return <Badge variant="warning">{titled}</Badge>;
+    case "DEGRADED":
+    case "FAILED":
+      return <Badge variant="destructive">{titled}</Badge>;
+    default:
+      return <Badge variant="secondary">{titled}</Badge>;
+  }
+}
+
 export function ClusterList() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin" || user?.role === "owner";
@@ -51,7 +94,10 @@ export function ClusterList() {
       const transitional = clusters.some(
         (c: Cluster) =>
           c.connection_status === "pending" ||
-          c.connection_status === "connecting",
+          c.connection_status === "connecting" ||
+          c.argocd_health_status === "Progressing" ||
+          c.control_plane_status === "UPDATING" ||
+          c.control_plane_status === "CREATING",
       );
       return transitional ? 3000 : false;
     },
@@ -211,6 +257,7 @@ export function ClusterList() {
                         {c.name}
                       </span>
                       {statusBadge(c.connection_status)}
+                      {argoBadge(c.argocd_sync_status, c.argocd_health_status)}
                     </div>
                     <p className="text-[11px] text-muted-foreground/70 mt-0.5">
                       {accountName(c.account_id)} · {c.region}

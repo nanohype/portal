@@ -220,6 +220,19 @@ func (s *ClusterService) SetConnectionStatus(ctx context.Context, id, orgID, sta
 	})
 }
 
+// SetArgoCDHealth records the per-cluster ArgoCD Application's sync + health —
+// the write side of the hub health watcher, hiding the column shape from it
+// (mirrors SetConnectionStatus).
+func (s *ClusterService) SetArgoCDHealth(ctx context.Context, id, orgID, sync, health string) error {
+	return s.queries.SetClusterArgoCDHealth(ctx, id, orgID, sync, health, time.Now())
+}
+
+// SetControlPlane records the EKS control-plane status + platform version from
+// eks:DescribeCluster.
+func (s *ClusterService) SetControlPlane(ctx context.Context, id, orgID, status, platformVersion string) error {
+	return s.queries.SetClusterControlPlane(ctx, id, orgID, status, platformVersion, time.Now())
+}
+
 func (s *ClusterService) encryptIfSet(plaintext string) (string, error) {
 	if plaintext == "" {
 		return "", nil

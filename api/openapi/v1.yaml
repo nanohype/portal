@@ -2341,6 +2341,22 @@ components:
         connection_error: { type: string }
         node_count: { type: integer }
         k8s_version: { type: string }
+        argocd_sync_status:
+          type: string
+          description: Per-cluster ArgoCD Application sync (Synced/OutOfSync/Unknown); '' when not observed.
+        argocd_health_status:
+          type: string
+          description: Per-cluster ArgoCD Application health (Healthy/Progressing/Degraded/...); '' when not observed.
+        control_plane_status:
+          type: string
+          description: EKS control-plane lifecycle from eks:DescribeCluster (ACTIVE/UPDATING/...); '' when not observed.
+        platform_version:
+          type: string
+          description: EKS platform version (e.g. eks.7); '' when not observed.
+        last_health_observed_at:
+          type: string
+          format: date-time
+          nullable: true
         credentials_set: { type: boolean }
         created_by: { type: string }
         created_at:
