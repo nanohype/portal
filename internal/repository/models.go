@@ -238,9 +238,15 @@ type Cluster struct {
 	ConnectionError   string     `json:"connection_error"`
 	NodeCount         int32      `json:"node_count"`
 	K8sVersion        string     `json:"k8s_version"`
-	CreatedBy         string     `json:"created_by"`
-	CreatedAt         time.Time  `json:"created_at"`
-	UpdatedAt         time.Time  `json:"updated_at"`
+	// Health projections written by the hub-side cluster-health watcher.
+	ArgoCDSyncStatus     string     `json:"argocd_sync_status"`
+	ArgoCDHealthStatus   string     `json:"argocd_health_status"`
+	ControlPlaneStatus   string     `json:"control_plane_status"`
+	PlatformVersion      string     `json:"platform_version"`
+	LastHealthObservedAt *time.Time `json:"last_health_observed_at"`
+	CreatedBy            string     `json:"created_by"`
+	CreatedAt            time.Time  `json:"created_at"`
+	UpdatedAt            time.Time  `json:"updated_at"`
 }
 
 type Tenant struct {

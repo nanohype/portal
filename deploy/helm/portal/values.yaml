@@ -173,6 +173,17 @@ clusterWatchback:
   enabled: false
   interval: "60s"
 
+# -- Cluster health watcher. When enabled (in-cluster, on the hub) the worker
+# reads each registered cluster's per-cluster ArgoCD Application
+# (cluster-<env>-<name>, in argocdSync.namespace) for sync/health, and — for
+# eks_iam clusters with serviceAccount.roleArn set — its EKS control plane via
+# eks:DescribeCluster, projecting both onto the cluster row. Grants the worker
+# read RBAC on argoproj.io/applications in argocdSync.namespace. The EKS read
+# degrades gracefully (empty) until the assume-role grants eks:DescribeCluster.
+clusterHealth:
+  enabled: false
+  interval: "120s"
+
 # -- Worker ServiceAccount IRSA. Set roleArn to an IAM role bound to the cluster's
 # EKS OIDC provider to give the worker AWS credentials for read-only cluster
 # status (e.g. eks:DescribeCluster, for the live cluster-detail view). Empty = no

@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Link } from "@/components/ui/link";
 import { formatRelativeTime } from "@/lib/utils";
-import { statusBadge } from "./ClusterList";
+import { statusBadge, argoBadge, controlPlaneBadge } from "./ClusterList";
 import { phaseBadge } from "../tenant/TenantList";
 import {
   ArrowLeft,
@@ -35,10 +35,20 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
       if (error) throw error;
       return data!;
     },
-    // Poll while connection test is in flight
+    // Poll fast while the connection test is in flight; slower while the cluster
+    // health is actively changing (ArgoCD Progressing, or the EKS control plane
+    // mid-create/update) so the badges catch up without a manual refresh. Steady
+    // states stop polling — the page is the only poller and stops on nav.
     refetchInterval: (query) => {
-      const s = query.state.data?.connection_status;
-      return s === "pending" || s === "connecting" ? 2000 : false;
+      const c = query.state.data;
+      if (!c) return false;
+      if (c.connection_status === "pending" || c.connection_status === "connecting")
+        return 2000;
+      const transitional =
+        c.argocd_health_status === "Progressing" ||
+        c.control_plane_status === "UPDATING" ||
+        c.control_plane_status === "CREATING";
+      return transitional ? 15000 : false;
     },
   });
 
@@ -182,6 +192,7 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
                 {data.name}
               </h1>
               {statusBadge(data.connection_status)}
+              {argoBadge(data.argocd_sync_status, data.argocd_health_status)}
             </div>
             <p className="text-[12px] text-muted-foreground mt-0.5">
               {data.region}
@@ -282,6 +293,22 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
             className="font-mono"
           />
         </FormRow>
+
+        {data.control_plane_status && (
+          <FormRow
+            label="Control plane"
+            hint="EKS control-plane lifecycle, observed from AWS."
+          >
+            <div className="flex items-center gap-2">
+              {controlPlaneBadge(data.control_plane_status)}
+              {data.platform_version && (
+                <span className="text-xs text-muted-foreground/70 font-mono">
+                  {data.platform_version}
+                </span>
+              )}
+            </div>
+          </FormRow>
+        )}
 
         <FormRow
           label="Credentials"

@@ -10,11 +10,11 @@ import (
 	"time"
 )
 
-const clusterColumns = `id, org_id, account_id, name, description, environment, api_endpoint, ca_bundle_encrypted, sa_token_encrypted, region, auth_mode, eks_cluster_name, connection_status, last_connected_at, connection_error, node_count, k8s_version, created_by, created_at, updated_at`
+const clusterColumns = `id, org_id, account_id, name, description, environment, api_endpoint, ca_bundle_encrypted, sa_token_encrypted, region, auth_mode, eks_cluster_name, connection_status, last_connected_at, connection_error, node_count, k8s_version, argocd_sync_status, argocd_health_status, control_plane_status, platform_version, last_health_observed_at, created_by, created_at, updated_at`
 
 func scanCluster(row interface{ Scan(...interface{}) error }) (Cluster, error) {
 	var c Cluster
-	err := row.Scan(&c.ID, &c.OrgID, &c.AccountID, &c.Name, &c.Description, &c.Environment, &c.APIEndpoint, &c.CABundleEncrypted, &c.SATokenEncrypted, &c.Region, &c.AuthMode, &c.EKSClusterName, &c.ConnectionStatus, &c.LastConnectedAt, &c.ConnectionError, &c.NodeCount, &c.K8sVersion, &c.CreatedBy, &c.CreatedAt, &c.UpdatedAt)
+	err := row.Scan(&c.ID, &c.OrgID, &c.AccountID, &c.Name, &c.Description, &c.Environment, &c.APIEndpoint, &c.CABundleEncrypted, &c.SATokenEncrypted, &c.Region, &c.AuthMode, &c.EKSClusterName, &c.ConnectionStatus, &c.LastConnectedAt, &c.ConnectionError, &c.NodeCount, &c.K8sVersion, &c.ArgoCDSyncStatus, &c.ArgoCDHealthStatus, &c.ControlPlaneStatus, &c.PlatformVersion, &c.LastHealthObservedAt, &c.CreatedBy, &c.CreatedAt, &c.UpdatedAt)
 	return c, err
 }
 
@@ -234,6 +234,81 @@ func (q *Queries) SetClusterConnectionStatus(ctx context.Context, arg SetCluster
 			updated_at = NOW()
 		WHERE id = $1 AND org_id = $2`,
 		arg.ID, arg.OrgID, arg.Status, arg.Error,
+	)
+	return err
+}
+
+// ClusterHealthTarget is the slim row the hub-side health watcher iterates — the
+// fields it needs to locate a cluster's per-cluster ArgoCD Application
+// (environment+name) and to describe its EKS control plane (region+eks_cluster_name
+// + the account whose role grants eks:DescribeCluster). No credentials: the health
+// read talks to the hub + AWS, never the spoke.
+type ClusterHealthTarget struct {
+	ID             string `json:"id"`
+	OrgID          string `json:"org_id"`
+	AccountID      string `json:"account_id"`
+	Name           string `json:"name"`
+	Environment    string `json:"environment"`
+	Region         string `json:"region"`
+	AuthMode       string `json:"auth_mode"`
+	EKSClusterName string `json:"eks_cluster_name"`
+}
+
+// ListClusterHealthTargets returns every registered cluster across all orgs — the
+// health watcher is global like the other in-cluster watchers, and health is
+// independent of connection status (the ArgoCD Application lives on the hub, not
+// the spoke, so a cluster portal can't reach can still report ArgoCD health).
+func (q *Queries) ListClusterHealthTargets(ctx context.Context) ([]ClusterHealthTarget, error) {
+	rows, err := q.db.Query(ctx,
+		`SELECT id, org_id, account_id, name, environment, region, auth_mode, eks_cluster_name
+		FROM clusters
+		ORDER BY created_at DESC
+		LIMIT 1000`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	targets := []ClusterHealthTarget{}
+	for rows.Next() {
+		var t ClusterHealthTarget
+		if err := rows.Scan(&t.ID, &t.OrgID, &t.AccountID, &t.Name, &t.Environment, &t.Region, &t.AuthMode, &t.EKSClusterName); err != nil {
+			return nil, err
+		}
+		targets = append(targets, t)
+	}
+	return targets, rows.Err()
+}
+
+// SetClusterArgoCDHealth writes the per-cluster ArgoCD Application's sync + health.
+// Called only when the Application read produced a definitive result (NotFound ->
+// empty, "this cluster has no per-cluster Application"); a transient read error
+// skips the call so the last-known values are preserved.
+func (q *Queries) SetClusterArgoCDHealth(ctx context.Context, id, orgID, sync, health string, at time.Time) error {
+	_, err := q.db.Exec(ctx,
+		`UPDATE clusters
+		SET argocd_sync_status = $3,
+			argocd_health_status = $4,
+			last_health_observed_at = $5,
+			updated_at = NOW()
+		WHERE id = $1 AND org_id = $2`,
+		id, orgID, sync, health, at,
+	)
+	return err
+}
+
+// SetClusterControlPlane writes the EKS control-plane status + platform version
+// from eks:DescribeCluster. Called only on a successful describe; an error
+// (AccessDenied, throttle, non-EKS) skips the call so prior values are preserved.
+func (q *Queries) SetClusterControlPlane(ctx context.Context, id, orgID, status, platformVersion string, at time.Time) error {
+	_, err := q.db.Exec(ctx,
+		`UPDATE clusters
+		SET control_plane_status = $3,
+			platform_version = $4,
+			last_health_observed_at = $5,
+			updated_at = NOW()
+		WHERE id = $1 AND org_id = $2`,
+		id, orgID, status, platformVersion, at,
 	)
 	return err
 }

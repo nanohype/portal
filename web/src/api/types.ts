@@ -471,6 +471,14 @@ export interface Cluster {
   connection_error: string;
   node_count: number;
   k8s_version: string;
+  // Health projections from the hub cluster-health watcher. Empty string when
+  // not (yet) observed — e.g. no per-cluster ArgoCD Application, or EKS describe
+  // not permitted. Gate rendering on presence.
+  argocd_sync_status: string; // Synced | OutOfSync | Unknown | ""
+  argocd_health_status: string; // Healthy | Progressing | Degraded | Missing | ...
+  control_plane_status: string; // ACTIVE | UPDATING | CREATING | DEGRADED | ...
+  platform_version: string; // EKS platform version, e.g. eks.7
+  last_health_observed_at: string | null;
   credentials_set: boolean;
   created_by: string;
   created_at: string;
