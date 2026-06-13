@@ -98,8 +98,23 @@ export function ClusterList() {
       if (error) throw error;
       return data!;
     },
+    // Poll while anything is still moving: a pending op, or a committed provision
+    // still working toward active. The in-cluster watcher advances tofu_running →
+    // active live; locally they rest at committed (and the page is the only thing
+    // polling, so it stops on nav). A tofu error is regressible — it rides on
+    // tofu_running and clears, so it does NOT stop the poll; only a portal-side
+    // "failed" phase does. Cap at an hour so a vend that never reaches active
+    // (watcher off, order abandoned) can't poll forever.
     refetchInterval: (query) =>
-      query.state.data?.some((o: ClusterOperation) => o.status === "pending")
+      query.state.data?.some((o: ClusterOperation) => {
+        if (o.status === "pending") return true;
+        if (o.operation !== "provision" || o.status === "active" || o.status === "failed")
+          return false;
+        const p = o.vend_phases ?? {};
+        if ("failed" in p) return false;
+        const ageMs = Date.now() - new Date(o.created_at).getTime();
+        return ageMs < 60 * 60 * 1000;
+      })
         ? 3000
         : false,
   });

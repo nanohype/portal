@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -72,6 +73,9 @@ func (s *ClusterProvisionWatchService) reconcile(ctx context.Context, op reposit
 	}
 	st := clusterStatus(xr.Object)
 	if !st.ready() {
+		// Still vending — project the tofu build phase (tofu_running, carrying any
+		// current tofu error) from the composed Workspaces so the timeline moves.
+		s.projectTofuPhase(ctx, op)
 		return false, nil // endpoint/CA/name not all populated yet — still vending
 	}
 
@@ -144,13 +148,18 @@ type clusterXRStatus struct {
 	endpoint    string
 	caData      string // base64-encoded PEM, as EKS reports it
 	clusterName string
+	xrReady     bool // the XR's own Ready condition (function-auto-ready)
 }
 
-// ready reports whether the vended cluster's API is reachable: all three of the
-// EKS endpoint, CA, and (token-binding) cluster name must be populated before
-// portal can register + auth to it.
+// ready reports whether the vend is fully done: the EKS endpoint, CA, and
+// cluster name are published (so portal can register + auth) AND the XR's own
+// Ready condition is True. The endpoint/CA/name publish as soon as the cluster-
+// STACK Workspace applies, but the XR isn't Ready until the cluster-BOOTSTRAP
+// Workspace also converges (function-auto-ready). Gating on both keeps "active"
+// honest and lets the timeline observe the bootstrap phase (and any failure)
+// before the op leaves the committed working set.
 func (st clusterXRStatus) ready() bool {
-	return st.endpoint != "" && st.caData != "" && st.clusterName != ""
+	return st.endpoint != "" && st.caData != "" && st.clusterName != "" && st.xrReady
 }
 
 // clusterStatus pulls the fields the watch-back needs from an eks-fleet Cluster
@@ -171,7 +180,144 @@ func clusterStatus(obj map[string]interface{}) clusterXRStatus {
 	if v, ok := status["clusterName"].(string); ok {
 		st.clusterName = v
 	}
+	for _, c := range conditions(obj) {
+		if c.condType == "Ready" && c.status == "True" {
+			st.xrReady = true
+		}
+	}
 	return st
+}
+
+// projectTofuPhase reads the cluster's provider-opentofu Workspaces on the hub
+// and advances the vend timeline to tofu_running while they build, carrying the
+// current tofu error (if any) as the phase detail. Best-effort and REGRESSIBLE:
+// it re-writes each tick so the detail tracks the latest tofu error — a transient
+// ReconcileError clears when the Workspace recovers, a genuine one persists. It
+// writes no terminal "tofu_failed"; provider-opentofu retries, so a single error
+// snapshot must not permanently brand a vend failed. The definitive failed state
+// is reserved for the portal-side commit failure.
+func (s *ClusterProvisionWatchService) projectTofuPhase(ctx context.Context, op repository.ClusterOperation) {
+	var present [][]condition
+	for _, suffix := range []string{"stack", "bootstrap"} {
+		ws, err := s.hub.Resource(k8s.WorkspaceGVR).Namespace(op.Team).Get(ctx, op.Name+"-"+suffix, metav1.GetOptions{})
+		if apierrors.IsNotFound(err) {
+			continue // not composed yet
+		}
+		if err != nil {
+			slog.Warn("provision watch-back: get workspace", "workspace", op.Name+"-"+suffix, "error", err)
+			continue
+		}
+		present = append(present, conditions(ws.Object))
+	}
+	building, errMsg := tofuState(present)
+	if !building {
+		return // nothing composed yet — leave the timeline at committed
+	}
+	s.setVendPhase(ctx, op, "tofu_running", truncate(errMsg, 1000))
+}
+
+// setVendPhase records one timeline checkpoint, best-effort — the status row is
+// the verdict, so a projection write must never block the watch-back.
+func (s *ClusterProvisionWatchService) setVendPhase(ctx context.Context, op repository.ClusterOperation, phase, detail string) {
+	raw, err := vendPhaseFragment(phase, detail, time.Now().UTC())
+	if err != nil {
+		slog.Warn("provision watch-back: marshal vend phase", "op", op.ID, "error", err)
+		return
+	}
+	if err := s.queries.SetVendPhase(ctx, op.ID, op.OrgID, raw); err != nil {
+		slog.Warn("provision watch-back: set vend phase", "op", op.ID, "phase", phase, "error", err)
+	}
+}
+
+type condition struct {
+	condType string
+	status   string
+	reason   string
+	message  string
+}
+
+// conditions defensively extracts .status.conditions[] from an unstructured
+// object — status may be absent, and conditions missing or oddly shaped while
+// Crossplane is mid-reconcile.
+func conditions(obj map[string]interface{}) []condition {
+	status, ok := obj["status"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	raw, ok := status["conditions"].([]interface{})
+	if !ok {
+		return nil
+	}
+	out := make([]condition, 0, len(raw))
+	for _, item := range raw {
+		m, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		var c condition
+		if v, ok := m["type"].(string); ok {
+			c.condType = v
+		}
+		if v, ok := m["status"].(string); ok {
+			c.status = v
+		}
+		if v, ok := m["reason"].(string); ok {
+			c.reason = v
+		}
+		if v, ok := m["message"].(string); ok {
+			c.message = v
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+// reconcileError returns the message of a failed reconcile condition. provider-
+// opentofu surfaces a tofu apply error on Synced (sync mode) or LastAsyncOperation
+// (async mode), and Ready=False can carry one too; the reason-contains-"Error"
+// guard skips normal building states (Creating/Reconciling). The result is the
+// CURRENT error, informational — not a terminal verdict, since the provider retries.
+func reconcileError(conds []condition) string {
+	for _, c := range conds {
+		switch c.condType {
+		case "Synced", "LastAsyncOperation", "Ready":
+		default:
+			continue
+		}
+		if c.status == "False" && strings.Contains(c.reason, "Error") {
+			if c.message != "" {
+				return c.message
+			}
+			return c.reason
+		}
+	}
+	return ""
+}
+
+// tofuState classifies the build from the conditions of the Workspaces that EXIST
+// on the hub (one entry per present Workspace). building becomes true once any
+// Workspace is composed; errMsg is the current reconcile error if any (surfaced
+// as the running phase's detail, not a terminal failure). Empty input means
+// nothing is composed yet, so the timeline stays at committed.
+func tofuState(present [][]condition) (building bool, errMsg string) {
+	if len(present) == 0 {
+		return false, ""
+	}
+	for _, conds := range present {
+		if msg := reconcileError(conds); msg != "" {
+			return true, msg
+		}
+	}
+	return true, ""
+}
+
+// truncate caps a (possibly multi-byte) string to n runes for storage.
+func truncate(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
 }
 
 func isUniquePGViolation(err error) bool {
