@@ -35,3 +35,6 @@ docker-compose.override.yml
 *.tar.gz
 
 .claude/
+
+# Local planning notes
+.plans/

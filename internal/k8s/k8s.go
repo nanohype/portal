@@ -50,6 +50,16 @@ var ClusterGVR = schema.GroupVersionResource{
 	Resource: "clusters",
 }
 
+// WorkspaceGVR is the GroupVersionResource for the provider-opentofu Workspaces
+// an eks-fleet Cluster XR composes (<name>-stack + <name>-bootstrap). The
+// provision watch-back reads their .status.conditions on the hub to project the
+// tofu build phase (and any tofu error) onto the vend timeline.
+var WorkspaceGVR = schema.GroupVersionResource{
+	Group:    "opentofu.m.upbound.io",
+	Version:  "v1beta1",
+	Resource: "workspaces",
+}
+
 // InClusterAPIEndpoint is the API server address a pod uses to reach its own
 // cluster. An ArgoCD "in-cluster" registry entry carries this as its server and
 // has no bearer token — the portal watches it with its own mounted

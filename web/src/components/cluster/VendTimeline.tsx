@@ -10,13 +10,15 @@ const STEPS = [
 
 // Compact stepper projecting a provision vend's journey from its phase map.
 // Substrate phases (tofu_running, active) only advance once the in-cluster
-// watcher is running, so locally the timeline honestly rests at "committed" —
-// the later dots stay dim rather than faking progress. This is a projection of
-// the substrate, not a re-derived verdict.
+// watcher runs, so locally the timeline honestly rests at "committed". The tofu
+// build's CURRENT error (if any) rides on the tofu_running phase's detail and is
+// shown inline while building — it's regressible (a transient provider error
+// clears next tick), so it is NOT a terminal "Failed". A definitive Failed is
+// reserved for a portal-side commit failure (op.status / the "failed" phase).
 export function VendTimeline({ op }: { op: ClusterOperation }) {
   const phases = op.vend_phases ?? {};
-  const failed =
-    op.status === "failed" || "failed" in phases || "tofu_failed" in phases;
+  const failed = op.status === "failed" || "failed" in phases;
+  const tofuErr = phases.tofu_running?.detail;
 
   const reached = (key: string): boolean => {
     if (key === "queued") return true;
@@ -24,22 +26,23 @@ export function VendTimeline({ op }: { op: ClusterOperation }) {
     return key in phases;
   };
 
-  // Frontier index: the furthest step reached. The active transition can land
-  // (op.status='active') before any tofu_running phase is recorded, so gate the
-  // dots on `i <= lastReached` rather than each step's own reached() — otherwise
-  // a reached "Active" would sit past a hollow "Building".
   let lastReached = 0;
   STEPS.forEach((s, i) => {
     if (reached(s.key)) lastReached = i;
   });
   const allDone = !failed && reached("active");
   const inFlight = !failed && !allDone;
-  // Clamp so a regression past the last step still paints a red dot.
   const failIndex = Math.min(lastReached + 1, STEPS.length - 1);
-  const label = failed ? "Failed" : STEPS[lastReached].label;
-  const tooltip = failed
-    ? op.error || phases.tofu_failed?.detail || phases.failed?.detail || undefined
-    : undefined;
+  // While building, a current tofu error surfaces inline (amber-ish via
+  // destructive) without ending the timeline.
+  const issue = inFlight && !!tofuErr;
+  const label = failed
+    ? "Failed"
+    : issue
+      ? tofuErr || ""
+      : STEPS[lastReached].label;
+  const tooltip =
+    (failed ? op.error || phases.failed?.detail : tofuErr) || undefined;
 
   return (
     <div className="flex items-center gap-2" title={tooltip}>
@@ -74,8 +77,8 @@ export function VendTimeline({ op }: { op: ClusterOperation }) {
       </div>
       <span
         className={cn(
-          "text-[11px]",
-          failed ? "text-destructive" : "text-muted-foreground",
+          "text-[11px] truncate max-w-[18rem]",
+          failed || issue ? "text-destructive" : "text-muted-foreground",
         )}
       >
         {label}
