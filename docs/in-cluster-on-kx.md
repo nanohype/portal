@@ -98,6 +98,14 @@ clusterHealth:                      # steady-state ArgoCD (+ EKS) health
 serviceAccount:
   roleArn: ""
 
+# AWS creds for the worker (step 5) — referenced by name; the Secret is created
+# below before install so the worker mounts it at start. On a real hub use IRSA
+# (serviceAccount.roleArn) and drop this.
+worker:
+  extraEnvFrom:
+    - secretRef:
+        name: portal-aws
+
 # confirm: the bundled Bitnami postgres/redis images moved to the archived legacy
 # registry (portal#43). If their pods ImagePullBackOff, either override to legacy
 # (below) or `kind load` the images yourself.
@@ -107,7 +115,24 @@ serviceAccount:
 #   image: { registry: docker.io, repository: bitnamilegacy/redis }
 ```
 
-## 4. Install
+## 4. Create the worker AWS secret (kx only)
+
+So the worker can mint EKS tokens for the vended spoke, give it a base AWS
+identity — an access key that can `sts:AssumeRole` into the account role (with
+that role mapped in the spoke's access entries). The chart's `worker.extraEnvFrom`
+(set in step 3) references this Secret by name; create it **before** install so
+the worker mounts it at start:
+
+```bash
+kubectl --context kind-kx create secret generic portal-aws \
+  --from-literal=AWS_ACCESS_KEY_ID=... --from-literal=AWS_SECRET_ACCESS_KEY=... \
+  --from-literal=AWS_REGION=us-west-2
+```
+
+On a real hub use IRSA (`serviceAccount.roleArn`) instead, and drop both the
+Secret and `worker.extraEnvFrom`.
+
+## 5. Install
 
 ```bash
 helm install portal deploy/helm/portal -f values-kx.yaml --kube-context kind-kx
@@ -116,20 +141,6 @@ kubectl --context kind-kx get pods -w   # migrate job → server/worker/web Read
 
 If postgres/redis ImagePullBackOff, uncomment the legacy image overrides in
 `values-kx.yaml` and `helm upgrade portal deploy/helm/portal -f values-kx.yaml`.
-
-## 5. Give the worker AWS creds (kx only)
-
-So the worker can mint EKS tokens for the vended spoke. **confirm** the chart's
-injection path — if there's no `extraEnv` knob, patch the worker deployment with a
-secret (an access key that can `sts:AssumeRole` into the account role, with that
-role mapped in the spoke's access entries):
-
-```bash
-kubectl --context kind-kx create secret generic portal-aws \
-  --from-literal=AWS_ACCESS_KEY_ID=... --from-literal=AWS_SECRET_ACCESS_KEY=... \
-  --from-literal=AWS_REGION=us-west-2
-kubectl --context kind-kx set env deploy/portal-worker --from=secret/portal-aws
-```
 
 ## 6. Open it + log in
 
@@ -189,8 +200,6 @@ residue tofu destroy can't reach.
 
 - Service names/ports for the port-forwards (web + server).
 - The seed task's API-URL env var.
-- Worker AWS-cred injection (step 5) — whether the chart has an `extraEnv` knob or
-  needs the `set env` patch.
 - The bundled postgres/redis images (portal#43) — pull from legacy or `kind load`.
 
 ## Non-goals
