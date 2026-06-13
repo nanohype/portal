@@ -3,167 +3,167 @@ package storage
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"strings"
 
-	"github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 
 	"github.com/nanohype/portal/internal/domain"
 )
 
+// S3Storage persists OpenTofu state, run logs, plan JSON, config archives, and
+// module bundles in an S3-compatible object store, via the AWS SDK (the same SDK
+// the rest of portal's AWS access uses). It speaks the generic S3 API, so it
+// works against AWS S3 — the production hub, via IRSA — and any S3-compatible
+// store (a dev minio / SeaweedFS, via static keys + a custom endpoint).
 type S3Storage struct {
-	client *minio.Client
+	client *s3.Client
 	bucket string
 }
 
 func NewS3Storage(cfg *domain.Config) (*S3Storage, error) {
-	client, err := minio.New(cfg.S3Endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(cfg.S3AccessKey, cfg.S3SecretKey, ""),
-		Secure: cfg.S3UseSSL,
-		Region: cfg.S3Region,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create S3 client: %w", err)
+	loadOpts := []func(*config.LoadOptions) error{config.WithRegion(cfg.S3Region)}
+	if cfg.S3AccessKey != "" && cfg.S3SecretKey != "" {
+		// Explicit static keys — dev, or any non-IRSA S3-compatible store.
+		loadOpts = append(loadOpts, config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider(cfg.S3AccessKey, cfg.S3SecretKey, ""),
+		))
 	}
+	// With no static keys the SDK's default chain supplies credentials — env,
+	// then EKS IRSA web-identity / EC2 / ECS. That's the production hub path: the
+	// worker's IRSA role grants S3 access and no long-lived key sits at rest.
+	awsCfg, err := config.LoadDefaultConfig(context.Background(), loadOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("load aws config for s3: %w", err)
+	}
+
+	// Config carries the endpoint without a scheme (e.g. localhost:9000,
+	// s3.us-west-2.amazonaws.com); derive the scheme from S3UseSSL.
+	endpoint := cfg.S3Endpoint
+	if endpoint != "" && !strings.Contains(endpoint, "://") {
+		scheme := "https://"
+		if !cfg.S3UseSSL {
+			scheme = "http://"
+		}
+		endpoint = scheme + endpoint
+	}
+
+	client := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
+		if endpoint != "" {
+			o.BaseEndpoint = aws.String(endpoint)
+		}
+		// Path-style addressing works against self-hosted S3-compatible stores
+		// and AWS S3 alike, so portal doesn't depend on per-bucket virtual-host DNS.
+		o.UsePathStyle = true
+	})
 
 	return &S3Storage{client: client, bucket: cfg.S3Bucket}, nil
 }
 
+// EnsureBucket creates the bucket if it doesn't already exist. In production the
+// bucket is provisioned out of band, so HeadBucket succeeds and nothing is
+// created; the create path is the self-contained-dev convenience.
 func (s *S3Storage) EnsureBucket(ctx context.Context) error {
-	exists, err := s.client.BucketExists(ctx, s.bucket)
-	if err != nil {
-		return err
+	if _, err := s.client.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: &s.bucket}); err == nil {
+		return nil
 	}
-	if !exists {
-		return s.client.MakeBucket(ctx, s.bucket, minio.MakeBucketOptions{Region: "us-east-1"})
+	if _, err := s.client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: &s.bucket}); err != nil {
+		var owned *types.BucketAlreadyOwnedByYou
+		var exists *types.BucketAlreadyExists
+		if errors.As(err, &owned) || errors.As(err, &exists) {
+			return nil // already there (pre-existing, or a concurrent create)
+		}
+		return fmt.Errorf("ensure bucket %q: %w", s.bucket, err)
 	}
 	return nil
 }
 
-func (s *S3Storage) PutState(ctx context.Context, workspaceID string, serial int, data []byte) (string, error) {
-	key := fmt.Sprintf("state/%s/%d.tfstate", workspaceID, serial)
-	_, err := s.client.PutObject(ctx, s.bucket, key, bytes.NewReader(data), int64(len(data)), minio.PutObjectOptions{
-		ContentType: "application/json",
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to upload state: %w", err)
+// put uploads bytes under key with the given content type, returning the key.
+func (s *S3Storage) put(ctx context.Context, key, contentType string, data []byte) (string, error) {
+	if _, err := s.client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:        &s.bucket,
+		Key:           &key,
+		Body:          bytes.NewReader(data),
+		ContentLength: aws.Int64(int64(len(data))),
+		ContentType:   &contentType,
+	}); err != nil {
+		return "", fmt.Errorf("upload %s: %w", key, err)
 	}
 	return key, nil
+}
+
+// get reads the object at key fully into memory.
+func (s *S3Storage) get(ctx context.Context, key string) ([]byte, error) {
+	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{Bucket: &s.bucket, Key: &key})
+	if err != nil {
+		return nil, err
+	}
+	defer out.Body.Close()
+	return io.ReadAll(out.Body)
+}
+
+func (s *S3Storage) PutState(ctx context.Context, workspaceID string, serial int, data []byte) (string, error) {
+	return s.put(ctx, fmt.Sprintf("state/%s/%d.tfstate", workspaceID, serial), "application/json", data)
 }
 
 func (s *S3Storage) GetState(ctx context.Context, key string) ([]byte, error) {
-	obj, err := s.client.GetObject(ctx, s.bucket, key, minio.GetObjectOptions{})
-	if err != nil {
-		return nil, err
-	}
-	defer obj.Close()
-	return io.ReadAll(obj)
+	return s.get(ctx, key)
 }
 
-func (s *S3Storage) PutLog(ctx context.Context, runID string, phase string, data []byte) (string, error) {
-	key := fmt.Sprintf("logs/%s/%s.log", runID, phase)
-	_, err := s.client.PutObject(ctx, s.bucket, key, bytes.NewReader(data), int64(len(data)), minio.PutObjectOptions{
-		ContentType: "text/plain",
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to upload log: %w", err)
-	}
-	return key, nil
+func (s *S3Storage) PutLog(ctx context.Context, runID, phase string, data []byte) (string, error) {
+	return s.put(ctx, fmt.Sprintf("logs/%s/%s.log", runID, phase), "text/plain", data)
 }
 
 func (s *S3Storage) GetLog(ctx context.Context, key string) ([]byte, error) {
-	obj, err := s.client.GetObject(ctx, s.bucket, key, minio.GetObjectOptions{})
-	if err != nil {
-		return nil, err
-	}
-	defer obj.Close()
-	return io.ReadAll(obj)
+	return s.get(ctx, key)
 }
 
 func (s *S3Storage) PutPlanJSON(ctx context.Context, runID string, data []byte) (string, error) {
-	key := fmt.Sprintf("plans/%s/plan.json", runID)
-	_, err := s.client.PutObject(ctx, s.bucket, key, bytes.NewReader(data), int64(len(data)), minio.PutObjectOptions{
-		ContentType: "application/json",
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to upload plan JSON: %w", err)
-	}
-	return key, nil
+	return s.put(ctx, fmt.Sprintf("plans/%s/plan.json", runID), "application/json", data)
 }
 
 func (s *S3Storage) GetPlanJSON(ctx context.Context, key string) ([]byte, error) {
-	obj, err := s.client.GetObject(ctx, s.bucket, key, minio.GetObjectOptions{})
-	if err != nil {
-		return nil, err
-	}
-	defer obj.Close()
-	return io.ReadAll(obj)
+	return s.get(ctx, key)
 }
 
 func (s *S3Storage) PutRawState(ctx context.Context, workspaceID string, serial int, data []byte) (string, error) {
-	key := fmt.Sprintf("state-raw/%s/%d.tfstate", workspaceID, serial)
-	_, err := s.client.PutObject(ctx, s.bucket, key, bytes.NewReader(data), int64(len(data)), minio.PutObjectOptions{
-		ContentType: "application/octet-stream",
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to upload raw state: %w", err)
-	}
-	return key, nil
+	return s.put(ctx, fmt.Sprintf("state-raw/%s/%d.tfstate", workspaceID, serial), "application/octet-stream", data)
 }
 
 func (s *S3Storage) GetRawState(ctx context.Context, key string) ([]byte, error) {
-	obj, err := s.client.GetObject(ctx, s.bucket, key, minio.GetObjectOptions{})
-	if err != nil {
-		return nil, err
-	}
-	defer obj.Close()
-	return io.ReadAll(obj)
+	return s.get(ctx, key)
 }
 
-// DeleteStateObjects removes both the browse-state and raw-state objects
-// for a given workspace/serial. Missing objects are treated as success so
-// the caller can recover from partial uploads without surfacing errors.
+// DeleteStateObjects removes both the browse-state and raw-state objects for a
+// workspace/serial. S3 DeleteObject is idempotent (a missing key returns
+// success), so partial uploads clean up without surfacing errors.
 func (s *S3Storage) DeleteStateObjects(ctx context.Context, workspaceID string, serial int) error {
 	for _, key := range []string{
 		fmt.Sprintf("state/%s/%d.tfstate", workspaceID, serial),
 		fmt.Sprintf("state-raw/%s/%d.tfstate", workspaceID, serial),
 	} {
-		if err := s.client.RemoveObject(ctx, s.bucket, key, minio.RemoveObjectOptions{}); err != nil {
-			// minio returns no-op success for missing keys, so any error here is real.
-			return fmt.Errorf("failed to remove %s: %w", key, err)
+		k := key
+		if _, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: &s.bucket, Key: &k}); err != nil {
+			return fmt.Errorf("remove %s: %w", key, err)
 		}
 	}
 	return nil
 }
 
 func (s *S3Storage) PutConfigArchive(ctx context.Context, workspaceID, configVersionID string, data []byte) (string, error) {
-	key := fmt.Sprintf("configs/%s/%s.tar.gz", workspaceID, configVersionID)
-	_, err := s.client.PutObject(ctx, s.bucket, key, bytes.NewReader(data), int64(len(data)), minio.PutObjectOptions{
-		ContentType: "application/gzip",
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to upload config archive: %w", err)
-	}
-	return key, nil
+	return s.put(ctx, fmt.Sprintf("configs/%s/%s.tar.gz", workspaceID, configVersionID), "application/gzip", data)
 }
 
 func (s *S3Storage) GetConfigArchive(ctx context.Context, key string) ([]byte, error) {
-	obj, err := s.client.GetObject(ctx, s.bucket, key, minio.GetObjectOptions{})
-	if err != nil {
-		return nil, err
-	}
-	defer obj.Close()
-	return io.ReadAll(obj)
+	return s.get(ctx, key)
 }
 
 func (s *S3Storage) PutModule(ctx context.Context, namespace, name, provider, version string, data []byte) (string, error) {
-	key := fmt.Sprintf("modules/%s/%s/%s/%s.tar.gz", namespace, name, provider, version)
-	_, err := s.client.PutObject(ctx, s.bucket, key, bytes.NewReader(data), int64(len(data)), minio.PutObjectOptions{
-		ContentType: "application/gzip",
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to upload module: %w", err)
-	}
-	return key, nil
+	return s.put(ctx, fmt.Sprintf("modules/%s/%s/%s/%s.tar.gz", namespace, name, provider, version), "application/gzip", data)
 }

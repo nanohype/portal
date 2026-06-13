@@ -164,6 +164,7 @@ func main() {
 	// (no profile, no IRSA, no env), the worker still runs the k8s probe and
 	// just skips the sts:GetCallerIdentity verification step.
 	clusterSvc := service.NewClusterService(queries, dbPool, encryptor)
+	accountSvc := service.NewAccountService(queries, dbPool, encryptor)
 	awsProvider, err := tofuaws.NewProvider(context.Background())
 	if err != nil {
 		logger.Warn("aws provider not available, sts verification disabled", "error", err)
@@ -194,7 +195,11 @@ func main() {
 			if account.AssumeRoleARN == "" {
 				return k8s.SlimConfig{}, fmt.Errorf("eks_iam cluster %q account has no assume-role ARN", c.Name)
 			}
-			cfg.TokenSource = awsProvider.EKSTokenSource(account.AssumeRoleARN, "", c.Region, c.EKSClusterName)
+			externalID, err := accountSvc.DecryptExternalID(account)
+			if err != nil {
+				return k8s.SlimConfig{}, fmt.Errorf("decrypt external_id for eks_iam cluster %q: %w", c.Name, err)
+			}
+			cfg.TokenSource = awsProvider.EKSTokenSource(account.AssumeRoleARN, externalID, c.Region, c.EKSClusterName)
 			return cfg, nil
 		}
 		cfg.BearerToken = creds.SAToken
@@ -203,7 +208,7 @@ func main() {
 	clusterStatusUpdate := func(ctx context.Context, id, orgID, status, errMsg, k8sVersion string, nodeCount int32) error {
 		return clusterSvc.SetConnectionStatus(ctx, id, orgID, status, errMsg, k8sVersion, nodeCount)
 	}
-	clusterTestWorker := worker.NewClusterConnectionTestJobWorker(queries, clusterDecrypt, clusterStatusUpdate, awsProvider, k8sCache)
+	clusterTestWorker := worker.NewClusterConnectionTestJobWorker(queries, clusterDecrypt, clusterStatusUpdate, accountSvc.DecryptExternalID, awsProvider, k8sCache)
 	river.AddWorker(workers, clusterTestWorker)
 
 	// Cluster watcher: walks each connected cluster's eks-agent-platform CRDs periodically
@@ -500,7 +505,7 @@ func main() {
 				}()
 			}
 			if cfg.ClusterHealth {
-				healthSvc := service.NewClusterHealthService(clusterSvc, queries, hubDyn, awsProvider, cfg.ArgoCDNamespace)
+				healthSvc := service.NewClusterHealthService(clusterSvc, accountSvc, queries, hubDyn, awsProvider, cfg.ArgoCDNamespace)
 				go func() {
 					t := time.NewTicker(cfg.ClusterHealthInterval)
 					defer t.Stop()

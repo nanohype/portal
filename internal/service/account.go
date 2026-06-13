@@ -106,6 +106,21 @@ func (s *AccountService) Delete(ctx context.Context, id, orgID string) error {
 	return s.queries.DeleteAccount(ctx, repository.DeleteAccountParams{ID: id, OrgID: orgID})
 }
 
+// DecryptExternalID returns the plaintext sts:ExternalId for an account, or ""
+// when none is configured. AWS callers thread this into AssumeRoleConfig so a
+// per-account role whose trust policy requires an external id (the house
+// cross-account pattern, e.g. fleet-vend) can be assumed.
+func (s *AccountService) DecryptExternalID(a repository.Account) (string, error) {
+	if a.ExternalIDEncrypted == "" {
+		return "", nil
+	}
+	plain, err := s.enc.Decrypt(a.ExternalIDEncrypted)
+	if err != nil {
+		return "", fmt.Errorf("decrypt external_id: %w", err)
+	}
+	return plain, nil
+}
+
 // encryptExternalID returns ciphertext for a non-empty plaintext, or "" when
 // plaintext is empty. The COALESCE/NULLIF pattern in UpdateAccount treats "" as
 // "keep existing value", which preserves the behavior every other entity uses.
