@@ -64,13 +64,16 @@ func (q *Queries) ListClusterOperations(ctx context.Context, arg ListClusterOper
 }
 
 // ListClusterOperationsByOrg returns the most recent operations across every
-// cluster in an org, newest first — powers the Clusters-tab order feed so an
-// in-flight or failed vend is visible without knowing the cluster name first.
+// cluster in an org, most-recent-activity first — powers the Clusters-tab order
+// feed and the org-wide ops feed. Ordered by COALESCE(completed_at, created_at)
+// so a just-finished vend floats up and the LIMIT trims by the SAME key the ops
+// feed re-sorts on (otherwise a long-ago order that just completed could be
+// dropped here before the merge ever sees it).
 func (q *Queries) ListClusterOperationsByOrg(ctx context.Context, orgID string) ([]ClusterOperation, error) {
 	rows, err := q.db.Query(ctx,
 		`SELECT `+clusterOperationColumns+` FROM cluster_operations
 		WHERE org_id = $1
-		ORDER BY created_at DESC
+		ORDER BY COALESCE(completed_at, created_at) DESC
 		LIMIT 50`,
 		orgID,
 	)

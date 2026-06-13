@@ -735,6 +735,29 @@ paths:
                     type: string
                     enum: [pending]
 
+  /ops/feed:
+    get:
+      operationId: opsFeed
+      summary: Org-wide operations feed (admin only)
+      description: |
+        Cluster vends and tenant deploys across the org merged into one
+        activity stream, newest activity first (completion if finished, else
+        creation). A read-model view over the two operation logs — clusters
+        carry the regressible vend timeline; tenant operations ride as their
+        status. The operations daily driver's home view.
+      tags: [clusters]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Merged operations feed
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/OpsFeedItem"
+
   /cluster-orders:
     post:
       operationId: provisionCluster
@@ -2675,3 +2698,22 @@ components:
           type: string
           format: date-time
           nullable: true
+
+    OpsFeedItem:
+      type: object
+      required: [kind, at]
+      description: >
+        One entry in the org-wide operations feed. Exactly one of cluster/tenant
+        is set, discriminated by kind. `at` is the activity time the feed sorts
+        on (completion if finished, else creation).
+      properties:
+        kind:
+          type: string
+          enum: [cluster, tenant]
+        at:
+          type: string
+          format: date-time
+        cluster:
+          $ref: "#/components/schemas/ClusterOperation"
+        tenant:
+          $ref: "#/components/schemas/TenantOperation"
