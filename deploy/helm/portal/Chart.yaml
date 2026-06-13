@@ -14,7 +14,9 @@ dependencies:
     version: "20.6.2"
     repository: "oci://registry-1.docker.io/bitnamicharts"
     condition: redis.enabled
-  - name: minio
-    version: "14.8.7"
-    repository: "oci://registry-1.docker.io/bitnamicharts"
-    condition: minio.enabled
+  # No bundled object store: portal speaks the generic S3 API, so it points at
+  # external object storage (AWS S3 on a real hub; an S3 bucket / standalone store
+  # for kx) via objectStore in values.yaml. This keeps the chart off the purged
+  # Bitnami minio (the only dep that failed to resolve — #35). The bundled
+  # postgresql/redis above remain for self-contained dev; production points at
+  # managed services (postgresql.enabled / redis.enabled false) — see #43.

@@ -54,8 +54,7 @@ config:
   workerConcurrency: "10"
   workerHealthAddr: ":8081"
 
-  # S3 — region only, creds come from the minio subchart values below
-  s3Region: "us-east-1"
+  # Object store config (endpoint/bucket/region/creds) lives under objectStore below.
 
   # Database tuning
   dbMaxConns: "25"
@@ -83,14 +82,23 @@ redis:
       size: 256Mi
 
 # -- MinIO subchart (Bitnami)
-minio:
-  enabled: true
-  auth:
-    rootUser: minioadmin      # Change in production
-    rootPassword: minioadmin  # Change in production
-  defaultBuckets: portal
-  persistence:
-    size: 1Gi
+# -- Object store (S3-compatible) for OpenTofu state + run logs. Portal speaks the
+# generic S3 API (minio-go client, static creds), so this points at anything
+# S3-compatible. No store is bundled — the chart stays off the deprecated Bitnami
+# catalog, and the in-cluster/production home is real object storage:
+#   - Real hub: an AWS S3 bucket + a scoped access key. endpoint:
+#     s3.<region>.amazonaws.com, useSSL: true, region: <region>.
+#   - kx / self-contained: point at an S3 bucket, or `helm install` a standalone
+#     S3 store (e.g. the official MinIO or a SeaweedFS chart) and point endpoint here.
+# accessKey/secretKey land in the portal Secret — for production prefer a sealed
+# secret / external-secrets over plaintext values here.
+objectStore:
+  endpoint: ""              # e.g. s3.us-west-2.amazonaws.com  (required)
+  bucket: portal
+  region: us-east-1
+  useSSL: true
+  accessKey: ""             # S3 access key id
+  secretKey: ""             # S3 secret access key
 
 # -- Ingress
 ingress:
