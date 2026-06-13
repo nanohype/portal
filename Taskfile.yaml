@@ -180,6 +180,43 @@ tasks:
     cmds:
       - helm uninstall portal
 
+  hub:install:
+    desc: |
+      Install/upgrade portal on a real EKS hub with the production options baked in
+      — IRSA, the external S3 objectStore, the in-cluster watchers, the gitops
+      remote. Pass the per-hub bits; the structural options are set for you.
+      The hand-rolled IAM (portal-hub / portal-spoke tofu) + the validation steps
+      are in docs/deploy-on-hub.md.
+
+      Required: ROLE_ARN (the portal-hub IRSA role ARN), STATE_BUCKET (the portal
+        state bucket), REGION.
+      Optional: CLUSTERS_REPO_URL + SSH_KEY_PATH (clusters-repo write deploy key),
+        RELEASE (portal), NAMESPACE (default), ENVIRONMENT (development — dev-login,
+        for validation; production needs real secrets, pass them via EXTRA_ARGS),
+        EXTRA_ARGS (passed straight to helm — images, secrets, -f a values file).
+    requires:
+      vars: [ROLE_ARN, STATE_BUCKET, REGION]
+    vars:
+      RELEASE: '{{.RELEASE | default "portal"}}'
+      NAMESPACE: '{{.NAMESPACE | default "default"}}'
+      ENVIRONMENT: '{{.ENVIRONMENT | default "development"}}'
+    cmds:
+      - helm dependency build deploy/helm/portal
+      - >-
+        helm upgrade --install {{.RELEASE}} deploy/helm/portal
+        --namespace {{.NAMESPACE}} --create-namespace
+        --set config.environment={{.ENVIRONMENT}}
+        --set serviceAccount.roleArn={{.ROLE_ARN}}
+        --set objectStore.endpoint=s3.{{.REGION}}.amazonaws.com
+        --set objectStore.bucket={{.STATE_BUCKET}}
+        --set objectStore.region={{.REGION}}
+        --set objectStore.useSSL=true
+        --set clusterWatchback.enabled=true
+        --set clusterHealth.enabled=true
+        {{if .CLUSTERS_REPO_URL}}--set gitops.clustersRepoURL={{.CLUSTERS_REPO_URL}}{{end}}
+        {{if .SSH_KEY_PATH}}--set-file gitops.sshKey={{.SSH_KEY_PATH}}{{end}}
+        {{.EXTRA_ARGS}}
+
   # === Quality ===
 
   lint:
