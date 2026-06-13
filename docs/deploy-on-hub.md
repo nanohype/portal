@@ -106,9 +106,22 @@ helm dependency build deploy/helm/portal
 helm install portal deploy/helm/portal -f values-hub.yaml
 ```
 
-> Leave `objectStore.accessKey/secretKey` empty: portal's S3 client falls back to
-> the SDK default chain (IRSA web-identity), so the worker reaches the bucket as
-> `portal-hub`. The `portal-hub` policy already grants r/w on that bucket.
+Or skip the `values-hub.yaml` and let `task hub:install` bake the structural
+options (IRSA, the objectStore, both watchers, the gitops remote) — you pass only
+the per-hub bits:
+
+```bash
+task hub:install \
+  ROLE_ARN=<hub_role_arn> STATE_BUCKET=<state_bucket_name> REGION=<region> \
+  CLUSTERS_REPO_URL=git@github.com:nanohype/clusters.git SSH_KEY_PATH=<deploy-key path>
+# ENVIRONMENT defaults to development (dev-login). For production pass
+# ENVIRONMENT=production plus the secrets via EXTRA_ARGS='--set config.jwtSecret=... -f secrets.yaml'.
+```
+
+> Leave `objectStore.accessKey/secretKey` empty (the task does): portal's S3
+> client falls back to the SDK default chain (IRSA web-identity), so the worker
+> reaches the bucket as `portal-hub`. The `portal-hub` policy already grants r/w
+> on that bucket.
 
 ## 3. Register the accounts
 
