@@ -158,6 +158,7 @@ func (s *Server) setupRouter() {
 	tenantHandler := handler.NewTenantHandler(s.tenantSvc, templateSvc, accessSvc, auditSvc)
 	s.clusterOrderSvc = service.NewClusterOrderService(queries, s.db)
 	clusterOrderHandler := handler.NewClusterOrderHandler(s.clusterOrderSvc, auditSvc)
+	opsHandler := handler.NewOpsHandler(service.NewOpsFeedService(queries))
 	wsOrigins := []string{s.cfg.WebURL}
 	if s.cfg.Environment == "development" {
 		wsOrigins = append(wsOrigins, "http://localhost:5173")
@@ -274,6 +275,11 @@ func (s *Server) setupRouter() {
 						r.With(auth.RequireRole("admin")).Delete("/", clusterOrderHandler.Deprovision)
 					})
 				})
+
+				// Operations feed: org-wide cluster vends + tenant deploys merged
+				// into one activity stream. Admin-gated — it spans every cluster
+				// and tenant in the org (the operations daily driver's home).
+				r.With(auth.RequireRole("admin")).Get("/ops/feed", opsHandler.Feed)
 
 				// Templates: admin-curated tenant flavors. Reads filter by
 				// team access for non-admins; writes + access management

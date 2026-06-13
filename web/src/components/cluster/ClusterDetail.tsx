@@ -10,6 +10,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Link } from "@/components/ui/link";
 import { formatRelativeTime } from "@/lib/utils";
 import { statusBadge } from "./ClusterList";
+import { phaseBadge } from "../tenant/TenantList";
 import {
   ArrowLeft,
   Server,
@@ -17,6 +18,7 @@ import {
   Save,
   Lock,
   Activity,
+  Layers,
 } from "lucide-react";
 
 export function ClusterDetail({ clusterId }: { clusterId: string }) {
@@ -37,6 +39,20 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
     refetchInterval: (query) => {
       const s = query.state.data?.connection_status;
       return s === "pending" || s === "connecting" ? 2000 : false;
+    },
+  });
+
+  // Tenants the in-cluster watcher observes on this cluster — the read-model
+  // view of what's actually running here (distinct key from TenantList's paged
+  // query: this is a bare, cluster-scoped lookup).
+  const { data: tenants } = useQuery({
+    queryKey: ["cluster-tenants", clusterId],
+    queryFn: async () => {
+      const { data, error } = await api.GET("/tenants", {
+        params: { query: { cluster_id: clusterId, per_page: 100 } },
+      });
+      if (error) throw error;
+      return data?.data ?? [];
     },
   });
 
@@ -146,7 +162,7 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
     (editingCreds && (caBundle.trim() !== "" || saToken.trim() !== ""));
 
   return (
-    <div className="p-6 w-full max-w-3xl mx-auto flex-1 flex flex-col justify-center animate-fade-up">
+    <div className="p-6 w-full max-w-3xl mx-auto flex-1 flex flex-col animate-fade-up">
       <Link
         href="/clusters"
         className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1 mb-3 transition-colors"
@@ -323,6 +339,42 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
               <Save className="w-3 h-3" />
               {updateMutation.isPending ? "Saving..." : "Save changes"}
             </Button>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-8 pt-6 border-t border-border/60">
+        <div className="flex items-center gap-2 mb-3">
+          <Layers className="w-3.5 h-3.5 text-muted-foreground/70" />
+          <h2 className="text-[11px] font-medium uppercase tracking-wider text-dim">
+            Tenants on this cluster
+          </h2>
+        </div>
+        {!tenants || tenants.length === 0 ? (
+          <p className="text-xs text-muted-foreground/70">
+            No tenants observed here yet. The in-cluster watcher reconciles this
+            from the cluster&apos;s Tenant resources.
+          </p>
+        ) : (
+          <div className="space-y-1.5">
+            {tenants.map((t) => (
+              <Link
+                key={t.id}
+                href={`/tenants/${t.id}`}
+                className="group flex items-center justify-between border border-border/60 rounded-lg px-4 py-2.5 hover:bg-accent/30 hover:border-primary/15 transition-all duration-150"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <Layers className="w-3.5 h-3.5 text-primary/60 shrink-0" />
+                  <span className="text-sm font-medium group-hover:text-primary transition-colors truncate">
+                    {t.name}
+                  </span>
+                  {phaseBadge(t.phase)}
+                </div>
+                <span className="text-[11px] text-muted-foreground/70 shrink-0">
+                  {formatRelativeTime(t.last_observed_at)}
+                </span>
+              </Link>
+            ))}
           </div>
         )}
       </div>

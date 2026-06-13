@@ -65,6 +65,33 @@ func (q *Queries) ListTenantOperationsByTenant(ctx context.Context, arg ListTena
 	return ops, rows.Err()
 }
 
+// ListTenantOperationsByOrg returns the most recent tenant operations across
+// every cluster in an org, most-recent-activity first — the tenant half of the
+// org-wide ops feed. Ordered by COALESCE(completed_at, created_at) so the LIMIT
+// trims by the same key the feed re-sorts on (see ListClusterOperationsByOrg).
+func (q *Queries) ListTenantOperationsByOrg(ctx context.Context, orgID string) ([]TenantOperation, error) {
+	rows, err := q.db.Query(ctx,
+		`SELECT `+tenantOperationColumns+` FROM tenant_operations
+		WHERE org_id = $1
+		ORDER BY COALESCE(completed_at, created_at) DESC
+		LIMIT 50`,
+		orgID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ops := []TenantOperation{}
+	for rows.Next() {
+		op, err := scanTenantOperation(rows)
+		if err != nil {
+			return nil, err
+		}
+		ops = append(ops, op)
+	}
+	return ops, rows.Err()
+}
+
 type CreateTenantOperationParams struct {
 	ID         string          `json:"id"`
 	OrgID      string          `json:"org_id"`

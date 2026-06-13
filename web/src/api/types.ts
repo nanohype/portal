@@ -641,6 +641,16 @@ export interface TenantOperation {
   completed_at: string | null;
 }
 
+// One entry in the org-wide operations feed: exactly one of cluster/tenant is
+// set, discriminated by kind. `at` is the activity time the feed is sorted on
+// (completion if finished, else creation).
+export interface OpsFeedItem {
+  kind: "cluster" | "tenant";
+  at: string;
+  cluster?: ClusterOperation;
+  tenant?: TenantOperation;
+}
+
 // openapi-fetch compatible paths type
 export interface paths {
   "/users": {
@@ -801,6 +811,13 @@ export interface paths {
       parameters: { path: { clusterId: string } };
       responses: {
         202: { content: { "application/json": { status: string } } };
+      };
+    };
+  };
+  "/ops/feed": {
+    get: {
+      responses: {
+        200: { content: { "application/json": OpsFeedItem[] } };
       };
     };
   };

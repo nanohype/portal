@@ -37,6 +37,7 @@ import { TenantList } from "@/components/tenant/TenantList";
 import { TenantDetail } from "@/components/tenant/TenantDetail";
 import { TemplateList } from "@/components/template/TemplateList";
 import { CatalogPage } from "@/components/catalog/CatalogPage";
+import { OpsPage } from "@/components/ops/OpsPage";
 import { TeamsPage } from "@/components/teams/TeamsPage";
 import { UsersPage } from "@/components/users/UsersPage";
 import { AuditLogPage } from "@/components/audit/AuditLogPage";
@@ -189,6 +190,7 @@ const accountRoute = r("/accounts/$accountId", () => {
   return <AccountDetail accountId={accountId!} />;
 });
 
+const opsRoute = r("/ops", () => <OpsPage />);
 const clustersRoute = r("/clusters", () => <ClusterList />);
 const clusterRoute = r("/clusters/$clusterId", () => {
   const { clusterId } = useParams({ strict: false });
@@ -226,6 +228,7 @@ const routeTree = rootRoute.addChildren([
     pipelineRunRoute,
     accountsRoute,
     accountRoute,
+    opsRoute,
     clustersRoute,
     clusterRoute,
     tenantsRoute,
