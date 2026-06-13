@@ -7,6 +7,10 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: {{ .Release.Name }}-worker
+  {{- with .Values.serviceAccount.roleArn }}
+  annotations:
+    eks.amazonaws.com/role-arn: {{ . | quote }}  # IRSA — AWS creds for cluster-status reads
+  {{- end }}
   labels:
     app.kubernetes.io/name: portal-worker
     app.kubernetes.io/instance: {{ .Release.Name }}
@@ -23,6 +27,11 @@ rules:
   # The provision watch-back reads vended-cluster XRs on the hub.
   - apiGroups: ["fleet.nanohype.dev"]
     resources: ["clusters"]
+    verbs: ["get", "list", "watch"]
+  # ...and the provider-opentofu Workspaces those XRs drive, so the vend timeline
+  # can surface the tofu build phase + error from .status.conditions[].
+  - apiGroups: ["opentofu.m.upbound.io"]
+    resources: ["workspaces"]
     verbs: ["get", "list", "watch"]
   {{- end }}
   - apiGroups: [""]

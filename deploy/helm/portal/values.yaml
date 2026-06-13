@@ -172,3 +172,10 @@ fleet:
 clusterWatchback:
   enabled: false
   interval: "60s"
+
+# -- Worker ServiceAccount IRSA. Set roleArn to an IAM role bound to the cluster's
+# EKS OIDC provider to give the worker AWS credentials for read-only cluster
+# status (e.g. eks:DescribeCluster, for the live cluster-detail view). Empty = no
+# IRSA; the worker does Kubernetes reads only (the vend timeline needs none).
+serviceAccount:
+  roleArn: ""               # e.g. arn:aws:iam::111111111111:role/portal-worker
