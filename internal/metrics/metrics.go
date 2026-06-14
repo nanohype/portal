@@ -69,7 +69,16 @@ var (
 		Help:    "Watcher loop tick duration.",
 		Buckets: []float64{0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60, 120},
 	}, []string{"loop"})
+
+	watcherPanics = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace, Subsystem: "watcher", Name: "panics_total",
+		Help: "Panics recovered in watcher loops, by loop — a non-zero rate means a loop is wedging.",
+	}, []string{"loop"})
 )
+
+// jobStates is the set published every sample so a state dropping to zero is
+// reported as 0 rather than going stale at its last value.
+var jobStates = []string{"available", "running", "retryable", "scheduled", "pending", "discarded", "cancelled"}
 
 // Register builds a fresh registry with portal's metrics plus the standard Go +
 // process collectors. Call once per process (server or worker).
@@ -79,7 +88,7 @@ func Register() *prometheus.Registry {
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 		httpDuration, httpInFlight, tofuRunDuration,
-		jobErrors, jobsByState, watcherLastTick, watcherTickDuration,
+		jobErrors, jobsByState, watcherLastTick, watcherTickDuration, watcherPanics,
 	)
 	return reg
 }
@@ -124,17 +133,23 @@ func IncJobError(kind, event string) {
 	jobErrors.WithLabelValues(kind, event).Inc()
 }
 
-// SetJobsByState publishes the sampled River job-state counts.
+// SetJobsByState publishes the sampled River job-state counts. Every known state
+// is set (0 when absent) so a backlog clearing reads as 0, not a stale value.
 func SetJobsByState(counts map[string]int) {
-	for state, n := range counts {
-		jobsByState.WithLabelValues(state).Set(float64(n))
+	for _, state := range jobStates {
+		jobsByState.WithLabelValues(state).Set(float64(counts[state]))
 	}
 }
 
-// WatcherTick records a watcher loop's successful tick.
+// WatcherTick records a watcher loop's successful (non-panicking) tick.
 func WatcherTick(loop string, d time.Duration) {
 	watcherLastTick.WithLabelValues(loop).Set(float64(time.Now().Unix()))
 	watcherTickDuration.WithLabelValues(loop).Observe(d.Seconds())
+}
+
+// IncWatcherPanic counts a recovered panic in a watcher loop.
+func IncWatcherPanic(loop string) {
+	watcherPanics.WithLabelValues(loop).Inc()
 }
 
 // ── pgxpool collector ────────────────────────────────────────────────────────

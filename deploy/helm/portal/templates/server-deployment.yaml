@@ -13,6 +13,11 @@ spec:
       app.kubernetes.io/instance: {{ .Release.Name }}
   template:
     metadata:
+      annotations:
+        # Scraped by the Grafana Agent → Amazon Managed Prometheus.
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
       labels:
         app.kubernetes.io/name: portal-server
         app.kubernetes.io/instance: {{ .Release.Name }}

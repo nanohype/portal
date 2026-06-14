@@ -15,6 +15,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/nanohype/portal/internal/logstream"
+	"github.com/nanohype/portal/internal/metrics"
 	"github.com/nanohype/portal/internal/repository"
 	"github.com/nanohype/portal/internal/secrets"
 	"github.com/nanohype/portal/internal/storage"
@@ -41,6 +42,11 @@ func (RunJobArgs) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{
 		Queue:    "default",
 		Priority: 1,
+		// Bound retries: a run whose DB writes keep failing should fail visibly
+		// after a few attempts, not back off silently for hours toward River's
+		// default of 25. The job itself already turns tofu errors into a terminal
+		// run status (no retry); these attempts are for infrastructure failures.
+		MaxAttempts: 5,
 	}
 }
 
@@ -209,6 +215,7 @@ func (w *RunJobWorker) Work(ctx context.Context, job *river.Job[RunJobArgs]) err
 	}
 
 	// Execute
+	execStart := time.Now()
 	result, err := w.executor.Execute(ctx, executor.ExecuteParams{
 		RunID:                     args.RunID,
 		WorkspaceID:               args.WorkspaceID,
@@ -225,6 +232,12 @@ func (w *RunJobWorker) Work(ctx context.Context, job *river.Job[RunJobArgs]) err
 		ArchiveData:               archiveData,
 		ImportResources:           toExecutorImports(args.Imports),
 	})
+
+	execStatus := "success"
+	if err != nil {
+		execStatus = "error"
+	}
+	metrics.ObserveTofuRun(args.Operation, execStatus, time.Since(execStart))
 
 	if err != nil {
 		// Save partial state if the executor captured it (e.g. failed apply with some resources created).

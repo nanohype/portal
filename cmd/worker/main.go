@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
+	"github.com/riverqueue/river/rivertype"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -28,6 +29,7 @@ import (
 	tofuhelm "github.com/nanohype/portal/internal/helm"
 	"github.com/nanohype/portal/internal/k8s"
 	"github.com/nanohype/portal/internal/logstream"
+	"github.com/nanohype/portal/internal/metrics"
 	"github.com/nanohype/portal/internal/repository"
 	"github.com/nanohype/portal/internal/secrets"
 	"github.com/nanohype/portal/internal/service"
@@ -355,7 +357,8 @@ func main() {
 		Queues: map[string]river.QueueConfig{
 			river.QueueDefault: {MaxWorkers: cfg.WorkerConcurrency},
 		},
-		Workers: workers,
+		Workers:      workers,
+		ErrorHandler: &jobErrorHandler{logger: logger},
 	})
 	if err != nil {
 		logger.Error("failed to create river client", "error", err)
@@ -377,10 +380,22 @@ func main() {
 	clusterSvc.SetRiverClient(riverClient) // so the ArgoCD sync can enqueue connection-tests
 	clusterOrderSvc.SetRiverClient(riverClient)
 
-	// Health endpoint for K8s liveness probe
+	// Health + metrics endpoint. /healthz pings the DB — the most common silent
+	// death is a lost connection, on which the probe should fail so K8s restarts
+	// the pod. /metrics is scraped pod-direct by the Grafana Agent.
 	go func() {
+		reg := metrics.Register()
+		metrics.RegisterPool(reg, dbPool)
 		mux := http.NewServeMux()
+		mux.Handle("/metrics", metrics.Handler(reg))
 		mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+			pingCtx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+			defer cancel()
+			if err := dbPool.Ping(pingCtx); err != nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				w.Write([]byte("db unreachable"))
+				return
+			}
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte("ok"))
 		})
@@ -393,39 +408,31 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
+	// Sample River queue depth by state every 15s → metrics (queue backlog +
+	// retryable/discarded are the worker-health signals an operator alerts on).
+	go runLoop(ctx, "job-stats", 15*time.Second, logger, func() {
+		sampleJobStates(context.Background(), dbPool, logger)
+	})
+
 	// Cluster-watch dispatcher: every 60s, find all connected clusters and
 	// enqueue a watch job per cluster. River's UniqueOpts on the job args
 	// drops duplicates if a previous tick's job is still running, so a slow
 	// cluster doesn't backlog the queue. Shuts down with the signal context.
-	go func() {
-		t := time.NewTicker(60 * time.Second)
-		defer t.Stop()
-		runWatchDispatch := func() {
-			targets, err := queries.ListConnectedClusters(context.Background())
+	go runLoop(ctx, "watch-dispatch", 60*time.Second, logger, func() {
+		targets, err := queries.ListConnectedClusters(context.Background())
+		if err != nil {
+			logger.Warn("watch dispatch: list connected clusters", "error", err)
+			return
+		}
+		for _, target := range targets {
+			_, err := riverClient.Insert(context.Background(), worker.ClusterWatchJobArgs{
+				ClusterID: target.ID, OrgID: target.OrgID,
+			}, nil)
 			if err != nil {
-				logger.Warn("watch dispatch: list connected clusters", "error", err)
-				return
-			}
-			for _, target := range targets {
-				_, err := riverClient.Insert(context.Background(), worker.ClusterWatchJobArgs{
-					ClusterID: target.ID, OrgID: target.OrgID,
-				}, nil)
-				if err != nil {
-					logger.Warn("watch dispatch: insert job", "cluster_id", target.ID, "error", err)
-				}
+				logger.Warn("watch dispatch: insert job", "cluster_id", target.ID, "error", err)
 			}
 		}
-		// First tick: don't wait 60s for the first sweep after a restart.
-		runWatchDispatch()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-t.C:
-				runWatchDispatch()
-			}
-		}
-	}()
+	})
 
 	// ArgoCD cluster-registry sync: when enabled and running in-cluster, read
 	// ArgoCD's cluster Secrets and upsert the inventory, so a cluster registered
@@ -440,27 +447,14 @@ func main() {
 		} else {
 			syncSvc := service.NewArgoCDSyncService(clusterSvc, argocdClient, cfg.ArgoCDNamespace,
 				cfg.ArgoCDSyncOrgID, cfg.ArgoCDSyncAccountID, cfg.ArgoCDSyncCreatedBy)
-			go func() {
-				t := time.NewTicker(cfg.ArgoCDSyncInterval)
-				defer t.Stop()
-				runSync := func() {
-					created, updated, skipped, err := syncSvc.Sync(context.Background())
-					if err != nil {
-						logger.Warn("argocd sync", "error", err)
-						return
-					}
-					logger.Info("argocd sync tick", "created", created, "updated", updated, "skipped", skipped)
+			go runLoop(ctx, "argocd-sync", cfg.ArgoCDSyncInterval, logger, func() {
+				created, updated, skipped, err := syncSvc.Sync(context.Background())
+				if err != nil {
+					logger.Warn("argocd sync", "error", err)
+					return
 				}
-				runSync()
-				for {
-					select {
-					case <-ctx.Done():
-						return
-					case <-t.C:
-						runSync()
-					}
-				}
-			}()
+				logger.Info("argocd sync tick", "created", created, "updated", updated, "skipped", skipped)
+			})
 		}
 	}
 
@@ -480,55 +474,29 @@ func main() {
 		} else {
 			if cfg.ClusterWatchback {
 				watchSvc := service.NewClusterProvisionWatchService(clusterSvc, queries, hubDyn)
-				go func() {
-					t := time.NewTicker(cfg.ClusterWatchbackInterval)
-					defer t.Stop()
-					runWatchback := func() {
-						completed, pending, err := watchSvc.Sync(context.Background())
-						if err != nil {
-							logger.Warn("cluster watch-back", "error", err)
-							return
-						}
-						if completed > 0 || pending > 0 {
-							logger.Info("cluster watch-back tick", "completed", completed, "pending", pending)
-						}
+				go runLoop(ctx, "watchback", cfg.ClusterWatchbackInterval, logger, func() {
+					completed, pending, err := watchSvc.Sync(context.Background())
+					if err != nil {
+						logger.Warn("cluster watch-back", "error", err)
+						return
 					}
-					runWatchback()
-					for {
-						select {
-						case <-ctx.Done():
-							return
-						case <-t.C:
-							runWatchback()
-						}
+					if completed > 0 || pending > 0 {
+						logger.Info("cluster watch-back tick", "completed", completed, "pending", pending)
 					}
-				}()
+				})
 			}
 			if cfg.ClusterHealth {
 				healthSvc := service.NewClusterHealthService(clusterSvc, accountSvc, queries, hubDyn, awsProvider, cfg.ArgoCDNamespace)
-				go func() {
-					t := time.NewTicker(cfg.ClusterHealthInterval)
-					defer t.Stop()
-					runHealth := func() {
-						checked, err := healthSvc.Sync(context.Background())
-						if err != nil {
-							logger.Warn("cluster health", "error", err)
-							return
-						}
-						if checked > 0 {
-							logger.Info("cluster health tick", "checked", checked)
-						}
+				go runLoop(ctx, "cluster-health", cfg.ClusterHealthInterval, logger, func() {
+					checked, err := healthSvc.Sync(context.Background())
+					if err != nil {
+						logger.Warn("cluster health", "error", err)
+						return
 					}
-					runHealth()
-					for {
-						select {
-						case <-ctx.Done():
-							return
-						case <-t.C:
-							runHealth()
-						}
+					if checked > 0 {
+						logger.Info("cluster health tick", "checked", checked)
 					}
-				}()
+				})
 			}
 		}
 	}
@@ -552,4 +520,76 @@ func main() {
 	} else {
 		logger.Info("worker stopped gracefully")
 	}
+}
+
+// jobErrorHandler surfaces River job errors and panics that would otherwise be
+// silent: a job that keeps failing becomes a climbing job_errors_total counter
+// plus a log line with its attempt number, instead of a run that merely looks
+// stuck. Returning nil keeps River's default retry behaviour.
+type jobErrorHandler struct{ logger *slog.Logger }
+
+func (h *jobErrorHandler) HandleError(ctx context.Context, job *rivertype.JobRow, err error) *river.ErrorHandlerResult {
+	metrics.IncJobError(job.Kind, "error")
+	h.logger.Error("river job error",
+		"kind", job.Kind, "job_id", job.ID, "attempt", job.Attempt, "max_attempts", job.MaxAttempts, "error", err)
+	return nil
+}
+
+func (h *jobErrorHandler) HandlePanic(ctx context.Context, job *rivertype.JobRow, panicVal any, trace string) *river.ErrorHandlerResult {
+	metrics.IncJobError(job.Kind, "panic")
+	h.logger.Error("river job panic",
+		"kind", job.Kind, "job_id", job.ID, "attempt", job.Attempt, "panic", fmt.Sprintf("%v", panicVal))
+	return nil
+}
+
+// runLoop runs fn now and then every interval until ctx is done. Each tick is
+// wrapped in a recover so a panic in one reconcile pass logs and increments a
+// counter while the loop keeps going — a dead loop is otherwise a silent,
+// long-MTTR outage. Each successful tick records a heartbeat + duration metric.
+func runLoop(ctx context.Context, name string, interval time.Duration, logger *slog.Logger, fn func()) {
+	tick := func() {
+		defer func() {
+			if r := recover(); r != nil {
+				metrics.IncWatcherPanic(name)
+				logger.Error("watcher loop panicked; continuing", "loop", name, "panic", fmt.Sprintf("%v", r))
+			}
+		}()
+		start := time.Now()
+		fn()
+		metrics.WatcherTick(name, time.Since(start))
+	}
+	tick() // run once immediately so a restart doesn't wait a full interval
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			tick()
+		}
+	}
+}
+
+// sampleJobStates publishes River queue depth by state as a gauge. Read-only
+// over river_job; excludes completed so the gauge tracks live work + the trouble
+// states (retryable, discarded), not historical volume.
+func sampleJobStates(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger) {
+	rows, err := pool.Query(ctx, `SELECT state::text, count(*) FROM river_job WHERE state <> 'completed' GROUP BY state`)
+	if err != nil {
+		logger.Warn("sample job states", "error", err)
+		return
+	}
+	defer rows.Close()
+	counts := map[string]int{}
+	for rows.Next() {
+		var state string
+		var n int
+		if err := rows.Scan(&state, &n); err != nil {
+			logger.Warn("scan job state", "error", err)
+			return
+		}
+		counts[state] = n
+	}
+	metrics.SetJobsByState(counts)
 }
