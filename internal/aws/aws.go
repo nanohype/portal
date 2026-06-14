@@ -10,6 +10,7 @@ package aws
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -17,10 +18,15 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 )
 
+type assumeRoleKey struct{ roleARN, externalID, region string }
+
 // Provider holds portal's base AWS identity. One instance per server/worker
 // process; reused across all Account-driven assume-role calls.
 type Provider struct {
 	base aws.Config
+
+	mu    sync.Mutex
+	cache map[assumeRoleKey]aws.Config
 }
 
 // NewProvider loads portal's base credentials from the default chain. This
@@ -43,9 +49,24 @@ func NewProvider(ctx context.Context) (*Provider, error) {
 // The returned config carries a credential cache: subsequent SDK calls reuse
 // the same temporary credentials until they expire, and the stscreds provider
 // transparently refreshes when they do.
+//
+// The assembled config is itself cached per (roleARN, externalID, region) and
+// reused across calls. Without this, every call built a fresh provider +
+// credential cache, so the per-cluster health watcher re-ran sts:AssumeRole on
+// every tick for every cluster — N STS calls each interval. The shared
+// CredentialsCache is concurrency-safe, so a cached config is safe to hand to
+// concurrent callers (the parallel health fan-out).
 func (p *Provider) AssumeRoleConfig(ctx context.Context, roleARN, externalID, region string) (aws.Config, error) {
 	if roleARN == "" {
 		return aws.Config{}, fmt.Errorf("role arn is required")
+	}
+
+	key := assumeRoleKey{roleARN: roleARN, externalID: externalID, region: region}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if cfg, ok := p.cache[key]; ok {
+		return cfg, nil
 	}
 
 	stsClient := sts.NewFromConfig(p.base)
@@ -61,6 +82,11 @@ func (p *Provider) AssumeRoleConfig(ctx context.Context, roleARN, externalID, re
 	if region != "" {
 		cfg.Region = region
 	}
+
+	if p.cache == nil {
+		p.cache = make(map[assumeRoleKey]aws.Config)
+	}
+	p.cache[key] = cfg
 	return cfg, nil
 }
 
