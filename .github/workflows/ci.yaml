@@ -9,6 +9,20 @@ permissions:
 jobs:
   ci:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: portal
+          POSTGRES_PASSWORD: portal
+          POSTGRES_DB: portal
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -16,7 +30,11 @@ jobs:
           go-version-file: go.mod
       - run: go build ./...
       - run: go vet ./...
+      # TEST_DATABASE_URL points the repository integration tests at the service
+      # Postgres; without it they skip (so `go test` still works with no DB).
       - run: go test ./...
+        env:
+          TEST_DATABASE_URL: postgres://portal:portal@localhost:5432/postgres?sslmode=disable
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -24,7 +42,9 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: npm ci
         working-directory: web
-      - run: npx tsc --noEmit
+      # tsc -b is the real typecheck — the root tsconfig has files:[] + project
+      # references, so `tsc --noEmit` against it checks nothing.
+      - run: npx tsc -b
         working-directory: web
       - run: npx vite build
         working-directory: web
