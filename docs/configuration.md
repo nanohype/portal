@@ -1,10 +1,10 @@
 # Configuration
 
-All configuration is via environment variables. In development every variable has a working default except the GitHub OAuth credentials. The source of truth is `internal/domain/config.go` — this doc tracks it.
+All configuration is via environment variables. In development every variable has a working default except `ENVIRONMENT` (set it to `development`) and the GitHub OAuth credentials. The source of truth is `internal/domain/config.go` — this doc tracks it.
 
 ## Local Dev
 
-No environment variables are required for local development. When `ENVIRONMENT=development` (the default), a **Dev Login** button appears on the login page that creates a local user without GitHub OAuth.
+Set `ENVIRONMENT=development` (the `dev:*` and `seed:demo` Taskfile targets already do). That enables the **Dev Login** button on the login page — a local user without GitHub OAuth — and relaxes the secret validation. `ENVIRONMENT` has **no default**: anything other than `development` is treated as production and fails closed, so a missing or typo'd value can't silently boot an insecure instance with default keys.
 
 To use GitHub sign-in locally, set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` from a [GitHub OAuth App](https://github.com/settings/developers) with:
 - Homepage URL: `http://localhost:5173`
@@ -17,7 +17,7 @@ To use GitHub sign-in locally, set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`
 | `SERVER_ADDR` | `:8080` | HTTP listen address |
 | `SERVER_BASE_URL` | `http://localhost:8080` | Public URL of the API server (used for OAuth callbacks) |
 | `WEB_URL` | `http://localhost:5173` | Public URL of the web frontend (used for CORS) |
-| `ENVIRONMENT` | `development` | `development`, `staging`, or `production`. Controls config validation and CORS |
+| `ENVIRONMENT` | _(none)_ | Only `development` relaxes security (dev login + default keys allowed) and adds the localhost CORS origin. Unset or anything else → treated as production, fail closed. The Helm chart defaults `config.environment` to `production`. |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 | `SHUTDOWN_TIMEOUT` | `15s` | Graceful shutdown timeout for in-progress requests |
 
@@ -78,8 +78,13 @@ Config is wired through the `objectStore` Helm block (and surfaces as the `S3_*`
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `WORKER_CONCURRENCY` | `10` | Maximum concurrent job executions |
-| `WORKER_HEALTH_ADDR` | `:8081` | Health check endpoint address (`/healthz`) |
+| `WORKER_CONCURRENCY` | `10` | Max concurrent tofu/terragrunt runs (the default River queue) |
+| `WORKER_RECONCILE_CONCURRENCY` | `8` | Max concurrent per-cluster watch/reconcile jobs (the `reconcile` queue, separate from runs so they don't starve each other) |
+| `WORKER_HEALTH_ADDR` | `:8081` | Address for the worker's `/healthz` (pings the DB) and `/metrics` endpoints |
+
+## Observability
+
+Server and worker each expose Prometheus metrics on `/metrics` (the server on `SERVER_ADDR`, the worker on `WORKER_HEALTH_ADDR`), unauthenticated for in-cluster scraping. The Helm chart annotates both pods with `prometheus.io/scrape` so a Grafana Agent (or any Prometheus) picks them up; logs go to stdout (structured slog) for Loki. Key series: HTTP RED (`portal_http_request_duration_seconds`), DB pool stats, tofu run duration, River job errors + queue depth by state, and per-watcher tick heartbeats.
 
 ## Executor
 
@@ -144,7 +149,7 @@ In-cluster hub watchers that close the vend loop and project per-cluster health.
 
 ## Non-dev requirements
 
-When `ENVIRONMENT` is not `development`, the server validates that the following are set to non-default values and refuses to start otherwise:
+When `ENVIRONMENT` is not `development` (including unset — it has no default, so this is the fail-closed path), the server validates that the following are set to non-default values and refuses to start otherwise:
 
 - `JWT_SECRET`
 - `ENCRYPTION_KEY` (must be exactly 32 bytes)

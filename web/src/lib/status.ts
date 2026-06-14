@@ -175,6 +175,13 @@ export function tenantPhase(phase: string): StatusVisual {
   }
 }
 
+// A tenant phase still moving — used to decide whether to poll fast. Anything
+// else (ready/healthy/degraded/failed/...) is at rest from the watcher's view.
+export function isTenantPhaseTransitional(phase: string): boolean {
+  const p = phase.toLowerCase();
+  return p === "pending" || p === "provisioning";
+}
+
 // Tenant op status. Tenant ops terminate at commit (no watcher advances them),
 // so they ride as a status, not a phase timeline. Factual: "committed" means
 // applied to git, not yet proven reconciled.

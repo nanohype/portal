@@ -7,12 +7,24 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
   replicas: {{ .Values.replicaCount.worker }}
+  # The worker is a single-writer: it serializes GitOps commits, the watch-back
+  # auto-register, and run execution on the assumption that exactly one pod is
+  # running. Recreate (not the default RollingUpdate) guarantees a rollout never
+  # overlaps two worker pods.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: portal-worker
       app.kubernetes.io/instance: {{ .Release.Name }}
   template:
     metadata:
+      annotations:
+        # The worker serves /metrics + /healthz on its health port (8081);
+        # scraped by the Grafana Agent → Amazon Managed Prometheus.
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8081"
+        prometheus.io/path: "/metrics"
       labels:
         app.kubernetes.io/name: portal-worker
         app.kubernetes.io/instance: {{ .Release.Name }}
@@ -29,6 +41,10 @@ spec:
         - name: worker
           image: "{{ .Values.image.worker.repository }}:{{ .Values.image.worker.tag }}"
           imagePullPolicy: {{ .Values.image.worker.pullPolicy }}
+          ports:
+            - name: health
+              containerPort: 8081
+              protocol: TCP
           envFrom:
             - configMapRef:
                 name: {{ .Release.Name }}-config

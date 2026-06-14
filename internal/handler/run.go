@@ -88,7 +88,7 @@ func (h *RunHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	run, err := h.svc.Get(r.Context(), runID, userCtx.OrgID)
 	if err != nil {
-		respond.Error(w, http.StatusNotFound, "run not found")
+		respond.FromError(w, r, err)
 		return
 	}
 
@@ -122,7 +122,7 @@ func (h *RunHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// Check if workspace is locked
 	ws, err := h.workspaceSvc.Get(r.Context(), workspaceID, userCtx.OrgID)
 	if err != nil {
-		respond.Error(w, http.StatusNotFound, "workspace not found")
+		respond.FromError(w, r, err)
 		return
 	}
 	if ws.Locked {
@@ -208,7 +208,7 @@ func (h *RunHandler) GetPlanJSON(w http.ResponseWriter, r *http.Request) {
 
 	run, err := h.svc.Get(r.Context(), runID, userCtx.OrgID)
 	if err != nil {
-		respond.Error(w, http.StatusNotFound, "run not found")
+		respond.FromError(w, r, err)
 		return
 	}
 
@@ -235,6 +235,18 @@ func (h *RunHandler) GetPlanJSON(w http.ResponseWriter, r *http.Request) {
 
 func (h *RunHandler) StreamLogs(w http.ResponseWriter, r *http.Request) {
 	runID := chi.URLParam(r, "runID")
+
+	// Org-scope before upgrading: the run must belong to the caller's org, or
+	// any authenticated user could stream any run's live logs by guessing a ULID.
+	userCtx := auth.GetUser(r.Context())
+	if userCtx == nil {
+		respond.Error(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	if _, err := h.svc.Get(r.Context(), runID, userCtx.OrgID); err != nil {
+		respond.FromError(w, r, err)
+		return
+	}
 
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		OriginPatterns: wsOriginPatterns(h.allowedOrigins),

@@ -10,7 +10,7 @@ import { formatRelativeTime } from "@/lib/utils";
 import { Boxes, Plus } from "lucide-react";
 import { TenantCreateModal } from "./TenantCreateModal";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { tenantPhase } from "@/lib/status";
+import { tenantPhase, isTenantPhaseTransitional } from "@/lib/status";
 
 export function TenantList() {
   const { user } = useAuth();
@@ -30,9 +30,13 @@ export function TenantList() {
       return data!;
     },
     // Cheap-ish: 10s refresh while viewing the list so newly-observed tenants
-    // appear without a manual refresh. The watcher reconciles every 60s
-    // backend-side, so this just keeps the UI in step.
-    refetchInterval: 10000,
+    // appear without a manual refresh. Poll fast only while a tenant is still
+    // settling (pending/provisioning); otherwise back off — the watcher
+    // reconciles every 60s backend-side, so the UI just needs to keep in step.
+    refetchInterval: (query) =>
+      query.state.data?.data?.some((t) => isTenantPhaseTransitional(t.phase))
+        ? 5000
+        : 30000,
   });
 
   // Distinct key from ClusterList's ["clusters"] (which caches the paginated

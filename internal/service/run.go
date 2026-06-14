@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -93,34 +94,41 @@ func (s *RunService) Create(ctx context.Context, params CreateRunParams) (reposi
 		return repository.Run{}, err
 	}
 
-	// Only enqueue if no other active run exists for this workspace
+	// Atomically claim the workspace's single run slot, then enqueue in the same
+	// transaction. Only the run that wins the slot is enqueued; concurrent Creates
+	// that lose stay 'pending' and are picked up when the active run releases.
+	// This conditional claim closes the check-then-act race where two runs could
+	// otherwise execute against the same tofu state at once.
 	if s.riverClient != nil {
-		activeRun, err := s.queries.GetActiveRunForWorkspace(ctx, params.WorkspaceID)
-		if err != nil || activeRun.ID == runID {
-			// No active run (pgx.ErrNoRows), or only the one we just created — safe to enqueue
-			tx, err := s.db.Begin(ctx)
-			if err != nil {
-				return run, fmt.Errorf("run %s created but failed to begin enqueue tx: %w", runID, err)
-			}
-			defer tx.Rollback(ctx)
+		tx, err := s.db.Begin(ctx)
+		if err != nil {
+			return run, fmt.Errorf("run %s created but failed to begin enqueue tx: %w", runID, err)
+		}
+		defer tx.Rollback(ctx)
+		qtx := s.queries.WithTx(tx)
 
-			_, err = s.riverClient.InsertTx(ctx, tx, worker.RunJobArgs{
-				RunID:             runID,
-				WorkspaceID:       params.WorkspaceID,
-				OrgID:             params.OrgID,
-				Operation:         params.Operation,
-				Imports:           params.Imports,
-				AutoApplyOverride: params.AutoApplyOverride,
-			}, nil)
-			if err != nil {
-				return run, fmt.Errorf("run %s created but failed to enqueue job: %w", runID, err)
+		if _, err := qtx.ClaimWorkspaceForRun(ctx, params.WorkspaceID, params.OrgID, runID); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				// Another run holds the slot — this run stays pending.
+				slog.Info("workspace has active run, new run will stay pending", "workspace_id", params.WorkspaceID, "run_id", runID)
+				return run, nil
 			}
+			return run, fmt.Errorf("run %s created but failed to claim workspace: %w", runID, err)
+		}
 
-			if err := tx.Commit(ctx); err != nil {
-				return run, fmt.Errorf("run %s created but failed to commit enqueue tx: %w", runID, err)
-			}
-		} else {
-			slog.Info("workspace has active run, new run will stay pending", "workspace_id", params.WorkspaceID, "run_id", runID)
+		if _, err := s.riverClient.InsertTx(ctx, tx, worker.RunJobArgs{
+			RunID:             runID,
+			WorkspaceID:       params.WorkspaceID,
+			OrgID:             params.OrgID,
+			Operation:         params.Operation,
+			Imports:           params.Imports,
+			AutoApplyOverride: params.AutoApplyOverride,
+		}, nil); err != nil {
+			return run, fmt.Errorf("run %s created but failed to enqueue job: %w", runID, err)
+		}
+
+		if err := tx.Commit(ctx); err != nil {
+			return run, fmt.Errorf("run %s created but failed to commit enqueue tx: %w", runID, err)
 		}
 	}
 
@@ -133,35 +141,15 @@ func (s *RunService) Cancel(ctx context.Context, runID, orgID string) (repositor
 		return repository.Run{}, err
 	}
 
-	// Clear current_run_id on workspace
-	if err := s.queries.SetWorkspaceCurrentRun(ctx, repository.SetWorkspaceCurrentRunParams{
-		ID: run.WorkspaceID, OrgID: orgID, CurrentRunID: nil,
-	}); err != nil {
-		slog.Error("failed to clear workspace current run after cancel", "error", err, "workspace_id", run.WorkspaceID, "run_id", runID)
+	// Release the slot only if this run actually held it — cancelling a queued
+	// run must not free the active run's slot. Then atomically hand off to the
+	// next pending run (the same claim-and-enqueue the worker's finish path uses,
+	// so a concurrent cancel + finish can't double-enqueue the next run).
+	if err := s.queries.ReleaseWorkspaceRun(ctx, run.WorkspaceID, orgID, runID); err != nil {
+		slog.Error("failed to release workspace run slot after cancel", "error", err, "workspace_id", run.WorkspaceID, "run_id", runID)
 	}
-
-	// Enqueue next pending run if any
 	if s.riverClient != nil {
-		nextRun, err := s.queries.GetNextPendingRun(ctx, run.WorkspaceID)
-		if err == nil {
-			tx, err := s.db.Begin(ctx)
-			if err != nil {
-				slog.Error("failed to begin tx for next pending run after cancel", "error", err, "run_id", runID, "workspace_id", run.WorkspaceID)
-				return run, nil
-			}
-			_, insErr := s.riverClient.InsertTx(ctx, tx, worker.RunJobArgs{
-				RunID:       nextRun.ID,
-				WorkspaceID: nextRun.WorkspaceID,
-				OrgID:       nextRun.OrgID,
-				Operation:   nextRun.Operation,
-			}, nil)
-			if insErr != nil {
-				slog.Error("failed to enqueue next pending run after cancel", "error", insErr, "run_id", runID, "next_run_id", nextRun.ID)
-				tx.Rollback(ctx)
-			} else if err := tx.Commit(ctx); err != nil {
-				slog.Error("failed to commit next pending run enqueue after cancel", "error", err, "run_id", runID, "next_run_id", nextRun.ID)
-			}
-		}
+		worker.ClaimAndEnqueueNextRun(ctx, s.queries, s.db, s.riverClient, run.WorkspaceID, slog.Default())
 	}
 
 	return run, nil

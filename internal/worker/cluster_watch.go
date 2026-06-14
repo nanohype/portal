@@ -27,11 +27,18 @@ type ClusterWatchJobArgs struct {
 
 func (ClusterWatchJobArgs) Kind() string { return "cluster_watch" }
 
+// ReconcileQueue carries the per-cluster watch/reconcile jobs on a queue
+// separate from the default one that runs tofu, so a burst of long applies
+// can't starve the watchers (and a flood of watches can't delay a run). The two
+// queues are sized independently via WORKER_CONCURRENCY / WORKER_RECONCILE_CONCURRENCY.
+const ReconcileQueue = "reconcile"
+
 func (ClusterWatchJobArgs) InsertOpts() river.InsertOpts {
 	// One in-flight watch per cluster at a time; if a tick fires while the
 	// last one is still running we just drop the duplicate rather than
 	// piling up backlog.
 	return river.InsertOpts{
+		Queue: ReconcileQueue,
 		UniqueOpts: river.UniqueOpts{
 			ByArgs:   true,
 			ByPeriod: 30 * time.Second,

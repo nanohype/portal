@@ -121,7 +121,7 @@ func (h *AccountHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	account, err := h.svc.Get(r.Context(), accountID, userCtx.OrgID)
 	if err != nil {
-		respond.Error(w, http.StatusNotFound, "account not found")
+		respond.FromError(w, r, err)
 		return
 	}
 
@@ -224,7 +224,7 @@ func (h *AccountHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	existing, err := h.svc.Get(r.Context(), accountID, userCtx.OrgID)
 	if err != nil {
-		respond.Error(w, http.StatusNotFound, "account not found")
+		respond.FromError(w, r, err)
 		return
 	}
 
@@ -305,7 +305,7 @@ func (h *AccountHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 	existing, err := h.svc.Get(r.Context(), accountID, userCtx.OrgID)
 	if err != nil {
-		respond.Error(w, http.StatusNotFound, "account not found")
+		respond.FromError(w, r, err)
 		return
 	}
 

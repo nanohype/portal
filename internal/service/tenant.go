@@ -80,28 +80,42 @@ func (s *TenantService) Get(ctx context.Context, id, orgID string) (repository.T
 func (s *TenantService) Reconcile(ctx context.Context, orgID, clusterID string, observed []TenantSnapshot) (upserts int, deletes int, err error) {
 	now := time.Now()
 	observedNames := make(map[string]struct{}, len(observed))
-
-	for _, t := range observed {
+	ids := make([]string, len(observed))
+	names := make([]string, len(observed))
+	phases := make([]string, len(observed))
+	specs := make([]string, len(observed))
+	statuses := make([]string, len(observed))
+	for i, t := range observed {
 		observedNames[t.Name] = struct{}{}
-		_, err := s.queries.UpsertTenant(ctx, repository.UpsertTenantParams{
-			ID:             ulid.Make().String(),
-			OrgID:          orgID,
-			ClusterID:      clusterID,
-			Name:           t.Name,
-			Phase:          t.Phase,
-			Spec:           nonNullJSON(t.Spec),
-			Status:         nonNullJSON(t.Status),
-			LastObservedAt: now,
-		})
-		if err != nil {
-			return upserts, deletes, fmt.Errorf("upsert tenant %s: %w", t.Name, err)
-		}
-		upserts++
+		ids[i] = ulid.Make().String()
+		names[i] = t.Name
+		phases[i] = t.Phase
+		specs[i] = string(nonNullJSON(t.Spec))
+		statuses[i] = string(nonNullJSON(t.Status))
 	}
 
-	existing, err := s.queries.ListTenantNamesByCluster(ctx, clusterID, orgID)
+	// Upsert (one batched statement) + prune-stale in one transaction so a tick
+	// is atomic — the inventory never reflects a half-applied snapshot.
+	tx, err := s.db.Begin(ctx)
 	if err != nil {
-		return upserts, deletes, fmt.Errorf("list existing tenant names: %w", err)
+		return 0, 0, fmt.Errorf("begin reconcile tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	qtx := s.queries.WithTx(tx)
+
+	if len(observed) > 0 {
+		if err := qtx.BatchUpsertTenants(ctx, repository.BatchUpsertTenantsParams{
+			OrgID: orgID, ClusterID: clusterID, LastObservedAt: now,
+			IDs: ids, Names: names, Phases: phases, Specs: specs, Statuses: statuses,
+		}); err != nil {
+			return 0, 0, fmt.Errorf("batch upsert tenants: %w", err)
+		}
+		upserts = len(observed)
+	}
+
+	existing, err := qtx.ListTenantNamesByCluster(ctx, clusterID, orgID)
+	if err != nil {
+		return upserts, 0, fmt.Errorf("list existing tenant names: %w", err)
 	}
 	var toDelete []string
 	for _, name := range existing {
@@ -110,14 +124,17 @@ func (s *TenantService) Reconcile(ctx context.Context, orgID, clusterID string, 
 		}
 	}
 	if len(toDelete) > 0 {
-		if err := s.queries.DeleteTenantsByClusterAndNames(ctx, repository.DeleteTenantsByClusterAndNamesParams{
+		if err := qtx.DeleteTenantsByClusterAndNames(ctx, repository.DeleteTenantsByClusterAndNamesParams{
 			ClusterID: clusterID, OrgID: orgID, Names: toDelete,
 		}); err != nil {
-			return upserts, deletes, fmt.Errorf("delete stale tenants: %w", err)
+			return upserts, 0, fmt.Errorf("delete stale tenants: %w", err)
 		}
 		deletes = len(toDelete)
 	}
 
+	if err := tx.Commit(ctx); err != nil {
+		return upserts, deletes, fmt.Errorf("commit reconcile tx: %w", err)
+	}
 	return upserts, deletes, nil
 }
 

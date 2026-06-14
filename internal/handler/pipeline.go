@@ -104,7 +104,7 @@ func (h *PipelineHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	pipeline, err := h.pipelineSvc.Get(r.Context(), pipelineID, userCtx.OrgID)
 	if err != nil {
-		respond.Error(w, http.StatusNotFound, "pipeline not found")
+		respond.FromError(w, r, err)
 		return
 	}
 
@@ -195,7 +195,7 @@ func (h *PipelineHandler) StartRun(w http.ResponseWriter, r *http.Request) {
 
 	// Verify pipeline exists and belongs to org
 	if _, err := h.pipelineSvc.Get(r.Context(), pipelineID, userCtx.OrgID); err != nil {
-		respond.Error(w, http.StatusNotFound, "pipeline not found")
+		respond.FromError(w, r, err)
 		return
 	}
 

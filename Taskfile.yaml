@@ -25,6 +25,7 @@ tasks:
     desc: Run API server with hot reload
     env:
       DATABASE_URL: "{{.DATABASE_URL}}"
+      ENVIRONMENT: development
     cmds:
       - go run ./cmd/server
 
@@ -32,6 +33,7 @@ tasks:
     desc: Run worker with hot reload
     env:
       DATABASE_URL: "{{.DATABASE_URL}}"
+      ENVIRONMENT: development
     cmds:
       - go run ./cmd/worker
 
@@ -69,6 +71,7 @@ tasks:
       DB, then `task dev` and click Dev Login.
     env:
       DATABASE_URL: "{{.DATABASE_URL}}"
+      ENVIRONMENT: development
     cmds:
       - go run ./cmd/seeddemo
 
@@ -131,25 +134,6 @@ tasks:
     desc: Stop all infrastructure
     cmds:
       - docker stop portal-postgres portal-redis portal-minio 2>/dev/null || true
-
-  # === Code Generation ===
-
-  generate:
-    desc: Run all code generation
-    cmds:
-      - task: generate:sqlc
-      - task: generate:openapi
-
-  generate:sqlc:
-    desc: Generate Go code from SQL queries
-    cmds:
-      - sqlc generate
-
-  generate:openapi:
-    desc: Generate TypeScript types from OpenAPI spec
-    dir: web
-    cmds:
-      - npx openapi-typescript ../api/openapi/v1.yaml -o src/api/generated.ts
 
   # === Build ===
 

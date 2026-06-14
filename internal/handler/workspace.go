@@ -96,7 +96,7 @@ func (h *WorkspaceHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	workspace, err := h.svc.Get(r.Context(), workspaceID, userCtx.OrgID)
 	if err != nil {
-		respond.Error(w, http.StatusNotFound, "workspace not found")
+		respond.FromError(w, r, err)
 		return
 	}
 
@@ -269,7 +269,7 @@ func (h *WorkspaceHandler) Unlock(w http.ResponseWriter, r *http.Request) {
 
 	workspace, err := h.svc.Unlock(r.Context(), workspaceID, userCtx.OrgID)
 	if err != nil {
-		respond.Error(w, http.StatusNotFound, "workspace not found")
+		respond.FromError(w, r, err)
 		return
 	}
 
@@ -289,7 +289,7 @@ func (h *WorkspaceHandler) Upload(w http.ResponseWriter, r *http.Request) {
 
 	ws, err := h.svc.Get(r.Context(), workspaceID, userCtx.OrgID)
 	if err != nil {
-		respond.Error(w, http.StatusNotFound, "workspace not found")
+		respond.FromError(w, r, err)
 		return
 	}
 
@@ -386,7 +386,7 @@ func (h *WorkspaceHandler) Clone(w http.ResponseWriter, r *http.Request) {
 
 	source, err := h.svc.Get(r.Context(), sourceID, userCtx.OrgID)
 	if err != nil {
-		respond.Error(w, http.StatusNotFound, "workspace not found")
+		respond.FromError(w, r, err)
 		return
 	}
 

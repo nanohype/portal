@@ -31,7 +31,7 @@ config:
   serverAddr: ":8080"
   serverBaseURL: "http://localhost:8080"      # Public URL — set to your domain in production
   webURL: "http://localhost:5173"             # Frontend URL — set to your domain in production
-  environment: "development"                  # "development" | "staging" | "production"
+  environment: "production"                   # "development" | "staging" | "production" — fail closed: only "development" relaxes (dev login + default keys)
   logLevel: "info"                            # "debug" | "info" | "warn" | "error"
   shutdownTimeout: "15s"
 

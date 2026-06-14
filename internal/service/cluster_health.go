@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"golang.org/x/sync/errgroup"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/dynamic"
@@ -13,6 +14,16 @@ import (
 	"github.com/nanohype/portal/internal/k8s"
 	"github.com/nanohype/portal/internal/repository"
 )
+
+// clusterHealthConcurrency bounds the per-cluster fan-out. The work is
+// I/O-bound (a hub Application GET + an EKS describe), so a modest pool keeps
+// wall-clock flat as cluster count grows without hammering the hub API or STS.
+const clusterHealthConcurrency = 12
+
+// clusterHealthTargetCap mirrors the LIMIT in ListClusterHealthTargets. It's a
+// generous ceiling for the "many clusters, not hyperscale" target; if a sweep
+// ever hits it, log loudly rather than silently dropping clusters.
+const clusterHealthTargetCap = 10000
 
 // ClusterHealthService is the steady-state per-cluster health projector. Running
 // in-cluster on the hub, every tick it reads — for each registered cluster — the
@@ -50,12 +61,27 @@ func (s *ClusterHealthService) Sync(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("list cluster health targets: %w", err)
 	}
-	for _, t := range targets {
-		s.reconcileArgoCD(ctx, t)
-		if s.aws != nil && t.AuthMode == AuthModeEKSIAM && t.EKSClusterName != "" {
-			s.reconcileEKS(ctx, t)
-		}
+	if len(targets) >= clusterHealthTargetCap {
+		slog.Warn("cluster health sweep hit the target cap; some clusters may be unwatched",
+			"cap", clusterHealthTargetCap)
 	}
+	// Per-cluster work is independent and I/O-bound, so fan out with a bounded
+	// pool instead of a serial pass — wall-clock no longer grows linearly with
+	// cluster count, and the assume-role config cache means the EKS describes
+	// share temporary credentials. Each reconcile logs its own errors and never
+	// returns one, so Wait can't fail.
+	var g errgroup.Group
+	g.SetLimit(clusterHealthConcurrency)
+	for _, t := range targets {
+		g.Go(func() error {
+			s.reconcileArgoCD(ctx, t)
+			if s.aws != nil && t.AuthMode == AuthModeEKSIAM && t.EKSClusterName != "" {
+				s.reconcileEKS(ctx, t)
+			}
+			return nil
+		})
+	}
+	_ = g.Wait()
 	return len(targets), nil
 }
 

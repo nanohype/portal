@@ -109,7 +109,7 @@ func (h *ClusterHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	cluster, err := h.svc.Get(r.Context(), clusterID, userCtx.OrgID)
 	if err != nil {
-		respond.Error(w, http.StatusNotFound, "cluster not found")
+		respond.FromError(w, r, err)
 		return
 	}
 	respond.JSON(w, http.StatusOK, clusterResponse(cluster))
@@ -257,7 +257,7 @@ func (h *ClusterHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	existing, err := h.svc.Get(r.Context(), clusterID, userCtx.OrgID)
 	if err != nil {
-		respond.Error(w, http.StatusNotFound, "cluster not found")
+		respond.FromError(w, r, err)
 		return
 	}
 
@@ -349,7 +349,7 @@ func (h *ClusterHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 	existing, err := h.svc.Get(r.Context(), clusterID, userCtx.OrgID)
 	if err != nil {
-		respond.Error(w, http.StatusNotFound, "cluster not found")
+		respond.FromError(w, r, err)
 		return
 	}
 
@@ -377,7 +377,7 @@ func (h *ClusterHandler) TestConnection(w http.ResponseWriter, r *http.Request) 
 
 	cluster, err := h.svc.Get(r.Context(), clusterID, userCtx.OrgID)
 	if err != nil {
-		respond.Error(w, http.StatusNotFound, "cluster not found")
+		respond.FromError(w, r, err)
 		return
 	}
 
