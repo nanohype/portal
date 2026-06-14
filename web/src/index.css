@@ -30,6 +30,15 @@
   --radius-md: 0.375rem;
   --radius-lg: 0.5rem;
   --radius-xl: 0.625rem;
+
+  /* Motion — one scale for easing + durations so transitions stay consistent.
+     ease-out-expo is the expressive enter curve (decelerate into place); the
+     standard ease-out handles smaller state changes. */
+  --ease-out-expo: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+  --duration-slow: 260ms;
 }
 
 * {
@@ -107,6 +116,44 @@ a, button, [role="tab"], input, select {
 }
 .animate-glow-pulse {
   animation: glow-pulse 2.5s ease-in-out infinite;
+}
+
+/* Slide-over (Drawer) — enter decelerates in, exit is quicker. Paired with the
+   overlay fade. The component drives enter vs exit by swapping the class. */
+@keyframes slide-in-right {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+@keyframes slide-out-right {
+  from { transform: translateX(0); }
+  to { transform: translateX(100%); }
+}
+@keyframes fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+.animate-slide-in-right {
+  animation: slide-in-right var(--duration-slow) var(--ease-out-expo) both;
+}
+.animate-slide-out-right {
+  animation: slide-out-right var(--duration-base) var(--ease-out-expo) both;
+}
+.animate-overlay-in {
+  animation: fade-overlay var(--duration-base) ease both;
+}
+.animate-overlay-out {
+  animation: fade-out var(--duration-fast) ease both;
+}
+
+/* Honor the OS reduced-motion setting — collapse every animation/transition to
+   an instant so the UI stays legible without movement. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* Stagger delays */

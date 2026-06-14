@@ -10,7 +10,7 @@ import { formatRelativeTime } from "@/lib/utils";
 import type { Account, Cluster, ClusterConnectionStatus, ClusterOperation } from "@/api/types";
 import { Server, Plus, Cloud } from "lucide-react";
 import { ClusterCreateModal } from "./ClusterCreateModal";
-import { ClusterOrderModal } from "./ClusterOrderModal";
+import { ClusterProvisionDrawer } from "./ClusterProvisionDrawer";
 import { VendTimeline } from "./VendTimeline";
 import { DeprovisionTimeline } from "./DeprovisionTimeline";
 
@@ -351,7 +351,7 @@ export function ClusterList() {
         accounts={accounts ?? []}
       />
 
-      <ClusterOrderModal
+      <ClusterProvisionDrawer
         open={showOrder}
         onClose={() => setShowOrder(false)}
         accounts={accounts ?? []}
