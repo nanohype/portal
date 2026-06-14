@@ -135,19 +135,6 @@ tasks:
     cmds:
       - docker stop portal-postgres portal-redis portal-minio 2>/dev/null || true
 
-  # === Code Generation ===
-
-  generate:
-    desc: Run all code generation
-    cmds:
-      - task: generate:openapi
-
-  generate:openapi:
-    desc: Generate TypeScript types from OpenAPI spec
-    dir: web
-    cmds:
-      - npx openapi-typescript ../api/openapi/v1.yaml -o src/api/generated.ts
-
   # === Build ===
 
   build:
