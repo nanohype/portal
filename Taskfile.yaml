@@ -140,13 +140,7 @@ tasks:
   generate:
     desc: Run all code generation
     cmds:
-      - task: generate:sqlc
       - task: generate:openapi
-
-  generate:sqlc:
-    desc: Generate Go code from SQL queries
-    cmds:
-      - sqlc generate
 
   generate:openapi:
     desc: Generate TypeScript types from OpenAPI spec

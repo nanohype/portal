@@ -69,7 +69,7 @@ Three processes: **server** (HTTP API), **worker** (runs tofu commands), **web**
 - **Router**: chi (`internal/server/server.go` — all routes defined here)
 - **Handlers**: `internal/handler/` — one file per domain (auth, workspace, run, pipeline, pipeline_variables, org_variables, variables, teams, state, user, audit, webhook, approvals, health)
 - **Services**: `internal/service/` — business logic layer (workspace, run, pipeline, audit)
-- **Repository**: `internal/repository/` — hand-written pgx queries (sqlc-style, `sqlc.yaml` present)
+- **Repository**: `internal/repository/` — hand-written pgx queries in `*.sql.go` (sqlc-style: typed Params structs + `scanX` helpers, but NOT generated — edit them directly; there is no sqlc/codegen step)
 - **Worker**: `internal/worker/jobs.go` — River job worker with pipeline callback; `pipeline_jobs.go` for pipeline stage jobs
 - **Auth**: GitHub OAuth → JWT, RBAC with 4 roles (owner > admin > operator > viewer)
 - **Response helpers**: `internal/handler/respond/respond.go` — use `respond.JSON()`, `respond.Error()`, `respond.NoContent()`
