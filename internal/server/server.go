@@ -20,6 +20,7 @@ import (
 	"github.com/nanohype/portal/internal/secrets"
 	"github.com/nanohype/portal/internal/service"
 	"github.com/nanohype/portal/internal/storage"
+	"github.com/nanohype/portal/internal/tracing"
 )
 
 type Server struct {
@@ -85,7 +86,8 @@ func (s *Server) setupRouter() {
 	// Middleware
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
-	r.Use(metrics.Middleware) // HTTP RED, keyed on the matched route pattern
+	r.Use(tracing.HTTPMiddleware) // server span, joined to incoming W3C context
+	r.Use(metrics.Middleware)     // HTTP RED, keyed on the matched route pattern
 	r.Use(NewStructuredLogger(s.logger))
 	r.Use(middleware.Recoverer)
 	r.Use(NewRateLimiter(100, 200).Middleware) // 100 req/s per IP, burst 200

@@ -64,3 +64,11 @@ data:
   ARGOCD_SYNC_ACCOUNT_ID: {{ .Values.argocdSync.accountID | quote }}
   ARGOCD_SYNC_CREATED_BY: {{ .Values.argocdSync.createdBy | quote }}
   {{- end }}
+  {{- if .Values.tracing.enabled }}
+  # Traces are pushed (OTLP), not scraped — no pod annotation needed, just the
+  # endpoint. service.name is set per-process in code (portal-server/worker).
+  OTEL_TRACES_ENABLED: "true"
+  OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.tracing.otlpEndpoint | quote }}
+  OTEL_EXPORTER_OTLP_PROTOCOL: {{ .Values.tracing.otlpProtocol | quote }}
+  OTEL_TRACES_SAMPLER_ARG: {{ .Values.tracing.sampleRatio | quote }}
+  {{- end }}

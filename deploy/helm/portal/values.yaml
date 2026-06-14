@@ -209,6 +209,16 @@ clusterHealth:
   enabled: false
   interval: "120s"
 
+# -- Distributed tracing (OpenTelemetry → the in-cluster Grafana Agent's OTLP
+# receiver, with Tempo behind it). Off by default; metrics (/metrics) are
+# unaffected. service.name is set in code (portal-server / portal-worker), so
+# only the endpoint, protocol, and head-sampling fraction are configured here.
+tracing:
+  enabled: false
+  otlpEndpoint: "http://grafana-agent.observability.svc:4318"
+  otlpProtocol: "http/protobuf"
+  sampleRatio: "1"           # fraction of new traces sampled (1 = all, 0.1 = 10%)
+
 # -- Worker ServiceAccount IRSA. Set roleArn to an IAM role bound to the cluster's
 # EKS OIDC provider to give the worker AWS credentials for read-only cluster
 # status (e.g. eks:DescribeCluster, for the live cluster-detail view). Empty = no

@@ -86,6 +86,19 @@ Config is wired through the `objectStore` Helm block (and surfaces as the `S3_*`
 
 Server and worker each expose Prometheus metrics on `/metrics` (the server on `SERVER_ADDR`, the worker on `WORKER_HEALTH_ADDR`), unauthenticated for in-cluster scraping. The Helm chart annotates both pods with `prometheus.io/scrape` so a Grafana Agent (or any Prometheus) picks them up; logs go to stdout (structured slog) for Loki. Key series: HTTP RED (`portal_http_request_duration_seconds`), DB pool stats, tofu run duration, River job errors + queue depth by state, and per-watcher tick heartbeats.
 
+### Tracing
+
+Distributed tracing is opt-in (off by default). When enabled, server and worker export OTLP traces to the cluster's Grafana Agent (Tempo behind it), so a request that enqueues a River job that shells out to tofu reads as **one trace** — the HTTP span propagates its W3C context into the job's metadata, and the worker continues it. DB queries (via pgx) are spans too.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OTEL_TRACES_ENABLED` | `false` | Master switch. When false, a no-op tracer is installed (context still propagates, nothing exports). |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | — | OTLP receiver, e.g. the agent's `http://grafana-agent.observability.svc:4318`. Read by the OTel SDK directly. |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` | OTLP transport. Read by the SDK directly. |
+| `OTEL_TRACES_SAMPLER_ARG` | `1` | Head-sampling fraction for new traces (`1` = all, `0.1` = 10%). A job inherits its enqueuing request's decision. |
+
+`service.name` is set in code (`portal-server` / `portal-worker`). In the Helm chart these are gated behind `tracing.enabled`; traces are pushed (OTLP), not scraped, so no pod annotation is added.
+
 ## Executor
 
 | Variable | Default | Description |

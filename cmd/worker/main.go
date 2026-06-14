@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/caarlos0/env/v11"
+	"github.com/exaring/otelpgx"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
@@ -34,9 +35,14 @@ import (
 	"github.com/nanohype/portal/internal/secrets"
 	"github.com/nanohype/portal/internal/service"
 	"github.com/nanohype/portal/internal/storage"
+	"github.com/nanohype/portal/internal/tracing"
 	"github.com/nanohype/portal/internal/worker"
 	"github.com/nanohype/portal/internal/worker/executor"
 )
+
+// version is stamped into the trace resource (service.version); overridable via
+// -ldflags at build time.
+var version = "dev"
 
 func main() {
 	cfg := &domain.Config{}
@@ -53,6 +59,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Distributed tracing (no-op when OTEL_TRACES_ENABLED is unset). Shutdown is
+	// deferred so it flushes after the river client stops (below).
+	tp, err := tracing.Init(context.Background(), "portal-worker", version, cfg)
+	if err != nil {
+		logger.Warn("tracing init failed; continuing without traces", "error", err)
+	}
+	defer tracing.Shutdown(tp)
+
 	// Connect to database with pool configuration
 	poolConfig, err := pgxpool.ParseConfig(cfg.DatabaseURL)
 	if err != nil {
@@ -63,6 +77,9 @@ func main() {
 	poolConfig.MinConns = cfg.DBMinConns
 	poolConfig.MaxConnIdleTime = cfg.DBMaxConnIdleTime
 	poolConfig.HealthCheckPeriod = cfg.DBHealthCheckPeriod
+	if cfg.TracingEnabled {
+		poolConfig.ConnConfig.Tracer = otelpgx.NewTracer()
+	}
 
 	dbPool, err := pgxpool.NewWithConfig(context.Background(), poolConfig)
 	if err != nil {
@@ -352,15 +369,25 @@ func main() {
 		logger.Info("cluster vend path disabled (GITOPS_CLUSTERS_REPO_URL / GITOPS_SSH_KEY_PATH not set)")
 	}
 
-	// Create River client
-	riverClient, err := river.NewClient[pgx.Tx](riverpgxv5.New(dbPool), &river.Config{
+	// Create River client. The worker middleware runs each job under the trace
+	// its enqueuer stamped into Metadata; the insert middleware re-stamps when a
+	// job enqueues another (e.g. a run advancing a pipeline), so the chain stays
+	// one trace.
+	riverCfg := &river.Config{
 		Queues: map[string]river.QueueConfig{
 			river.QueueDefault:    {MaxWorkers: cfg.WorkerConcurrency},
 			worker.ReconcileQueue: {MaxWorkers: cfg.WorkerReconcileConcurrency},
 		},
 		Workers:      workers,
 		ErrorHandler: &jobErrorHandler{logger: logger},
-	})
+	}
+	if cfg.TracingEnabled {
+		riverCfg.Middleware = []rivertype.Middleware{
+			tracing.WorkerMiddleware(),
+			tracing.JobInsertMiddleware(),
+		}
+	}
+	riverClient, err := river.NewClient[pgx.Tx](riverpgxv5.New(dbPool), riverCfg)
 	if err != nil {
 		logger.Error("failed to create river client", "error", err)
 		os.Exit(1)

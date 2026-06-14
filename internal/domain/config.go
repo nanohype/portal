@@ -10,9 +10,9 @@ import (
 // Config holds all application configuration, loaded from environment variables.
 type Config struct {
 	// Server
-	ServerAddr      string        `env:"SERVER_ADDR" envDefault:":8080"`
-	ServerBaseURL   string        `env:"SERVER_BASE_URL" envDefault:"http://localhost:8080"`
-	WebURL          string        `env:"WEB_URL" envDefault:"http://localhost:5173"`
+	ServerAddr    string `env:"SERVER_ADDR" envDefault:":8080"`
+	ServerBaseURL string `env:"SERVER_BASE_URL" envDefault:"http://localhost:8080"`
+	WebURL        string `env:"WEB_URL" envDefault:"http://localhost:5173"`
 	// No default: only an explicit ENVIRONMENT=development relaxes security
 	// (dev login, default keys). Unset/anything else is treated as production by
 	// Validate(), so a missing env var fails closed instead of silently booting
@@ -60,6 +60,14 @@ type Config struct {
 	WorkerConcurrency          int    `env:"WORKER_CONCURRENCY" envDefault:"10"`
 	WorkerReconcileConcurrency int    `env:"WORKER_RECONCILE_CONCURRENCY" envDefault:"8"`
 	WorkerHealthAddr           string `env:"WORKER_HEALTH_ADDR" envDefault:":8081"`
+
+	// Observability. Metrics are always on (scraped at /metrics); distributed
+	// tracing is opt-in. When enabled, the OTel SDK reads
+	// OTEL_EXPORTER_OTLP_ENDPOINT / OTEL_EXPORTER_OTLP_PROTOCOL from the
+	// environment itself — these two fields only gate it on and set the
+	// head-sampling fraction (a job inherits its enqueuing request's decision).
+	TracingEnabled     bool    `env:"OTEL_TRACES_ENABLED" envDefault:"false"`
+	TracingSampleRatio float64 `env:"OTEL_TRACES_SAMPLER_ARG" envDefault:"1"`
 
 	// Executor
 	ExecutorType        string `env:"EXECUTOR_TYPE" envDefault:"local"` // "local" or "kubernetes"

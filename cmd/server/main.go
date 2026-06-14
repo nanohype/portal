@@ -10,14 +10,21 @@ import (
 	"syscall"
 
 	"github.com/caarlos0/env/v11"
+	"github.com/exaring/otelpgx"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
+	"github.com/riverqueue/river/rivertype"
 
 	"github.com/nanohype/portal/internal/domain"
 	"github.com/nanohype/portal/internal/server"
+	"github.com/nanohype/portal/internal/tracing"
 )
+
+// version is stamped into the trace resource (service.version); overridable via
+// -ldflags at build time.
+var version = "dev"
 
 func main() {
 	cfg := &domain.Config{}
@@ -34,6 +41,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Distributed tracing (no-op when OTEL_TRACES_ENABLED is unset). A failure
+	// to reach the collector must not stop the server from booting.
+	tp, err := tracing.Init(context.Background(), "portal-server", version, cfg)
+	if err != nil {
+		logger.Warn("tracing init failed; continuing without traces", "error", err)
+	}
+	defer tracing.Shutdown(tp)
+
 	// Connect to database with pool configuration
 	poolConfig, err := pgxpool.ParseConfig(cfg.DatabaseURL)
 	if err != nil {
@@ -44,6 +59,9 @@ func main() {
 	poolConfig.MinConns = cfg.DBMinConns
 	poolConfig.MaxConnIdleTime = cfg.DBMaxConnIdleTime
 	poolConfig.HealthCheckPeriod = cfg.DBHealthCheckPeriod
+	if cfg.TracingEnabled {
+		poolConfig.ConnConfig.Tracer = otelpgx.NewTracer()
+	}
 
 	dbPool, err := pgxpool.NewWithConfig(context.Background(), poolConfig)
 	if err != nil {
@@ -61,8 +79,14 @@ func main() {
 	// Create server (sets up routes and handlers)
 	srv := server.New(cfg, dbPool, logger)
 
-	// Create River client (insert-only, no workers — workers run in the worker process)
-	riverClient, err := river.NewClient[pgx.Tx](riverpgxv5.New(dbPool), &river.Config{})
+	// Create River client (insert-only, no workers — workers run in the worker
+	// process). The insert middleware stamps the current request's trace context
+	// onto each enqueued job so the run continues the same trace.
+	riverCfg := &river.Config{}
+	if cfg.TracingEnabled {
+		riverCfg.Middleware = []rivertype.Middleware{tracing.JobInsertMiddleware()}
+	}
+	riverClient, err := river.NewClient[pgx.Tx](riverpgxv5.New(dbPool), riverCfg)
 	if err != nil {
 		logger.Warn("failed to create river client, job enqueue disabled", "error", err)
 	} else {
