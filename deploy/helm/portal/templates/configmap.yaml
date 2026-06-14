@@ -16,6 +16,8 @@ data:
   S3_BUCKET: {{ .Values.objectStore.bucket | quote }}
   S3_USE_SSL: {{ .Values.objectStore.useSSL | quote }}
   S3_REGION: {{ .Values.objectStore.region | quote }}
+  S3_ACCESS_KEY: {{ .Values.objectStore.accessKey | quote }}
+  S3_SECRET_KEY: {{ .Values.objectStore.secretKey | quote }}
   EXECUTOR_TYPE: {{ .Values.config.executorType | quote }}
   WORKER_CONCURRENCY: {{ .Values.config.workerConcurrency | quote }}
   JWT_EXPIRATION: {{ .Values.config.jwtExpiration | quote }}
