@@ -64,26 +64,8 @@ export function TeamsPage() {
     onError: () => toast.error("Failed to delete team"),
   });
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <Spinner className="w-6 h-6" />
-      </div>
-    );
-  }
-
-  if (isError) {
-    return (
-      <div className="p-6">
-        <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-10 text-center">
-          <p className="text-sm text-destructive">Failed to load teams. Please try again.</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="p-6">
+    <div className="p-6 flex flex-col flex-1">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-lg font-semibold tracking-tight">Teams</h1>
@@ -141,17 +123,29 @@ export function TeamsPage() {
       )}
 
       {/* Teams list */}
-      {!teams?.length ? (
-        <div className="rounded-lg border border-dashed border-border p-10 text-center">
-          <Users className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-          <h3 className="font-medium mb-1">No teams yet</h3>
-          <p className="text-sm text-muted-foreground mb-4">
-            Create a team to organize workspace access.
-          </p>
-          <Button size="sm" onClick={() => setShowCreate(true)}>
-            <Plus className="w-3.5 h-3.5" />
-            Create team
-          </Button>
+      {isLoading ? (
+        <div className="flex-1 flex items-center justify-center">
+          <Spinner className="w-6 h-6" />
+        </div>
+      ) : isError ? (
+        <div className="flex-1 flex flex-col items-center justify-center">
+          <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-10 text-center">
+            <p className="text-sm text-destructive">Failed to load teams. Please try again.</p>
+          </div>
+        </div>
+      ) : !teams?.length ? (
+        <div className="flex-1 flex flex-col items-center justify-center">
+          <div className="rounded-lg border border-dashed border-border p-10 text-center">
+            <Users className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+            <h3 className="font-medium mb-1">No teams yet</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Create a team to organize workspace access.
+            </p>
+            <Button size="sm" onClick={() => setShowCreate(true)}>
+              <Plus className="w-3.5 h-3.5" />
+              Create team
+            </Button>
+          </div>
         </div>
       ) : (
         <div className="rounded-lg border border-border divide-y divide-border">

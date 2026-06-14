@@ -67,24 +67,6 @@ export function OpsPage() {
   const clusterName = (id: string) =>
     clusters?.find((c: Cluster) => c.id === id)?.name ?? id;
 
-  if (isLoading) {
-    return (
-      <div className="flex justify-center py-20">
-        <Spinner className="w-6 h-6 text-primary" />
-      </div>
-    );
-  }
-
-  if (isError) {
-    return (
-      <div className="p-6">
-        <div className="bg-destructive/8 text-destructive border border-destructive/15 rounded-lg p-4 text-sm">
-          Failed to load the operations feed.
-        </div>
-      </div>
-    );
-  }
-
   const items = feed ?? [];
 
   return (
@@ -96,7 +78,17 @@ export function OpsPage() {
         </p>
       </div>
 
-      {items.length === 0 ? (
+      {isLoading ? (
+        <div className="flex-1 flex flex-col items-center justify-center">
+          <Spinner className="w-6 h-6 text-primary" />
+        </div>
+      ) : isError ? (
+        <div className="flex-1 flex flex-col items-center justify-center">
+          <div className="bg-destructive/8 text-destructive border border-destructive/15 rounded-lg p-4 text-sm">
+            Failed to load the operations feed.
+          </div>
+        </div>
+      ) : items.length === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center text-center animate-fade-up">
           <div className="w-12 h-12 rounded-lg bg-primary/8 flex items-center justify-center mb-4">
             <Activity className="w-5 h-5 text-primary/60" />

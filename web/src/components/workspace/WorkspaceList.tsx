@@ -84,7 +84,7 @@ export function WorkspaceList() {
   ];
 
   return (
-    <div className="p-6">
+    <div className="p-6 flex flex-col flex-1">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-lg font-semibold tracking-tight">Workspaces</h1>
@@ -126,10 +126,13 @@ export function WorkspaceList() {
       {isLoading ? (
         <SkeletonCards />
       ) : isError ? (
-        <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-10 text-center">
-          <p className="text-sm text-destructive">Failed to load workspaces. Please try again.</p>
+        <div className="flex-1 flex flex-col items-center justify-center">
+          <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-10 text-center">
+            <p className="text-sm text-destructive">Failed to load workspaces. Please try again.</p>
+          </div>
         </div>
       ) : !data?.data?.length ? (
+        <div className="flex-1 flex flex-col items-center justify-center">
         <div className="rounded-lg border border-dashed border-border p-12 text-center">
           <FolderGit2 className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
           <h3 className="text-lg font-medium mb-2">
@@ -146,6 +149,7 @@ export function WorkspaceList() {
               Create workspace
             </Button>
           )}
+        </div>
         </div>
       ) : (
         <>

@@ -141,8 +141,10 @@ export function ClusterList() {
       {isLoading ? (
         <SkeletonRows />
       ) : isError ? (
-        <div className="bg-destructive/8 text-destructive border border-destructive/15 rounded-lg p-4 text-sm">
-          Failed to load clusters.
+        <div className="flex-1 flex flex-col items-center justify-center">
+          <div className="bg-destructive/8 text-destructive border border-destructive/15 rounded-lg p-4 text-sm">
+            Failed to load clusters.
+          </div>
         </div>
       ) : clusters.length === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center text-center animate-fade-up">

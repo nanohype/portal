@@ -40,28 +40,10 @@ export function TemplateList() {
     onError: () => toast.error("Failed to delete template"),
   });
 
-  if (isLoading) {
-    return (
-      <div className="flex justify-center py-20">
-        <Spinner className="w-6 h-6 text-primary" />
-      </div>
-    );
-  }
-
-  if (isError) {
-    return (
-      <div className="p-6">
-        <div className="bg-destructive/8 text-destructive border border-destructive/15 rounded-lg p-4 text-sm">
-          Failed to load templates.
-        </div>
-      </div>
-    );
-  }
-
   const templates = data ?? [];
 
   return (
-    <div className="p-6">
+    <div className="p-6 flex flex-col flex-1">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-lg font-semibold tracking-tight">Templates</h1>
@@ -77,8 +59,18 @@ export function TemplateList() {
         )}
       </div>
 
-      {templates.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 text-center animate-fade-up">
+      {isLoading ? (
+        <div className="flex-1 flex items-center justify-center">
+          <Spinner className="w-6 h-6 text-primary" />
+        </div>
+      ) : isError ? (
+        <div className="flex-1 flex flex-col items-center justify-center">
+          <div className="bg-destructive/8 text-destructive border border-destructive/15 rounded-lg p-4 text-sm">
+            Failed to load templates.
+          </div>
+        </div>
+      ) : templates.length === 0 ? (
+        <div className="flex-1 flex flex-col items-center justify-center text-center animate-fade-up">
           <div className="w-12 h-12 rounded-lg bg-primary/8 flex items-center justify-center mb-4">
             <LayoutTemplate className="w-5 h-5 text-primary/60" />
           </div>

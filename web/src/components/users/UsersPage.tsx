@@ -54,26 +54,8 @@ export function UsersPage() {
     onError: () => toast.error("Failed to update role"),
   });
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <Spinner className="w-6 h-6" />
-      </div>
-    );
-  }
-
-  if (isError) {
-    return (
-      <div className="p-6">
-        <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-10 text-center">
-          <p className="text-sm text-destructive">Failed to load users. Please try again.</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="p-6">
+    <div className="p-6 flex flex-col flex-1">
       <div className="mb-6">
         <h1 className="text-lg font-semibold tracking-tight">Users</h1>
         <p className="text-[12px] text-muted-foreground mt-1">
@@ -81,13 +63,25 @@ export function UsersPage() {
         </p>
       </div>
 
-      {!users?.length ? (
-        <div className="rounded-lg border border-dashed border-border p-10 text-center">
-          <UserCog className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-          <h3 className="font-medium mb-1">No users found</h3>
-          <p className="text-sm text-muted-foreground">
-            Users will appear here after they sign in.
-          </p>
+      {isLoading ? (
+        <div className="flex-1 flex items-center justify-center">
+          <Spinner className="w-6 h-6" />
+        </div>
+      ) : isError ? (
+        <div className="flex-1 flex flex-col items-center justify-center">
+          <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-10 text-center">
+            <p className="text-sm text-destructive">Failed to load users. Please try again.</p>
+          </div>
+        </div>
+      ) : !users?.length ? (
+        <div className="flex-1 flex flex-col items-center justify-center">
+          <div className="rounded-lg border border-dashed border-border p-10 text-center">
+            <UserCog className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+            <h3 className="font-medium mb-1">No users found</h3>
+            <p className="text-sm text-muted-foreground">
+              Users will appear here after they sign in.
+            </p>
+          </div>
         </div>
       ) : (
         <div className="rounded-lg border border-border divide-y divide-border">

@@ -50,7 +50,7 @@ export function PipelineList() {
   });
 
   return (
-    <div className="p-6">
+    <div className="p-6 flex flex-col flex-1">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-lg font-semibold tracking-tight">Pipelines</h1>
@@ -67,11 +67,13 @@ export function PipelineList() {
       {isLoading ? (
         <SkeletonRows />
       ) : isError ? (
-        <div className="bg-destructive/8 text-destructive border border-destructive/15 rounded-lg p-4 text-sm">
-          Failed to load pipelines.
+        <div className="flex-1 flex flex-col items-center justify-center">
+          <div className="bg-destructive/8 text-destructive border border-destructive/15 rounded-lg p-4 text-sm">
+            Failed to load pipelines.
+          </div>
         </div>
       ) : pipelines && pipelines.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 text-center animate-fade-up">
+        <div className="flex-1 flex flex-col items-center justify-center text-center animate-fade-up">
           <div className="w-12 h-12 rounded-lg bg-primary/8 flex items-center justify-center mb-4">
             <GitBranch className="w-5 h-5 text-primary/60" />
           </div>

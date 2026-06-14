@@ -241,7 +241,7 @@ export function CatalogPage() {
     : ["workspace", "tenant", "pipeline"];
 
   return (
-    <div className="p-6">
+    <div className="p-6 flex flex-col flex-1">
       <div className="mb-6">
         <h1 className="text-lg font-semibold tracking-tight">Catalog</h1>
         <p className="text-[12px] text-muted-foreground mt-1">
@@ -305,11 +305,11 @@ export function CatalogPage() {
       </div>
 
       {anyLoading && filtered.length === 0 ? (
-        <div className="flex justify-center py-20">
+        <div className="flex-1 flex items-center justify-center">
           <Spinner className="w-6 h-6 text-primary" />
         </div>
       ) : filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 text-center">
+        <div className="flex-1 flex flex-col items-center justify-center text-center">
           <div className="w-12 h-12 rounded-lg bg-primary/8 flex items-center justify-center mb-4">
             <LayoutGrid className="w-5 h-5 text-primary/60" />
           </div>
