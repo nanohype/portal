@@ -106,6 +106,13 @@ export function ClusterList() {
   const accountName = (id: string) =>
     accounts?.find((a: Account) => a.id === id)?.name ?? id;
 
+  // The "Recent orders" section below always renders when orders exist (e.g. a
+  // vend in flight before its cluster registers). When it does, the sparse
+  // states top-align (py-16) so they don't greedily center and shove the orders
+  // below the fold; with nothing below, they center in the full height.
+  const hasOrders = !!operations && operations.length > 0;
+  const sparseLayout = hasOrders ? "py-16" : "flex-1";
+
   return (
     <div className="p-6 flex flex-col flex-1">
       <div className="flex items-center justify-between mb-6">
@@ -141,13 +148,13 @@ export function ClusterList() {
       {isLoading ? (
         <SkeletonRows />
       ) : isError ? (
-        <div className="flex-1 flex flex-col items-center justify-center">
+        <div className={`${sparseLayout} flex flex-col items-center justify-center`}>
           <div className="bg-destructive/8 text-destructive border border-destructive/15 rounded-lg p-4 text-sm">
             Failed to load clusters.
           </div>
         </div>
       ) : clusters.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center text-center animate-fade-up">
+        <div className={`${sparseLayout} flex flex-col items-center justify-center text-center animate-fade-up`}>
           <div className="w-12 h-12 rounded-lg bg-primary/8 flex items-center justify-center mb-4">
             <Server className="w-5 h-5 text-primary/60" />
           </div>
