@@ -4,6 +4,8 @@ import { api } from "@/api/client";
 import type { PipelineRunStage } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { pipelineRunStatus, pipelineStageStatus } from "@/lib/status";
 import { Spinner } from "@/components/ui/spinner";
 import { Link } from "@/components/ui/link";
 import { formatDuration } from "@/lib/utils";
@@ -41,42 +43,6 @@ function stageStatusIcon(status: string) {
       return <SkipForward className={`${base} text-muted-foreground/60`} />;
     default:
       return <Clock className={`${base} text-muted-foreground/40`} />;
-  }
-}
-
-function stageStatusBadge(status: string) {
-  switch (status) {
-    case "completed":
-      return <Badge variant="success">Completed</Badge>;
-    case "errored":
-      return <Badge variant="destructive">Errored</Badge>;
-    case "running":
-      return <Badge variant="default">Running</Badge>;
-    case "importing_outputs":
-      return <Badge variant="default">Importing</Badge>;
-    case "awaiting_approval":
-      return <Badge variant="warning">Awaiting Approval</Badge>;
-    case "cancelled":
-      return <Badge variant="secondary">Cancelled</Badge>;
-    case "skipped":
-      return <Badge variant="secondary">Skipped</Badge>;
-    default:
-      return <Badge variant="secondary">Pending</Badge>;
-  }
-}
-
-function pipelineRunStatusBadge(status: string) {
-  switch (status) {
-    case "running":
-      return <Badge variant="default">Running</Badge>;
-    case "completed":
-      return <Badge variant="success">Completed</Badge>;
-    case "errored":
-      return <Badge variant="destructive">Errored</Badge>;
-    case "cancelled":
-      return <Badge variant="warning">Cancelled</Badge>;
-    default:
-      return <Badge variant="secondary">{status}</Badge>;
   }
 }
 
@@ -229,7 +195,7 @@ export function PipelineRunView({
             <h1 className="text-lg font-semibold tracking-tight">
               Pipeline Run
             </h1>
-            {pipelineRunStatusBadge(pr.status)}
+            <StatusBadge visual={pipelineRunStatus(pr.status)} />
           </div>
           <div className="flex items-center gap-3">
             <span className="text-xs text-muted-foreground font-mono">
@@ -329,7 +295,7 @@ export function PipelineRunView({
                         <span className="text-sm font-medium">
                           {stage.workspace_name}
                         </span>
-                        {stageStatusBadge(stage.status)}
+                        <StatusBadge visual={pipelineStageStatus(stage.status)} />
                       </div>
                       {stage.started_at && (
                         <div className="text-[11px] text-muted-foreground/60 mt-1 font-mono">

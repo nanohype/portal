@@ -11,24 +11,11 @@ import { Spinner } from "@/components/ui/spinner";
 import { Link } from "@/components/ui/link";
 import { Pagination } from "@/components/ui/pagination";
 import { navigate } from "@/hooks/useNavigate";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { formatDuration } from "@/lib/utils";
-import { isPipelineRunInFlight } from "@/lib/status";
+import { isPipelineRunInFlight, pipelineRunStatus } from "@/lib/status";
 import { GitBranch, Play, ArrowLeft, ChevronRight, Plus, Pencil, Trash2, Lock } from "lucide-react";
 
-function pipelineRunStatusBadge(status: string) {
-  switch (status) {
-    case "running":
-      return <Badge variant="default">Running</Badge>;
-    case "completed":
-      return <Badge variant="success">Completed</Badge>;
-    case "errored":
-      return <Badge variant="destructive">Errored</Badge>;
-    case "cancelled":
-      return <Badge variant="warning">Cancelled</Badge>;
-    default:
-      return <Badge variant="secondary">{status}</Badge>;
-  }
-}
 
 export function PipelineDetail({ pipelineId }: { pipelineId: string }) {
   const [tab, setTab] = useState<"stages" | "variables" | "runs">("stages");
@@ -237,7 +224,7 @@ export function PipelineDetail({ pipelineId }: { pipelineId: string }) {
                   style={{ animationDelay: `${i * 25}ms` }}
                 >
                   <div className="flex items-center gap-3">
-                    {pipelineRunStatusBadge(run.status)}
+                    <StatusBadge visual={pipelineRunStatus(run.status)} />
                     <span className="text-xs text-muted-foreground">
                       Stage {run.current_stage + 1}/{run.total_stages}
                     </span>

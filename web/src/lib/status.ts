@@ -2,6 +2,7 @@ import type { BadgeProps } from "@/components/ui/badge";
 import type {
   ClusterConnectionStatus,
   PipelineRunStatus,
+  PipelineStageStatus,
   RunStatus,
 } from "@/api/types";
 import {
@@ -10,6 +11,7 @@ import {
   CircleDot,
   Clock,
   ShieldQuestion,
+  SkipForward,
   XCircle,
   type LucideIcon,
 } from "lucide-react";
@@ -63,6 +65,34 @@ const PIPELINE_RUN_IN_FLIGHT: ReadonlySet<PipelineRunStatus> = new Set([
 ]);
 export function isPipelineRunInFlight(status: PipelineRunStatus): boolean {
   return PIPELINE_RUN_IN_FLIGHT.has(status);
+}
+
+// Pipeline run lifecycle (the whole run).
+const PIPELINE_RUN: Record<PipelineRunStatus, StatusVisual> = {
+  idle: { label: "Idle", variant: "secondary", icon: Clock },
+  running: { label: "Running", variant: "default", icon: CircleDot, spinning: true },
+  completed: { label: "Completed", variant: "success", icon: CheckCircle2 },
+  errored: { label: "Errored", variant: "destructive", icon: XCircle },
+  cancelled: { label: "Cancelled", variant: "secondary", icon: Ban },
+};
+export function pipelineRunStatus(status: PipelineRunStatus): StatusVisual {
+  return PIPELINE_RUN[status] ?? PIPELINE_RUN.idle;
+}
+
+// A single pipeline stage. importing_outputs rides as a spinner like running —
+// it's the brief hand-off between stages.
+const PIPELINE_STAGE: Record<PipelineStageStatus, StatusVisual> = {
+  pending: { label: "Pending", variant: "secondary", icon: Clock },
+  importing_outputs: { label: "Importing", variant: "default", icon: CircleDot, spinning: true },
+  running: { label: "Running", variant: "default", icon: CircleDot, spinning: true },
+  awaiting_approval: { label: "Awaiting Approval", variant: "warning", icon: ShieldQuestion },
+  completed: { label: "Completed", variant: "success", icon: CheckCircle2 },
+  errored: { label: "Errored", variant: "destructive", icon: XCircle },
+  skipped: { label: "Skipped", variant: "secondary", icon: SkipForward },
+  cancelled: { label: "Cancelled", variant: "secondary", icon: Ban },
+};
+export function pipelineStageStatus(status: PipelineStageStatus): StatusVisual {
+  return PIPELINE_STAGE[status] ?? PIPELINE_STAGE.pending;
 }
 
 // Portal's async connection test to a registered cluster.
