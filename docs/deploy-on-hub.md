@@ -136,7 +136,7 @@ kubectl create secret generic clusters-repo -n argocd \
   --from-literal=url=git@github.com:nanohype/clusters.git \
   --from-file=sshPrivateKey="$HOME/.ssh/portal-clusters-ro"
 kubectl label secret clusters-repo -n argocd argocd.argoproj.io/secret-type=repository
-kubectl apply -f eks-gitops/applicationsets/clusters-appset.yaml
+kubectl apply -f ../eks-gitops/applicationsets/clusters-appset.yaml   # eks-gitops is a sibling repo
 ```
 
 > Without the read cred + appset, portal pushes the CR to GitHub and **nothing
