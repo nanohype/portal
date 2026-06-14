@@ -6,6 +6,7 @@ import type { Team, Template, TemplateTeamAccess } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { ChipToggle } from "@/components/ui/chip-toggle";
 import { formatRelativeTime } from "@/lib/utils";
 import { Trash2 } from "lucide-react";
 import {
@@ -164,7 +165,7 @@ export function TemplateEditorDialog({
       });
 
   return (
-    <Dialog open={open} onClose={onClose}>
+    <Dialog open={open} onClose={onClose} size="xl">
       <DialogContent className="max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{existing ? "Edit Template" : "New Template"}</DialogTitle>
@@ -174,21 +175,13 @@ export function TemplateEditorDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2">
           <Field label="Name">
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="marketing-team"
               className="font-mono"
-            />
-          </Field>
-
-          <Field label="Description">
-            <Input
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="What's this template for?"
             />
           </Field>
 
@@ -205,7 +198,15 @@ export function TemplateEditorDialog({
             </Select>
           </Field>
 
-          <Field label="Max budget (USD/month) — 0 = no cap">
+          <Field label="Description" className="sm:col-span-2">
+            <Input
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="What's this template for?"
+            />
+          </Field>
+
+          <Field label="Max budget / mo (USD)" hint="0 = no cap">
             <Input
               type="number"
               min={0}
@@ -218,55 +219,50 @@ export function TemplateEditorDialog({
           </Field>
 
           <Field label="Allowed model families">
-            <div className="flex flex-wrap gap-3 text-xs">
+            <div className="flex flex-wrap gap-2 pt-0.5">
               {MODEL_FAMILIES.map((f) => (
-                <label
+                <ChipToggle
                   key={f}
-                  className="inline-flex items-center gap-1.5 cursor-pointer"
+                  mono
+                  active={allowedFamilies.has(f)}
+                  onClick={() => toggleSet(setAllowedFamilies)(f)}
                 >
-                  <input
-                    type="checkbox"
-                    checked={allowedFamilies.has(f)}
-                    onChange={() => toggleSet(setAllowedFamilies)(f)}
-                  />
-                  <span className="font-mono">{f}</span>
-                </label>
+                  {f}
+                </ChipToggle>
               ))}
             </div>
           </Field>
 
           <Field label="Required compliance">
-            <div className="flex flex-wrap gap-3 text-xs">
+            <div className="flex flex-wrap gap-2 pt-0.5">
               {COMPLIANCE_FLAGS.map((f) => (
-                <label
+                <ChipToggle
                   key={f}
-                  className="inline-flex items-center gap-1.5 cursor-pointer"
+                  mono
+                  active={requiredCompliance.has(f)}
+                  onClick={() => toggleSet(setRequiredCompliance)(f)}
                 >
-                  <input
-                    type="checkbox"
-                    checked={requiredCompliance.has(f)}
-                    onChange={() => toggleSet(setRequiredCompliance)(f)}
-                  />
-                  <span className="font-mono">{f}</span>
-                </label>
+                  {f}
+                </ChipToggle>
               ))}
             </div>
           </Field>
 
-          <Field label="Allowed override paths">
-            <div className="flex flex-wrap gap-3 text-xs">
+          <Field
+            label="Allowed override paths"
+            hint="Paths an operator may change at create time."
+            className="sm:col-span-2"
+          >
+            <div className="flex flex-wrap gap-2 pt-0.5">
               {OVERRIDE_PATH_SUGGESTIONS.map((p) => (
-                <label
+                <ChipToggle
                   key={p}
-                  className="inline-flex items-center gap-1.5 cursor-pointer"
+                  mono
+                  active={allowedOverrides.has(p)}
+                  onClick={() => toggleSet(setAllowedOverrides)(p)}
                 >
-                  <input
-                    type="checkbox"
-                    checked={allowedOverrides.has(p)}
-                    onChange={() => toggleSet(setAllowedOverrides)(p)}
-                  />
-                  <span className="font-mono">{p}</span>
-                </label>
+                  {p}
+                </ChipToggle>
               ))}
             </div>
           </Field>
@@ -275,19 +271,24 @@ export function TemplateEditorDialog({
             label="Default values (JSON)"
             error={defaultsErr ?? null}
             hint="The baseline helm values for every tenant from this template."
+            className="sm:col-span-2"
           >
             <textarea
               value={defaultValuesYaml}
               onChange={(e) => setDefaultValuesYaml(e.target.value)}
-              rows={8}
+              rows={7}
               className="w-full border border-border/60 rounded-md bg-background/40 px-3 py-2 text-xs font-mono focus:outline-none focus:border-primary/40"
               placeholder='{ "platform": { "tenant": "acme" }, "budget": { "monthlyUsd": 2500 } }'
             />
           </Field>
 
-          {existing && <TemplateAccessSection templateID={existing.id} />}
+          {existing && (
+            <div className="sm:col-span-2">
+              <TemplateAccessSection templateID={existing.id} />
+            </div>
+          )}
 
-          <div className="flex justify-end gap-2 pt-3 border-t border-border/40">
+          <div className="sm:col-span-2 flex justify-end gap-2 pt-3 border-t border-border/40">
             <Button variant="ghost" size="sm" onClick={onClose}>
               Cancel
             </Button>
@@ -441,15 +442,17 @@ function Field({
   label,
   hint,
   error,
+  className,
   children,
 }: {
   label: string;
   hint?: string;
   error?: string | null;
+  className?: string;
   children: React.ReactNode;
 }) {
   return (
-    <div>
+    <div className={className}>
       <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
         {label}
       </label>

@@ -101,8 +101,8 @@ export function CreateWorkspaceDialog({
   };
 
   return (
-    <Dialog open={open} onClose={handleClose}>
-      <DialogContent>
+    <Dialog open={open} onClose={handleClose} size="lg">
+      <DialogContent className="max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Create workspace</DialogTitle>
           <DialogDescription>
@@ -144,28 +144,30 @@ export function CreateWorkspaceDialog({
             </button>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium mb-1.5">Name</label>
-            <Input
-              {...register("name")}
-              placeholder="my-infrastructure"
-              autoFocus
-            />
-            {errors.name && (
-              <p className="text-xs text-destructive mt-1">
-                {errors.name.message}
-              </p>
-            )}
-          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium mb-1.5">Name</label>
+              <Input
+                {...register("name")}
+                placeholder="my-infrastructure"
+                autoFocus
+              />
+              {errors.name && (
+                <p className="text-xs text-destructive mt-1">
+                  {errors.name.message}
+                </p>
+              )}
+            </div>
 
-          <div>
-            <label className="block text-sm font-medium mb-1.5">
-              Description
-            </label>
-            <Input
-              {...register("description")}
-              placeholder="Production AWS infrastructure"
-            />
+            <div>
+              <label className="block text-sm font-medium mb-1.5">
+                Description
+              </label>
+              <Input
+                {...register("description")}
+                placeholder="Production AWS infrastructure"
+              />
+            </div>
           </div>
 
           {source === "vcs" && (

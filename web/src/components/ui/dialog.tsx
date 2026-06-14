@@ -12,10 +12,20 @@ import {
 } from "react";
 import { cn } from "@/lib/utils";
 
+type DialogSize = "md" | "lg" | "xl";
+
+const SIZE_CLASS: Record<DialogSize, string> = {
+  md: "max-w-lg", // default — single-column forms
+  lg: "max-w-2xl",
+  xl: "max-w-3xl", // wide enough for a two-column layout
+};
+
 interface DialogProps {
   open: boolean;
   onClose: () => void;
   children: ReactNode;
+  /** Max content width. Default "md". Use "lg"/"xl" for dense multi-column forms. */
+  size?: DialogSize;
 }
 
 // Each Dialog generates a unique title id and hands it to its DialogTitle, so
@@ -26,7 +36,7 @@ const DialogTitleIdContext = createContext<string | undefined>(undefined);
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-export function Dialog({ open, onClose, children }: DialogProps) {
+export function Dialog({ open, onClose, children, size = "md" }: DialogProps) {
   const contentRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const [mounted, setMounted] = useState(open);
@@ -131,7 +141,8 @@ export function Dialog({ open, onClose, children }: DialogProps) {
         ref={contentRef}
         onAnimationEnd={onContentAnimEnd}
         className={cn(
-          "relative z-50 w-full max-w-lg mx-4",
+          "relative z-50 w-full mx-4",
+          SIZE_CLASS[size],
           closing ? "animate-pop-out" : "animate-fade-in",
         )}
       >

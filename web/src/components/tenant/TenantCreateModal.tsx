@@ -239,7 +239,7 @@ export function TenantCreateModal({
     (scratchMode || templates?.length === 0 || selected !== undefined);
 
   return (
-    <Dialog open={open} onClose={onClose}>
+    <Dialog open={open} onClose={onClose} size="xl">
       <DialogContent className="max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>New Tenant</DialogTitle>
@@ -250,9 +250,9 @@ export function TenantCreateModal({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2">
           {templates && templates.length > 0 && (
-            <Field label="Template">
+            <Field label="Template" className="sm:col-span-2">
               <div className="flex items-center gap-2">
                 <Select
                   value={templateID}
@@ -295,13 +295,13 @@ export function TenantCreateModal({
           )}
 
           {templates && templates.length === 0 && !isAdmin && (
-            <div className="bg-warning/10 text-warning text-[11px] rounded-md px-3 py-2">
+            <div className="sm:col-span-2 bg-warning/10 text-warning text-[11px] rounded-md px-3 py-2">
               No templates have been defined yet. Ask an admin to set one up.
             </div>
           )}
 
           {noTeams && (
-            <div className="bg-warning/10 text-warning text-[11px] rounded-md px-3 py-2">
+            <div className="sm:col-span-2 bg-warning/10 text-warning text-[11px] rounded-md px-3 py-2">
               You must belong to a team before creating tenants. Ask an admin
               to add you to one.
             </div>
@@ -462,7 +462,7 @@ export function TenantCreateModal({
             </div>
           </Field>
 
-          <div className="flex justify-end gap-2 pt-3 border-t border-border/40">
+          <div className="sm:col-span-2 flex justify-end gap-2 pt-3 border-t border-border/40">
             <Button variant="ghost" size="sm" onClick={onClose}>
               Cancel
             </Button>
@@ -485,16 +485,18 @@ function Field({
   hint,
   error,
   locked,
+  className,
   children,
 }: {
   label: string;
   hint?: string;
   error?: string | null;
   locked?: boolean;
+  className?: string;
   children: React.ReactNode;
 }) {
   return (
-    <div>
+    <div className={className}>
       <label className="text-xs font-medium text-muted-foreground mb-1.5 block flex items-center gap-1.5">
         {label}
         {locked && (
