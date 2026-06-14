@@ -15,6 +15,7 @@ import (
 	"github.com/nanohype/portal/internal/domain"
 	"github.com/nanohype/portal/internal/handler"
 	"github.com/nanohype/portal/internal/logstream"
+	"github.com/nanohype/portal/internal/metrics"
 	"github.com/nanohype/portal/internal/repository"
 	"github.com/nanohype/portal/internal/secrets"
 	"github.com/nanohype/portal/internal/service"
@@ -84,6 +85,7 @@ func (s *Server) setupRouter() {
 	// Middleware
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
+	r.Use(metrics.Middleware) // HTTP RED, keyed on the matched route pattern
 	r.Use(NewStructuredLogger(s.logger))
 	r.Use(middleware.Recoverer)
 	r.Use(NewRateLimiter(100, 200).Middleware) // 100 req/s per IP, burst 200
@@ -102,6 +104,12 @@ func (s *Server) setupRouter() {
 		AllowCredentials: true,
 		MaxAge:           300,
 	}))
+
+	// Prometheus metrics. /metrics is unauthenticated on purpose — the in-cluster
+	// Grafana Agent scrapes the pod directly; the ingress should not route it.
+	reg := metrics.Register()
+	metrics.RegisterPool(reg, s.db)
+	r.Handle("/metrics", metrics.Handler(reg))
 
 	queries := repository.New(s.db)
 
