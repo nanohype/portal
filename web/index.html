@@ -18,6 +18,7 @@
               ? "light"
               : "dark";
           }
+          document.documentElement.classList.remove("light", "dark");
           document.documentElement.classList.add(t);
         } catch (e) {
           document.documentElement.classList.add("dark");

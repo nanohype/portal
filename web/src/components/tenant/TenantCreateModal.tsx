@@ -497,7 +497,7 @@ function Field({
 }) {
   return (
     <div className={className}>
-      <label className="text-xs font-medium text-muted-foreground mb-1.5 block flex items-center gap-1.5">
+      <label className="text-xs font-medium text-muted-foreground mb-1.5 flex items-center gap-1.5">
         {label}
         {locked && (
           <span className="text-[10px] text-muted-foreground/60 font-normal">
