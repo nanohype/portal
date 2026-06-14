@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/api/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
+import { SkeletonRows } from "@/components/ui/skeleton";
 import { Link } from "@/components/ui/link";
 import { formatRelativeTime } from "@/lib/utils";
 import { Cloud, Plus } from "lucide-react";
@@ -25,24 +25,6 @@ export function AccountList() {
     },
   });
 
-  if (isLoading) {
-    return (
-      <div className="flex justify-center py-20">
-        <Spinner className="w-6 h-6 text-primary" />
-      </div>
-    );
-  }
-
-  if (isError) {
-    return (
-      <div className="p-6">
-        <div className="bg-destructive/8 text-destructive border border-destructive/15 rounded-lg p-4 text-sm">
-          Failed to load accounts.
-        </div>
-      </div>
-    );
-  }
-
   const accounts = data?.data ?? [];
 
   return (
@@ -62,7 +44,13 @@ export function AccountList() {
         )}
       </div>
 
-      {accounts.length === 0 ? (
+      {isLoading ? (
+        <SkeletonRows />
+      ) : isError ? (
+        <div className="bg-destructive/8 text-destructive border border-destructive/15 rounded-lg p-4 text-sm">
+          Failed to load accounts.
+        </div>
+      ) : accounts.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center animate-fade-up">
           <div className="w-12 h-12 rounded-lg bg-primary/8 flex items-center justify-center mb-4">
             <Cloud className="w-5 h-5 text-primary/60" />

@@ -6,7 +6,7 @@ import type { Workspace, CreateWorkspaceRequest } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Spinner } from "@/components/ui/spinner";
+import { SkeletonCards } from "@/components/ui/skeleton";
 import { RunStatusBadge } from "@/components/run/RunStatusBadge";
 import { Pagination } from "@/components/ui/pagination";
 import { CreateWorkspaceDialog } from "./CreateWorkspaceDialog";
@@ -124,9 +124,7 @@ export function WorkspaceList() {
       </div>
 
       {isLoading ? (
-        <div className="flex items-center justify-center py-20">
-          <Spinner className="w-6 h-6" />
-        </div>
+        <SkeletonCards />
       ) : isError ? (
         <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-10 text-center">
           <p className="text-sm text-destructive">Failed to load workspaces. Please try again.</p>

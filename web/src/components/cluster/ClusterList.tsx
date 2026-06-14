@@ -5,7 +5,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { clusterConnection, argo } from "@/lib/status";
-import { Spinner } from "@/components/ui/spinner";
+import { SkeletonRows } from "@/components/ui/skeleton";
 import { Link } from "@/components/ui/link";
 import { formatRelativeTime } from "@/lib/utils";
 import type { Account, Cluster, ClusterOperation } from "@/api/types";
@@ -102,24 +102,6 @@ export function ClusterList() {
     if (opsPage > maxOpsPage) setOpsPage(maxOpsPage);
   }, [maxOpsPage, opsPage]);
 
-  if (isLoading) {
-    return (
-      <div className="flex justify-center py-20">
-        <Spinner className="w-6 h-6 text-primary" />
-      </div>
-    );
-  }
-
-  if (isError) {
-    return (
-      <div className="p-6">
-        <div className="bg-destructive/8 text-destructive border border-destructive/15 rounded-lg p-4 text-sm">
-          Failed to load clusters.
-        </div>
-      </div>
-    );
-  }
-
   const clusters = data?.data ?? [];
   const accountName = (id: string) =>
     accounts?.find((a: Account) => a.id === id)?.name ?? id;
@@ -156,7 +138,13 @@ export function ClusterList() {
         )}
       </div>
 
-      {clusters.length === 0 ? (
+      {isLoading ? (
+        <SkeletonRows />
+      ) : isError ? (
+        <div className="bg-destructive/8 text-destructive border border-destructive/15 rounded-lg p-4 text-sm">
+          Failed to load clusters.
+        </div>
+      ) : clusters.length === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center text-center animate-fade-up">
           <div className="w-12 h-12 rounded-lg bg-primary/8 flex items-center justify-center mb-4">
             <Server className="w-5 h-5 text-primary/60" />

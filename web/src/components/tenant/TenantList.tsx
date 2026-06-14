@@ -4,7 +4,7 @@ import { api } from "@/api/client";
 import { useAuth } from "@/hooks/useAuth";
 import type { Cluster, Tenant } from "@/api/types";
 import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
+import { SkeletonRows } from "@/components/ui/skeleton";
 import { Link } from "@/components/ui/link";
 import { formatRelativeTime } from "@/lib/utils";
 import { Boxes, Plus } from "lucide-react";
@@ -50,24 +50,6 @@ export function TenantList() {
     },
   });
 
-  if (isLoading) {
-    return (
-      <div className="flex justify-center py-20">
-        <Spinner className="w-6 h-6 text-primary" />
-      </div>
-    );
-  }
-
-  if (isError) {
-    return (
-      <div className="p-6">
-        <div className="bg-destructive/8 text-destructive border border-destructive/15 rounded-lg p-4 text-sm">
-          Failed to load tenants.
-        </div>
-      </div>
-    );
-  }
-
   const tenants = data?.data ?? [];
   const clusterName = (id: string) =>
     clusters?.find((c: Cluster) => c.id === id)?.name ?? id;
@@ -100,7 +82,13 @@ export function TenantList() {
         )}
       </div>
 
-      {tenants.length === 0 ? (
+      {isLoading ? (
+        <SkeletonRows />
+      ) : isError ? (
+        <div className="bg-destructive/8 text-destructive border border-destructive/15 rounded-lg p-4 text-sm">
+          Failed to load tenants.
+        </div>
+      ) : tenants.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center animate-fade-up">
           <div className="w-12 h-12 rounded-lg bg-primary/8 flex items-center justify-center mb-4">
             <Boxes className="w-5 h-5 text-primary/60" />
