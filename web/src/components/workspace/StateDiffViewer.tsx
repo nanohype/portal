@@ -12,21 +12,21 @@ const actionStyles: Record<
   { border: string; bg: string; text: string; label: string }
 > = {
   added: {
-    border: "border-green-500/30",
-    bg: "bg-green-500/10",
-    text: "text-green-400",
+    border: "border-success/30",
+    bg: "bg-success/10",
+    text: "text-success",
     label: "+",
   },
   removed: {
-    border: "border-red-500/30",
-    bg: "bg-red-500/10",
-    text: "text-red-400",
+    border: "border-destructive/30",
+    bg: "bg-destructive/10",
+    text: "text-destructive",
     label: "-",
   },
   changed: {
-    border: "border-yellow-500/30",
-    bg: "bg-yellow-500/10",
-    text: "text-yellow-400",
+    border: "border-warning/30",
+    bg: "bg-warning/10",
+    text: "text-warning",
     label: "~",
   },
   unchanged: {
@@ -86,18 +86,18 @@ function DiffRow({ diff }: { diff: ResourceDiff }) {
               <div key={key} className="px-4 py-2 text-xs font-mono">
                 <span className="text-muted-foreground">{key}: </span>
                 {isAdded ? (
-                  <span className="text-green-400">{formatValue(after)}</span>
+                  <span className="text-success">{formatValue(after)}</span>
                 ) : isRemoved ? (
-                  <span className="text-red-400 line-through">
+                  <span className="text-destructive line-through">
                     {formatValue(before)}
                   </span>
                 ) : (
                   <>
-                    <span className="text-red-400 line-through">
+                    <span className="text-destructive line-through">
                       {formatValue(before)}
                     </span>
                     <span className="text-muted-foreground mx-1">{"->"}</span>
-                    <span className="text-green-400">{formatValue(after)}</span>
+                    <span className="text-success">{formatValue(after)}</span>
                   </>
                 )}
               </div>
@@ -112,7 +112,7 @@ function DiffRow({ diff }: { diff: ResourceDiff }) {
             .map(([key, value]) => (
               <div key={key} className="px-4 py-2 text-xs font-mono">
                 <span className="text-muted-foreground">{key}: </span>
-                <span className="text-green-400">{formatValue(value)}</span>
+                <span className="text-success">{formatValue(value)}</span>
               </div>
             ))}
         </div>
@@ -124,7 +124,7 @@ function DiffRow({ diff }: { diff: ResourceDiff }) {
             .map(([key, value]) => (
               <div key={key} className="px-4 py-2 text-xs font-mono">
                 <span className="text-muted-foreground">{key}: </span>
-                <span className="text-red-400 line-through">
+                <span className="text-destructive line-through">
                   {formatValue(value)}
                 </span>
               </div>
@@ -151,13 +151,13 @@ export function StateDiffViewer({ diff }: Props) {
       {/* Summary */}
       <div className="flex items-center gap-4 text-sm font-mono">
         {diff.added > 0 && (
-          <span className="text-green-400">+{diff.added} added</span>
+          <span className="text-success">+{diff.added} added</span>
         )}
         {diff.removed > 0 && (
-          <span className="text-red-400">-{diff.removed} removed</span>
+          <span className="text-destructive">-{diff.removed} removed</span>
         )}
         {diff.changed > 0 && (
-          <span className="text-yellow-400">~{diff.changed} changed</span>
+          <span className="text-warning">~{diff.changed} changed</span>
         )}
         {diff.unchanged > 0 && (
           <span className="text-muted-foreground">

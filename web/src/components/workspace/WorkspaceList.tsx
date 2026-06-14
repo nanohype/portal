@@ -171,17 +171,17 @@ export function WorkspaceList() {
                         <RunStatusBadge status={workspace.last_run_status as RunStatus} />
                       )}
                       {workspace.auto_apply && (
-                        <Badge variant="outline" className="text-xs py-0 px-1.5 text-blue-400 border-blue-400/30">
+                        <Badge variant="outline" className="text-xs py-0 px-1.5 text-success border-success/30">
                           <Zap className="w-3 h-3 mr-0.5" />auto
                         </Badge>
                       )}
                       {workspace.requires_approval && (
-                        <Badge variant="outline" className="text-xs py-0 px-1.5 text-amber-400 border-amber-400/30">
+                        <Badge variant="outline" className="text-xs py-0 px-1.5 text-warning border-warning/30">
                           <ShieldCheck className="w-3 h-3 mr-0.5" />approval
                         </Badge>
                       )}
                       {workspace.vcs_trigger_enabled && (
-                        <Badge variant="outline" className="text-xs py-0 px-1.5 text-violet-400 border-violet-400/30">
+                        <Badge variant="outline" className="text-xs py-0 px-1.5 text-primary border-primary/30">
                           <Webhook className="w-3 h-3 mr-0.5" />vcs
                         </Badge>
                       )}
