@@ -3,72 +3,17 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/api/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { clusterConnection, argo } from "@/lib/status";
 import { Spinner } from "@/components/ui/spinner";
 import { Link } from "@/components/ui/link";
 import { formatRelativeTime } from "@/lib/utils";
-import type { Account, Cluster, ClusterConnectionStatus, ClusterOperation } from "@/api/types";
+import type { Account, Cluster, ClusterOperation } from "@/api/types";
 import { Server, Plus, Cloud } from "lucide-react";
 import { ClusterCreateModal } from "./ClusterCreateModal";
 import { ClusterProvisionDrawer } from "./ClusterProvisionDrawer";
 import { VendTimeline } from "./VendTimeline";
 import { DeprovisionTimeline } from "./DeprovisionTimeline";
-
-export function statusBadge(status: ClusterConnectionStatus) {
-  switch (status) {
-    case "connected":
-      return <Badge variant="success">Connected</Badge>;
-    case "connecting":
-      return <Badge variant="default">Connecting</Badge>;
-    case "failed":
-      return <Badge variant="destructive">Failed</Badge>;
-    default:
-      return <Badge variant="secondary">Pending</Badge>;
-  }
-}
-
-type BadgeVariant = "success" | "warning" | "destructive" | "secondary";
-
-// argoBadge folds the per-cluster ArgoCD Application's sync + health into one
-// badge whose colour follows health (Progressing is the transitional/warning
-// state, matching the rest of the UI). Returns null when the watcher hasn't
-// observed a per-cluster Application — so it renders nothing for hand-registered
-// clusters or before the first health tick.
-export function argoBadge(sync: string, health: string) {
-  if (!sync && !health) return null;
-  const variant: BadgeVariant =
-    health === "Healthy"
-      ? "success"
-      : health === "Progressing"
-        ? "warning"
-        : health === "Degraded" || health === "Missing"
-          ? "destructive"
-          : sync === "OutOfSync"
-            ? "warning"
-            : "secondary";
-  const label = [sync, health].filter(Boolean).join(" · ");
-  return <Badge variant={variant}>{label}</Badge>;
-}
-
-// controlPlaneBadge renders the EKS control-plane lifecycle from
-// eks:DescribeCluster. Returns null when not observed (non-EKS, or describe not
-// permitted yet).
-export function controlPlaneBadge(status: string) {
-  if (!status) return null;
-  const titled = status.charAt(0) + status.slice(1).toLowerCase();
-  switch (status) {
-    case "ACTIVE":
-      return <Badge variant="success">{titled}</Badge>;
-    case "UPDATING":
-    case "CREATING":
-      return <Badge variant="warning">{titled}</Badge>;
-    case "DEGRADED":
-    case "FAILED":
-      return <Badge variant="destructive">{titled}</Badge>;
-    default:
-      return <Badge variant="secondary">{titled}</Badge>;
-  }
-}
 
 export function ClusterList() {
   const { user } = useAuth();
@@ -256,8 +201,13 @@ export function ClusterList() {
                       <span className="text-sm font-medium group-hover:text-primary transition-colors">
                         {c.name}
                       </span>
-                      {statusBadge(c.connection_status)}
-                      {argoBadge(c.argocd_sync_status, c.argocd_health_status)}
+                      <StatusBadge visual={clusterConnection(c.connection_status)} />
+                      <StatusBadge
+                        visual={argo(
+                          c.argocd_sync_status,
+                          c.argocd_health_status,
+                        )}
+                      />
                     </div>
                     <p className="text-[11px] text-muted-foreground/70 mt-0.5">
                       {accountName(c.account_id)} · {c.region}

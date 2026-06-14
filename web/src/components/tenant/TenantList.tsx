@@ -3,33 +3,14 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/api/client";
 import { useAuth } from "@/hooks/useAuth";
 import type { Cluster, Tenant } from "@/api/types";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Link } from "@/components/ui/link";
 import { formatRelativeTime } from "@/lib/utils";
 import { Boxes, Plus } from "lucide-react";
 import { TenantCreateModal } from "./TenantCreateModal";
-
-export function phaseBadge(phase: string) {
-  switch (phase.toLowerCase()) {
-    case "ready":
-    case "active":
-    case "healthy":
-      return <Badge variant="success">{phase}</Badge>;
-    case "pending":
-    case "provisioning":
-      return <Badge variant="default">{phase}</Badge>;
-    case "error":
-    case "failed":
-    case "degraded":
-      return <Badge variant="destructive">{phase}</Badge>;
-    case "":
-      return <Badge variant="secondary">Unknown</Badge>;
-    default:
-      return <Badge variant="secondary">{phase}</Badge>;
-  }
-}
+import { StatusBadge } from "@/components/ui/status-badge";
+import { tenantPhase } from "@/lib/status";
 
 export function TenantList() {
   const { user } = useAuth();
@@ -157,7 +138,7 @@ export function TenantList() {
                             <span className="text-sm font-medium group-hover:text-primary transition-colors">
                               {t.name}
                             </span>
-                            {phaseBadge(t.phase)}
+                            <StatusBadge visual={tenantPhase(t.phase)} />
                           </div>
                         </div>
                       </div>

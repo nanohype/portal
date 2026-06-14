@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/api/client";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { tenantOpStatus } from "@/lib/status";
 import { Spinner } from "@/components/ui/spinner";
 import { formatRelativeTime } from "@/lib/utils";
 import type {
@@ -13,19 +14,6 @@ import { Cloud, Layers, Activity } from "lucide-react";
 import { VendTimeline } from "@/components/cluster/VendTimeline";
 import { DeprovisionTimeline } from "@/components/cluster/DeprovisionTimeline";
 
-// Tenant ops terminate at commit (no watcher advances them), so they ride as a
-// status, not a phase timeline. Factual labels — "committed" means applied to
-// git, not yet proven reconciled.
-function tenantStatusBadge(status: string) {
-  switch (status) {
-    case "committed":
-      return <Badge variant="default">Committed</Badge>;
-    case "failed":
-      return <Badge variant="destructive">Failed</Badge>;
-    default:
-      return <Badge variant="secondary">Pending</Badge>;
-  }
-}
 
 // A cluster op is still moving if pending, or a committed provision/deprovision
 // that hasn't reached a terminal and isn't a portal-side failure (and is younger
@@ -149,7 +137,7 @@ export function OpsPage() {
                 icon={<Layers className="w-3.5 h-3.5 text-primary/60 shrink-0" />}
                 title={item.tenant.tenant_name}
                 subtitle={`on ${clusterName(item.tenant.cluster_id)} · ${item.tenant.operation}`}
-                middle={tenantStatusBadge(item.tenant.status)}
+                middle={<StatusBadge visual={tenantOpStatus(item.tenant.status)} />}
                 sha={item.tenant.git_commit_sha}
                 at={item.at}
                 error={item.tenant.status === "failed" ? item.tenant.error : ""}

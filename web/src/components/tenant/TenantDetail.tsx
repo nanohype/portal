@@ -10,7 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Link } from "@/components/ui/link";
 import { formatRelativeTime } from "@/lib/utils";
-import { phaseBadge } from "./TenantList";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { tenantPhase } from "@/lib/status";
 import {
   ArrowLeft,
   Boxes,
@@ -117,7 +118,7 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
               <h1 className="text-lg font-semibold tracking-tight">
                 {data.name}
               </h1>
-              {phaseBadge(data.phase)}
+              <StatusBadge visual={tenantPhase(data.phase)} />
             </div>
             <p className="text-[12px] text-muted-foreground mt-0.5">
               <Link
