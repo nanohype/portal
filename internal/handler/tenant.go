@@ -4,12 +4,12 @@ import (
 	"encoding/json"
 	stderrs "errors"
 	"net/http"
-	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/nanohype/portal/internal/apperr"
 	"github.com/nanohype/portal/internal/auth"
 	"github.com/nanohype/portal/internal/handler/respond"
 	"github.com/nanohype/portal/internal/repository"
@@ -34,12 +34,6 @@ func NewTenantHandler(svc *service.TenantService, templateSvc *service.TemplateS
 // isAdmin centralizes the "see everything" check. owner ≥ admin. Operators
 // and viewers fall through to the team-scoped path.
 func isAdmin(role string) bool { return role == "admin" || role == "owner" }
-
-// k8sNameRe is the RFC 1123 label rule: lowercase alphanumeric + hyphen,
-// must start + end alphanumeric, ≤ 63 chars. Tenant names land as resource
-// names in the cluster and as filenames in the tenants repo, so the rule
-// applies in both contexts.
-var k8sNameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 
 type CreateTenantRequest struct {
 	ClusterID    string                 `json:"cluster_id"`
@@ -139,100 +133,66 @@ func (h *TenantHandler) Create(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	req.ClusterID = strings.TrimSpace(req.ClusterID)
-	req.Name = strings.TrimSpace(req.Name)
 
-	if req.ClusterID == "" {
-		respond.Error(w, http.StatusBadRequest, "cluster_id is required")
+	in := service.CreateTenantInput{
+		OrgID:        userCtx.OrgID,
+		ClusterID:    req.ClusterID,
+		Name:         req.Name,
+		TemplateID:   req.TemplateID,
+		OwningTeamID: req.OwningTeamID,
+		CreatedBy:    userCtx.UserID,
+		Values:       req.Values,
+	}
+	in.Normalize()
+	if err := in.Validate(); err != nil {
+		respond.FromError(w, r, err)
 		return
 	}
-	if !k8sNameRe.MatchString(req.Name) {
-		respond.Error(w, http.StatusBadRequest, "name must be a valid Kubernetes name (lowercase alphanumeric + hyphen, 1-63 chars)")
-		return
-	}
-	if req.Values == nil {
-		req.Values = map[string]interface{}{}
-	}
 
-	// When a template is referenced, the request `values` represents
-	// operator overrides. The template service merges them with the
-	// template's defaults and enforces caps before we persist the
-	// operation row — failed validation produces a clean 400 with no
-	// orphan state. When no template, the operator (admin in expert
-	// mode) supplies the full values blob directly.
-	finalValues := req.Values
-	if req.TemplateID != "" {
-		t, err := h.templateSvc.Get(r.Context(), req.TemplateID, userCtx.OrgID)
+	// When a template is referenced, the request `values` are operator
+	// overrides: the template service merges them with the template's defaults
+	// and enforces its caps + model-family + required-compliance rules. A
+	// failure is a clean 400 with no orphan state. Without a template, the
+	// operator (admin, expert mode) supplies the full values blob directly.
+	if in.TemplateID != "" {
+		t, err := h.templateSvc.Get(r.Context(), in.TemplateID, userCtx.OrgID)
 		if err != nil {
-			respond.Error(w, http.StatusBadRequest, "template_id does not reference a known template")
+			respond.FromError(w, r, apperr.Validation("template_id does not reference a known template"))
 			return
 		}
-		merged, err := h.templateSvc.ApplyToValues(t, req.Values)
+		merged, err := h.templateSvc.ApplyToValues(t, in.Values)
 		if err != nil {
-			respond.Error(w, http.StatusBadRequest, err.Error())
+			respond.FromError(w, r, apperr.Validation(err.Error()))
 			return
 		}
-		finalValues = merged
+		in.Values = merged
 	}
 
-	// Owning-team resolution. The new tenant gets an access grant for
-	// this team so members see it on subsequent list calls without an
-	// admin manually granting access. Rules:
-	//   * Admin: optional team_id (none = admin-only visibility).
-	//   * Non-admin in exactly one team: defaults to that team.
-	//   * Non-admin in multiple teams: must specify owning_team_id.
-	//   * Non-admin in zero teams: 400.
-	owningTeamID := req.OwningTeamID
-	if !isAdmin(userCtx.Role) {
-		userTeams, err := h.accessSvc.UserTeamIDs(r.Context(), userCtx.UserID, userCtx.OrgID)
+	// Owning-team resolution: the membership lookup is I/O (kept here), the
+	// rules are pure (service.ResolveOwningTeam). The new tenant gets an access
+	// grant for the resolved team so its members see it on the next list call.
+	var userTeams []string
+	admin := isAdmin(userCtx.Role)
+	if !admin {
+		var err error
+		userTeams, err = h.accessSvc.UserTeamIDs(r.Context(), userCtx.UserID, userCtx.OrgID)
 		if err != nil {
 			respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to resolve user teams")
 			return
 		}
-		switch {
-		case len(userTeams) == 0:
-			respond.Error(w, http.StatusBadRequest, "you must belong to a team before creating tenants")
-			return
-		case owningTeamID == "" && len(userTeams) == 1:
-			owningTeamID = userTeams[0]
-		case owningTeamID == "":
-			respond.Error(w, http.StatusBadRequest, "owning_team_id is required when you belong to multiple teams")
-			return
-		default:
-			// Operator specified a team explicitly — must be one of theirs.
-			ok := false
-			for _, t := range userTeams {
-				if t == owningTeamID {
-					ok = true
-					break
-				}
-			}
-			if !ok {
-				respond.Error(w, http.StatusBadRequest, "owning_team_id must be a team you belong to")
-				return
-			}
-		}
 	}
-
-	// The CR identity is authoritative: force platform.name to the validated,
-	// access-checked req.Name so the rendered Platform's metadata.name (and the
-	// operator-derived namespace / IRSA boundary / git path) can never diverge
-	// from it — a caller-supplied values blob can't overwrite another tenant's
-	// Platform. Default platform.tenant to the same name when unset (one-to-one)
-	// so the chart render never fails on a missing tenant.
-	pf, _ := finalValues["platform"].(map[string]interface{})
-	if pf == nil {
-		pf = map[string]interface{}{}
-		finalValues["platform"] = pf
-	}
-	pf["name"] = req.Name
-	if t, _ := pf["tenant"].(string); t == "" {
-		pf["tenant"] = req.Name
-	}
-
-	op, err := h.svc.EnqueueCreate(r.Context(), userCtx.OrgID, req.ClusterID, req.Name, req.TemplateID, userCtx.UserID, finalValues)
+	owningTeamID, err := service.ResolveOwningTeam(admin, in.OwningTeamID, userTeams)
 	if err != nil {
-		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to enqueue tenant create")
+		respond.FromError(w, r, err)
+		return
+	}
+
+	// EnqueueCreate re-validates and forces the authoritative Platform identity
+	// server-side, so a values blob can never point the rendered Platform at
+	// another tenant. A bad input maps to 400 via apperr; anything else is 500.
+	op, err := h.svc.EnqueueCreate(r.Context(), in)
+	if err != nil {
+		respond.FromError(w, r, err)
 		return
 	}
 
