@@ -7,6 +7,12 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
   replicas: {{ .Values.replicaCount.worker }}
+  # The worker is a single-writer: it serializes GitOps commits, the watch-back
+  # auto-register, and run execution on the assumption that exactly one pod is
+  # running. Recreate (not the default RollingUpdate) guarantees a rollout never
+  # overlaps two worker pods.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: portal-worker
