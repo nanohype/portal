@@ -5,7 +5,8 @@ import { useLocation } from "@/hooks/useNavigate";
 import { Link } from "@/components/ui/link";
 import { navCategories } from "@/lib/nav";
 import { CommandPalette } from "@/components/CommandPalette";
-import { Box, Search, LogOut } from "lucide-react";
+import { useTheme } from "@/stores/theme";
+import { Box, Search, LogOut, Sun, Moon } from "lucide-react";
 
 export function AppLayout({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
@@ -16,6 +17,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const menuRef = useRef<HTMLDivElement>(null);
 
   const isAdmin = user?.role === "admin" || user?.role === "owner";
+  const { theme, toggle } = useTheme();
 
   // ⌘K / Ctrl+K toggles the command palette
   useEffect(() => {
@@ -45,7 +47,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
       {/* Sidebar */}
       <aside className="w-56 shrink-0 border-r border-border bg-frosted flex flex-col">
         {/* Logo */}
-        <div className="h-11 shrink-0 flex items-center px-4 border-b border-border">
+        <div className="h-11 shrink-0 flex items-center justify-between px-4 border-b border-border">
           <Link href="/" className="flex items-center gap-2">
             <div className="w-6 h-6 rounded-[5px] bg-primary/10 flex items-center justify-center">
               <Box className="w-3 h-3 text-primary" />
@@ -54,6 +56,18 @@ export function AppLayout({ children }: { children: ReactNode }) {
               portal
             </span>
           </Link>
+          <button
+            onClick={toggle}
+            aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+            title={theme === "dark" ? "Light theme" : "Dark theme"}
+            className="-mr-1 rounded-[6px] p-1.5 text-dim hover:text-foreground hover:bg-hover transition-colors cursor-pointer"
+          >
+            {theme === "dark" ? (
+              <Sun className="w-3.5 h-3.5" />
+            ) : (
+              <Moon className="w-3.5 h-3.5" />
+            )}
+          </button>
         </div>
 
         {/* Search trigger */}

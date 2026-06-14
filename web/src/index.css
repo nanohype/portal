@@ -25,6 +25,8 @@
   --color-warning: #D4A72C;
   --color-dim: #52525A;
   --color-hover: rgba(255, 255, 255, 0.04);
+  --color-scrollbar: rgba(255, 255, 255, 0.16);
+  --color-scrollbar-hover: rgba(255, 255, 255, 0.30);
 
   --radius-sm: 0.25rem;
   --radius-md: 0.375rem;
@@ -45,6 +47,41 @@
   --duration-fast: 120ms;
   --duration-base: 180ms;
   --duration-slow: 260ms;
+}
+
+/* Light theme — the @theme block above is the dark default (applied on
+   html.dark or with no class); html.light overrides the same color tokens so
+   every bg, text, and border utility flips at runtime. Primary stays teal (a
+   touch darker for contrast on white); status hues darken for legibility on
+   light surfaces. The toggle (AppLayout) swaps the class; an inline script in
+   index.html sets it pre-paint to avoid a flash. */
+html.light {
+  --color-background: #FBFBFC;
+  --color-foreground: #1A1A1F;
+  --color-card: #FFFFFF;
+  --color-card-foreground: #1A1A1F;
+  --color-popover: #FFFFFF;
+  --color-popover-foreground: #1A1A1F;
+  --color-primary: #2F7A6E;
+  --color-primary-foreground: #FFFFFF;
+  --color-secondary: #F2F2F4;
+  --color-secondary-foreground: #1A1A1F;
+  --color-muted: #F2F2F4;
+  --color-muted-foreground: #5C5C66;
+  --color-accent: #F0F0F3;
+  --color-accent-foreground: #1A1A1F;
+  --color-destructive: #C5221C;
+  --color-destructive-foreground: #FFFFFF;
+  --color-border: rgba(17, 17, 20, 0.10);
+  --color-input: #FFFFFF;
+  --color-input-border: rgba(17, 17, 20, 0.14);
+  --color-ring: #2F7A6E;
+  --color-success: #1A7F37;
+  --color-warning: #9A6700;
+  --color-dim: #8B8B93;
+  --color-hover: rgba(17, 17, 20, 0.045);
+  --color-scrollbar: rgba(17, 17, 20, 0.18);
+  --color-scrollbar-hover: rgba(17, 17, 20, 0.34);
 }
 
 * {
@@ -77,20 +114,39 @@ a, button, [role="tab"], input, select {
   transition: all 0.15s ease;
 }
 
-/* Subtle scrollbar */
-::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
+/* Sleek scrollbar — a thin floating thumb that's invisible at rest and fades in
+   only while you're over the scrolled area. The track reserves a constant gutter
+   so revealing the thumb never shifts layout; the transparent border + padding-box
+   clip make the thumb read as a slim pill with breathing room. Theme-aware via
+   the --color-scrollbar tokens. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
 }
-::-webkit-scrollbar-track {
+*:hover {
+  scrollbar-color: var(--color-scrollbar) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.08);
-  border-radius: 2px;
+  background: transparent;
+  border-radius: 9999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+:hover::-webkit-scrollbar-thumb {
+  background: var(--color-scrollbar);
+  background-clip: padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.15);
+  background: var(--color-scrollbar-hover);
+  background-clip: padding-box;
 }
 
 /* Keyframes */
