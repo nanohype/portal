@@ -45,12 +45,14 @@ export function Drawer({
     }
   }, [open, mounted]);
 
-  const handleEscape = useCallback(
-    (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    },
-    [onClose],
-  );
+  // Read onClose through a ref so the keydown handler stays stable — otherwise
+  // the listeners effect re-runs on every parent render.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  const handleEscape = useCallback((e: KeyboardEvent) => {
+    if (e.key === "Escape") onCloseRef.current();
+  }, []);
 
   const handleFocusTrap = useCallback((e: KeyboardEvent) => {
     if (e.key !== "Tab" || !contentRef.current) return;
@@ -69,24 +71,29 @@ export function Drawer({
     }
   }, []);
 
+  // Listeners + scroll-lock while mounted. Stable callbacks → set up once per
+  // mount, NOT on every keystroke.
   useEffect(() => {
     if (!mounted) return;
     document.addEventListener("keydown", handleEscape);
     document.addEventListener("keydown", handleFocusTrap);
     document.body.style.overflow = "hidden";
-    if (open && !closing) {
-      requestAnimationFrame(() => {
-        contentRef.current
-          ?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR)
-          ?.focus();
-      });
-    }
     return () => {
       document.removeEventListener("keydown", handleEscape);
       document.removeEventListener("keydown", handleFocusTrap);
       document.body.style.overflow = "";
     };
-  }, [mounted, open, closing, handleEscape, handleFocusTrap]);
+  }, [mounted, handleEscape, handleFocusTrap]);
+
+  // Autofocus the first field once, when the panel mounts (opens). Keyed on
+  // `mounted` so it fires after the panel renders — and crucially NOT on every
+  // render, which would yank focus out of the field you're typing in.
+  useEffect(() => {
+    if (!mounted) return;
+    requestAnimationFrame(() => {
+      contentRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR)?.focus();
+    });
+  }, [mounted]);
 
   const onPanelAnimEnd = () => {
     if (closing) {
