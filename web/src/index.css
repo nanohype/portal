@@ -31,6 +31,12 @@
   --radius-lg: 0.5rem;
   --radius-xl: 0.625rem;
 
+  /* Type — Inter for UI, JetBrains Mono for IDs/SHAs/regions/logs. Wired as
+     tokens so the font-sans / font-mono utilities resolve to the loaded faces
+     instead of falling back to the system stacks. */
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
   /* Motion — one scale for easing + durations so transitions stay consistent.
      ease-out-expo is the expressive enter curve (decelerate into place); the
      standard ease-out handles smaller state changes. */
@@ -47,10 +53,19 @@
 
 body {
   @apply bg-background text-foreground antialiased;
-  font-family: "Geist", system-ui, -apple-system, sans-serif;
+  font-family: var(--font-sans);
   font-size: 13px;
   letter-spacing: -0.011em;
   margin: 0;
+}
+
+/* Keep code-ish faces literal — no ligatures turning -> or != into glyphs in
+   IDs, SHAs, and logs. */
+code,
+pre,
+.font-mono {
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
 }
 
 .xterm {
