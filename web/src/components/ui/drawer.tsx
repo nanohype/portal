@@ -2,13 +2,21 @@ import {
   type ReactNode,
   type MouseEvent,
   type AnimationEvent,
+  createContext,
   useCallback,
+  useContext,
   useEffect,
+  useId,
   useRef,
   useState,
 } from "react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+// Each Drawer generates a unique title id and hands it to its DrawerTitle, so a
+// drawer that's closing while something else opens can't collide on a hardcoded
+// id. Mirrors Dialog.
+const DrawerTitleIdContext = createContext<string | undefined>(undefined);
 
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -36,6 +44,7 @@ export function Drawer({
   const [mounted, setMounted] = useState(open);
   const [closing, setClosing] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
 
   useEffect(() => {
     if (open) {
@@ -104,6 +113,20 @@ export function Drawer({
     }
   };
 
+  // Safety net: if the exit animationend never arrives — tab backgrounded
+  // mid-close, or reduced-motion suppressing the event — force the unmount so
+  // the overlay can't get stuck scroll-locked over the page. Longer than the
+  // longest exit animation; the real animationend clears it first on the happy
+  // path.
+  useEffect(() => {
+    if (!closing) return;
+    const id = setTimeout(() => {
+      setMounted(false);
+      setClosing(false);
+    }, 400);
+    return () => clearTimeout(id);
+  }, [closing]);
+
   if (!mounted) return null;
 
   return (
@@ -111,7 +134,7 @@ export function Drawer({
       className="fixed inset-0 z-50"
       role="dialog"
       aria-modal="true"
-      aria-labelledby="drawer-title"
+      aria-labelledby={titleId}
     >
       <div
         className={cn(
@@ -132,7 +155,9 @@ export function Drawer({
           className,
         )}
       >
-        {children}
+        <DrawerTitleIdContext.Provider value={titleId}>
+          {children}
+        </DrawerTitleIdContext.Provider>
       </div>
     </div>
   );
@@ -168,9 +193,10 @@ export function DrawerTitle({
   children: ReactNode;
   className?: string;
 }) {
+  const id = useContext(DrawerTitleIdContext);
   return (
     <h2
-      id="drawer-title"
+      id={id}
       className={cn(
         "text-base font-semibold tracking-tight text-foreground",
         className,

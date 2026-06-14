@@ -16,25 +16,6 @@ export function formatRelativeTime(date: string | Date): string {
   return `${Math.floor(seconds / 86400)}d ago`;
 }
 
-export function getStatusColor(status: string): string {
-  switch (status) {
-    case "applied":
-      return "text-success";
-    case "planned":
-      return "text-primary";
-    case "planning":
-    case "applying":
-    case "queued":
-      return "text-warning";
-    case "errored":
-      return "text-destructive";
-    case "pending":
-      return "text-muted-foreground";
-    default:
-      return "text-muted-foreground";
-  }
-}
-
 export function formatDuration(startedAt?: string | null, finishedAt?: string | null): string {
   if (!startedAt) return "";
   const start = new Date(startedAt).getTime();

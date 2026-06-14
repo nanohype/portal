@@ -5,7 +5,11 @@ import type { PipelineRunStage } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { pipelineRunStatus, pipelineStageStatus } from "@/lib/status";
+import {
+  isPipelineRunInFlight,
+  pipelineRunStatus,
+  pipelineStageStatus,
+} from "@/lib/status";
 import { Spinner } from "@/components/ui/spinner";
 import { Link } from "@/components/ui/link";
 import { formatDuration } from "@/lib/utils";
@@ -101,8 +105,7 @@ export function PipelineRunView({
     },
     refetchInterval: (query) => {
       const pr = query.state.data?.pipeline_run;
-      if (pr && pr.status === "running") return 3000;
-      return false;
+      return pr && isPipelineRunInFlight(pr.status) ? 3000 : false;
     },
   });
 

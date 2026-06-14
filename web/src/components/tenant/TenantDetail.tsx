@@ -5,13 +5,12 @@ import { api } from "@/api/client";
 import { useAuth } from "@/hooks/useAuth";
 import { navigate } from "@/hooks/useNavigate";
 import type { Team, TenantOperation, TenantTeamAccess } from "@/api/types";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Link } from "@/components/ui/link";
 import { formatRelativeTime } from "@/lib/utils";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { tenantPhase } from "@/lib/status";
+import { tenantPhase, tenantOpStatus } from "@/lib/status";
 import {
   ArrowLeft,
   Boxes,
@@ -307,17 +306,7 @@ function OperationsPanel({ ops }: { ops: TenantOperation[] }) {
       <div className="divide-y divide-border/30">
         {ops.map((op) => (
           <div key={op.id} className="px-4 py-2.5 text-xs flex items-center gap-3">
-            <Badge
-              variant={
-                op.status === "committed"
-                  ? "success"
-                  : op.status === "failed"
-                  ? "destructive"
-                  : "default"
-              }
-            >
-              {op.status}
-            </Badge>
+            <StatusBadge visual={tenantOpStatus(op.status)} />
             <span className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
               {op.operation}
             </span>

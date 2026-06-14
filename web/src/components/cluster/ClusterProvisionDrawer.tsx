@@ -111,9 +111,11 @@ export function ClusterProvisionDrawer({
     },
   });
 
-  // Live op for the result view. Shares the ['cluster-operations'] cache, which
-  // ClusterList keeps polling while an order is in flight, so the timeline here
-  // advances queued → committed → building → active without its own poller.
+  // Live op for the result view. Shares the ['cluster-operations'] cache, but
+  // polls it itself while an order is in flight so the timeline advances
+  // queued → committed → building → active no matter which page opened the
+  // drawer (don't lean on ClusterList being mounted). Self-limiting: stops once
+  // the op reaches a terminal or a portal-side failure.
   const { data: ops } = useQuery({
     queryKey: ["cluster-operations"],
     queryFn: async () => {
@@ -122,6 +124,15 @@ export function ClusterProvisionDrawer({
       return data!;
     },
     enabled: orderedId !== null,
+    refetchInterval: (query) => {
+      if (orderedId === null) return false;
+      const op = query.state.data?.find((o) => o.id === orderedId);
+      if (!op) return 3000; // just placed, not in cache yet — keep checking
+      if (op.status === "active" || op.status === "failed" || op.status === "deprovisioned")
+        return false;
+      if ("failed" in (op.vend_phases ?? {})) return false;
+      return 3000;
+    },
   });
   const liveOp = ops?.find((o) => o.id === orderedId) ?? null;
 

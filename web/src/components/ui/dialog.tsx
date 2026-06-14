@@ -2,8 +2,11 @@ import {
   type ReactNode,
   type MouseEvent,
   type AnimationEvent,
+  createContext,
+  useContext,
   useEffect,
   useCallback,
+  useId,
   useRef,
   useState,
 } from "react";
@@ -15,11 +18,17 @@ interface DialogProps {
   children: ReactNode;
 }
 
+// Each Dialog generates a unique title id and hands it to its DialogTitle, so
+// two dialogs in the DOM at once (one closing while another opens) can't collide
+// on a hardcoded id and mislabel each other.
+const DialogTitleIdContext = createContext<string | undefined>(undefined);
+
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 export function Dialog({ open, onClose, children }: DialogProps) {
   const contentRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
   const [mounted, setMounted] = useState(open);
   const [closing, setClosing] = useState(false);
 
@@ -89,6 +98,18 @@ export function Dialog({ open, onClose, children }: DialogProps) {
     }
   };
 
+  // Safety net: if that exit animationend never arrives — tab backgrounded
+  // mid-close, or reduced-motion suppressing the event — force the unmount so
+  // the overlay can't get stuck scroll-locked over the page.
+  useEffect(() => {
+    if (!closing) return;
+    const id = setTimeout(() => {
+      setMounted(false);
+      setClosing(false);
+    }, 400);
+    return () => clearTimeout(id);
+  }, [closing]);
+
   if (!mounted) return null;
 
   return (
@@ -96,7 +117,7 @@ export function Dialog({ open, onClose, children }: DialogProps) {
       className="fixed inset-0 z-50 flex items-center justify-center"
       role="dialog"
       aria-modal="true"
-      aria-labelledby="dialog-title"
+      aria-labelledby={titleId}
     >
       <div
         className={cn(
@@ -114,7 +135,9 @@ export function Dialog({ open, onClose, children }: DialogProps) {
           closing ? "animate-pop-out" : "animate-fade-in",
         )}
       >
-        {children}
+        <DialogTitleIdContext.Provider value={titleId}>
+          {children}
+        </DialogTitleIdContext.Provider>
       </div>
     </div>
   );
@@ -153,9 +176,10 @@ export function DialogTitle({
   children: ReactNode;
   className?: string;
 }) {
+  const id = useContext(DialogTitleIdContext);
   return (
     <h2
-      id="dialog-title"
+      id={id}
       className={cn("text-lg font-semibold text-foreground", className)}
     >
       {children}
