@@ -13,7 +13,11 @@ type Config struct {
 	ServerAddr      string        `env:"SERVER_ADDR" envDefault:":8080"`
 	ServerBaseURL   string        `env:"SERVER_BASE_URL" envDefault:"http://localhost:8080"`
 	WebURL          string        `env:"WEB_URL" envDefault:"http://localhost:5173"`
-	Environment     string        `env:"ENVIRONMENT" envDefault:"development"`
+	// No default: only an explicit ENVIRONMENT=development relaxes security
+	// (dev login, default keys). Unset/anything else is treated as production by
+	// Validate(), so a missing env var fails closed instead of silently booting
+	// a prod instance with dev secrets. Dev tooling sets ENVIRONMENT=development.
+	Environment     string        `env:"ENVIRONMENT"`
 	LogLevel        string        `env:"LOG_LEVEL" envDefault:"info"`
 	ShutdownTimeout time.Duration `env:"SHUTDOWN_TIMEOUT" envDefault:"15s"`
 

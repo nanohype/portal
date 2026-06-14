@@ -25,6 +25,7 @@ tasks:
     desc: Run API server with hot reload
     env:
       DATABASE_URL: "{{.DATABASE_URL}}"
+      ENVIRONMENT: development
     cmds:
       - go run ./cmd/server
 
@@ -32,6 +33,7 @@ tasks:
     desc: Run worker with hot reload
     env:
       DATABASE_URL: "{{.DATABASE_URL}}"
+      ENVIRONMENT: development
     cmds:
       - go run ./cmd/worker
 
@@ -69,6 +71,7 @@ tasks:
       DB, then `task dev` and click Dev Login.
     env:
       DATABASE_URL: "{{.DATABASE_URL}}"
+      ENVIRONMENT: development
     cmds:
       - go run ./cmd/seeddemo
 
