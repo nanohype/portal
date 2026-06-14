@@ -1,6 +1,6 @@
 # Deploying portal on a production EKS hub
 
-This stands portal up on a real eks-fleet **management (hub) EKS cluster** with
+This stands portal up on a real eks-fleet **hub EKS cluster** with
 its IAM codified (portal#41), so the full surface works — including the parts that
 stay dark on kx: cross-account EKS reads, the per-cluster EKS control-plane badge,
 and tenant inventory from spoke clusters. It's the production counterpart to
@@ -21,41 +21,61 @@ and its two **match-ups** — read those carefully.
 
 ## Prerequisites
 
-- An eks-fleet hub up (a real EKS management cluster running ArgoCD + Crossplane +
+- An eks-fleet hub up (a real EKS hub cluster running ArgoCD + Crossplane +
   provider-opentofu + the Cluster API), per rung-1 on real EKS — not kind.
 - The clusters appset applied to the hub's ArgoCD (eks-gitops `clusters-appset`,
   the per-cluster files generator).
 - A deploy key with write on the clusters repo (for portal's worker).
-- AWS access to apply landing-zone components to the hub (management) account and
+- AWS access to apply landing-zone components to the hub account and
   to each workload (spoke) account.
 
 ## 1. Apply the IAM
 
-**On the hub (management) account — `portal-hub`:** the worker IRSA role + the
-portal OpenTofu state bucket. It needs the hub cluster's OIDC provider.
+**On the hub account (where the hub EKS cluster lives) — `portal-hub`:** the
+worker IRSA role + the portal OpenTofu state bucket. It reads the hub cluster's
+OIDC provider, so run it in that account. Everything resolves from the live
+cluster — paste the block, eyeball the echo, apply:
 
 ```bash
 cd landing-zone/components/aws/portal-hub
+
+CLUSTER=hub-eks                  # if this 404s, run `aws eks list-clusters` for the name
+export AWS_REGION=us-west-2
+OIDC_ISSUER=$(aws eks describe-cluster --name "$CLUSTER" --region "$AWS_REGION" \
+  --query 'cluster.identity.oidc.issuer' --output text)
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+OIDC_PROVIDER_ARN="arn:aws:iam::${ACCOUNT_ID}:oidc-provider/${OIDC_ISSUER#https://}"
+STATE_BUCKET="nanohype-portal-state-${ACCOUNT_ID}"   # globally unique (account-scoped)
+printf 'provider=%s\nbucket=%s\n' "$OIDC_PROVIDER_ARN" "$STATE_BUCKET"
+
+tofu init -upgrade               # first run only (no terragrunt here = local state)
 tofu apply \
   -var environment=production \
-  -var oidc_provider_arn=<hub cluster OIDC provider ARN> \
-  -var oidc_issuer=<hub cluster OIDC issuer URL> \
-  -var state_bucket_name=<your portal-state bucket, globally unique> \
+  -var oidc_provider_arn="$OIDC_PROVIDER_ARN" \
+  -var oidc_issuer="$OIDC_ISSUER" \
+  -var state_bucket_name="$STATE_BUCKET" \
   -var namespace=portal -var service_account_name=portal-worker
-tofu output            # hub_role_arn, state_bucket_name
+tofu output            # hub_role_arn, state_bucket_name — keep both for §2
 ```
 
-`role_name`/`namespace`/`service_account_name` default to `portal-worker`/`portal`/
-`portal-worker` — match them to the chart's release name + namespace (the chart
-names the worker SA `<release>-worker`).
+> **Namespace match-up.** `namespace`/`service_account_name` pin the IRSA trust to
+> `system:serviceaccount:`**`portal`**`:portal-worker`, so the chart must land the
+> worker SA in the **`portal`** namespace — deploy with `NAMESPACE=portal` in §2
+> (the chart names the worker SA `<release>-worker`). Mismatch → every AssumeRole
+> 403s. `role_name` defaults to `portal-worker`.
 
 **In each workload (spoke) account — `portal-spoke`:** the per-account read role.
+Grab the hub role ARN from portal-hub's state (local — readable on any profile),
+then switch your creds to the spoke account:
 
 ```bash
-cd landing-zone/components/aws/portal-spoke
+HUB_ROLE_ARN=$(tofu output -raw hub_role_arn)   # run from the portal-hub dir (the step above)
+cd ../portal-spoke
+# switch AWS creds to THIS workload account first (e.g. export AWS_PROFILE=<spoke>)
+tofu init -upgrade
 tofu apply \
   -var environment=production \
-  -var portal_hub_role_arn=<hub_role_arn from above> \
+  -var portal_hub_role_arn="$HUB_ROLE_ARN" \
   -var external_id=portal          # the default; whatever you choose, see §3
 tofu output            # spoke_role_arn, external_id
 ```
@@ -103,16 +123,22 @@ clusterHealth:    { enabled: true, interval: "60s" }
 
 ```bash
 helm dependency build deploy/helm/portal
-helm install portal deploy/helm/portal -f values-hub.yaml
+helm install portal deploy/helm/portal -n portal --create-namespace -f values-hub.yaml
 ```
+
+(`-n portal` matches the namespace `portal-hub` pinned in the IRSA trust — §1.)
 
 Or skip the `values-hub.yaml` and let `task hub:install` bake the structural
 options (IRSA, the objectStore, both watchers, the gitops remote) — you pass only
 the per-hub bits:
 
 ```bash
+# from the portal repo root — pull the portal-hub outputs (local state, any profile):
+ROLE_ARN=$(cd ../landing-zone/components/aws/portal-hub && tofu output -raw hub_role_arn)
+STATE_BUCKET=$(cd ../landing-zone/components/aws/portal-hub && tofu output -raw state_bucket_name)
+
 task hub:install \
-  ROLE_ARN=<hub_role_arn> STATE_BUCKET=<state_bucket_name> REGION=<region> \
+  ROLE_ARN="$ROLE_ARN" STATE_BUCKET="$STATE_BUCKET" REGION=us-west-2 NAMESPACE=portal \
   CLUSTERS_REPO_URL=git@github.com:nanohype/clusters.git SSH_KEY_PATH=<deploy-key path>
 # ENVIRONMENT defaults to development (dev-login). For production pass
 # ENVIRONMENT=production plus the secrets via EXTRA_ARGS='--set config.jwtSecret=... -f secrets.yaml'.
