@@ -221,6 +221,39 @@ func (q *Queries) ReleaseWorkspaceRun(ctx context.Context, id, orgID, runID stri
 	return err
 }
 
+// ReapStaleRunSlots frees workspace run slots that are wedged: the held run is
+// already terminal (a completion path that failed to release), or it's still
+// "active" but hasn't been touched in hours, meaning its worker job died or was
+// discarded after exhausting retries. Without this a discarded run job leaves
+// current_run_id pinned to a dead run and no future run for that workspace can
+// ever be claimed. Returns the freed workspace ids so the caller can hand off to
+// their next pending run.
+func (q *Queries) ReapStaleRunSlots(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx,
+		`UPDATE workspaces w SET current_run_id = NULL, updated_at = NOW()
+		 FROM runs r
+		 WHERE w.current_run_id = r.id
+		   AND (
+		     r.status NOT IN ('pending','queued','planning','planned','awaiting_approval','applying')
+		     OR r.updated_at < NOW() - INTERVAL '3 hours'
+		   )
+		 RETURNING w.id`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var freed []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		freed = append(freed, id)
+	}
+	return freed, rows.Err()
+}
+
 func scanWorkspaceSummary(row interface{ Scan(...interface{}) error }) (WorkspaceSummary, error) {
 	var ws WorkspaceSummary
 	err := row.Scan(

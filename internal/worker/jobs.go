@@ -86,12 +86,10 @@ func (w *RunJobWorker) Work(ctx context.Context, job *river.Job[RunJobArgs]) err
 	logger := slog.With("run_id", args.RunID, "workspace_id", args.WorkspaceID, "operation", args.Operation)
 	logger.Info("starting run job")
 
-	// Lock workspace
-	if err := w.queries.SetWorkspaceCurrentRun(ctx, repository.SetWorkspaceCurrentRunParams{
-		ID: args.WorkspaceID, OrgID: args.OrgID, CurrentRunID: &args.RunID,
-	}); err != nil {
-		return fmt.Errorf("failed to lock workspace: %w", err)
-	}
+	// The workspace slot is already claimed for this run at enqueue time
+	// (RunService.Create / ClaimAndEnqueueNextRun), so there's no lock to take
+	// here — re-setting it unconditionally would let a job that somehow outlived
+	// its claim steal the slot from whoever holds it now.
 
 	// Update run status
 	status := "planning"

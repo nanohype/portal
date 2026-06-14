@@ -415,6 +415,22 @@ func main() {
 		sampleJobStates(context.Background(), dbPool, logger)
 	})
 
+	// Reap wedged workspace run slots: a run job discarded after exhausting its
+	// retries never releases current_run_id, which would otherwise block every
+	// future run for that workspace (the slot is the serialization gate). This
+	// frees terminal/long-stale slots and hands off to the next pending run.
+	go runLoop(ctx, "slot-reaper", 5*time.Minute, logger, func() {
+		freed, err := queries.ReapStaleRunSlots(context.Background())
+		if err != nil {
+			logger.Warn("slot reaper", "error", err)
+			return
+		}
+		for _, wsID := range freed {
+			logger.Info("reaped wedged workspace run slot", "workspace_id", wsID)
+			worker.ClaimAndEnqueueNextRun(context.Background(), queries, dbPool, riverClient, wsID, logger)
+		}
+	})
+
 	// Cluster-watch dispatcher: every 60s, find all connected clusters and
 	// enqueue a watch job per cluster. River's UniqueOpts on the job args
 	// drops duplicates if a previous tick's job is still running, so a slow

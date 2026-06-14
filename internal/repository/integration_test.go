@@ -206,6 +206,62 @@ func TestWorkspaceRunClaim(t *testing.T) {
 	}
 }
 
+// TestReapStaleRunSlots covers the self-heal that frees a run slot wedged by a
+// discarded/dead job: a fresh active run is left alone, a terminal or long-stale
+// run's slot is freed.
+func TestReapStaleRunSlots(t *testing.T) {
+	requireDB(t)
+	ctx := context.Background()
+	orgID, userID := seedOrg(t, ctx, "reap")
+	ws := seedWorkspace(t, ctx, orgID, userID)
+	r1 := seedRun(t, ctx, ws, orgID, userID)
+
+	contains := func(ids []string, want string) bool {
+		for _, id := range ids {
+			if id == want {
+				return true
+			}
+		}
+		return false
+	}
+
+	// A fresh, active (pending) run holds the slot — must NOT be reaped.
+	if _, err := testQueries.ClaimWorkspaceForRun(ctx, ws, orgID, r1); err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	freed, err := testQueries.ReapStaleRunSlots(ctx)
+	if err != nil {
+		t.Fatalf("reap: %v", err)
+	}
+	if contains(freed, ws) {
+		t.Fatalf("a fresh active run's slot must not be reaped")
+	}
+
+	// The held run reaches a terminal status → its slot is reapable now.
+	exec(t, ctx, `UPDATE runs SET status='errored' WHERE id=$1`, r1)
+	freed, err = testQueries.ReapStaleRunSlots(ctx)
+	if err != nil {
+		t.Fatalf("reap: %v", err)
+	}
+	if !contains(freed, ws) {
+		t.Fatalf("a terminal run's slot must be reaped; freed=%v", freed)
+	}
+	if _, err := testQueries.ClaimWorkspaceForRun(ctx, ws, orgID, r1); err != nil {
+		t.Fatalf("re-claim after reap should succeed: %v", err)
+	}
+
+	// A still-"active" run that hasn't been touched in hours (its job died) is
+	// also reaped.
+	exec(t, ctx, `UPDATE runs SET status='planning', updated_at = NOW() - INTERVAL '4 hours' WHERE id=$1`, r1)
+	freed, err = testQueries.ReapStaleRunSlots(ctx)
+	if err != nil {
+		t.Fatalf("reap: %v", err)
+	}
+	if !contains(freed, ws) {
+		t.Fatalf("a long-stale active run's slot must be reaped; freed=%v", freed)
+	}
+}
+
 // TestBatchUpsertTenants covers the reconcile batch: last_observed_at advances
 // every tick, but updated_at only moves on a real content change.
 func TestBatchUpsertTenants(t *testing.T) {

@@ -73,6 +73,7 @@ func FromError(w http.ResponseWriter, r *http.Request, err error) {
 			status = http.StatusBadRequest
 		}
 		if status == http.StatusInternalServerError {
+			slog.Error("internal error (apperr)", "error", err, "request_id", chimw.GetReqID(r.Context()))
 			ErrorWithRequest(w, r, status, "internal error")
 			return
 		}

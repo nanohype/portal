@@ -111,7 +111,13 @@ func Middleware(next http.Handler) http.Handler {
 		if route == "" {
 			route = "unmatched"
 		}
-		httpDuration.WithLabelValues(r.Method, route, strconv.Itoa(ww.Status())).
+		// chi only stamps the status lazily on first Write; a handler that 200s
+		// with no body leaves it 0 — record that as 200, not a phantom "0".
+		status := ww.Status()
+		if status == 0 {
+			status = http.StatusOK
+		}
+		httpDuration.WithLabelValues(r.Method, route, strconv.Itoa(status)).
 			Observe(time.Since(start).Seconds())
 	})
 }
