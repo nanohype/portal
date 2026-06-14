@@ -180,8 +180,7 @@ a "wrapper" flag.
 
 1. Add handler method in `internal/handler/<domain>.go`
 2. Wire route in `internal/server/server.go` (inside the `r.Route("/api/v1", ...)` block)
-3. Add TypeScript types + path in `web/src/api/types.ts`
-4. Add OpenAPI spec in `api/openapi/v1.yaml`
+3. Add the TypeScript types + `paths` entry in `web/src/api/types.ts` (the hand-maintained API contract — there is no codegen step)
 
 ### Adding a new frontend page/component
 

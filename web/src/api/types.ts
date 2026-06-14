@@ -1,5 +1,6 @@
-// API types matching the OpenAPI spec
-// In production, these would be generated via openapi-typescript
+// The hand-maintained API contract: domain types + the openapi-fetch `paths`
+// interface consumed by ./client.ts. This is the source of truth — edit it
+// directly when adding or changing an endpoint.
 
 export interface User {
   id: string;
