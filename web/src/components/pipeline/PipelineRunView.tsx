@@ -162,7 +162,7 @@ export function PipelineRunView({
 
   if (isLoading) {
     return (
-      <div className="flex justify-center py-20">
+      <div className="flex-1 flex items-center justify-center">
         <Spinner className="w-6 h-6 text-primary" />
       </div>
     );
@@ -170,7 +170,7 @@ export function PipelineRunView({
 
   if (isError || !data) {
     return (
-      <div className="p-6">
+      <div className="flex-1 flex flex-col items-center justify-center">
         <div className="bg-destructive/8 text-destructive border border-destructive/15 rounded-lg p-4 text-sm">
           Failed to load pipeline run.
         </div>

@@ -212,7 +212,7 @@ export function WorkspaceDetail({ workspaceId }: Props) {
 
   if (wsLoading) {
     return (
-      <div className="flex items-center justify-center py-20">
+      <div className="flex-1 flex items-center justify-center">
         <Spinner className="w-6 h-6" />
       </div>
     );
@@ -220,7 +220,7 @@ export function WorkspaceDetail({ workspaceId }: Props) {
 
   if (wsError || !workspace) {
     return (
-      <div className="p-8 text-center">
+      <div className="flex-1 flex flex-col items-center justify-center text-center">
         <p className="text-muted-foreground">{wsError ? "Failed to load workspace" : "Workspace not found"}</p>
       </div>
     );

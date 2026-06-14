@@ -81,7 +81,7 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
 
   if (isLoading) {
     return (
-      <div className="flex justify-center py-20">
+      <div className="flex-1 flex items-center justify-center">
         <Spinner className="w-6 h-6 text-primary" />
       </div>
     );
@@ -89,7 +89,7 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
 
   if (isError || !data) {
     return (
-      <div className="p-6">
+      <div className="flex-1 flex flex-col items-center justify-center">
         <div className="bg-destructive/8 text-destructive border border-destructive/15 rounded-lg p-4 text-sm">
           Failed to load tenant.
         </div>
@@ -98,7 +98,7 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
   }
 
   return (
-    <div className="p-6 w-full max-w-3xl mx-auto flex-1 flex flex-col justify-center animate-fade-up">
+    <div className="p-6 w-full max-w-3xl mx-auto flex-1 flex flex-col animate-fade-up">
       <Link
         href="/tenants"
         className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1 mb-3 transition-colors"
