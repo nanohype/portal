@@ -102,7 +102,7 @@ Pipeline is an orchestrator, not an executor. `PipelineStageJobWorker` imports o
 - **IDs**: ULIDs everywhere (`ulid.Make().String()`)
 - **Multi-tenant**: `org_id` on every query for tenant isolation
 - **Partial updates**: `*bool` pointers + `COALESCE` in SQL for optional fields
-- **Error responses**: `respond.Error(w, http.StatusXxx, "message")` — always use this, never write raw JSON
+- **Error responses**: explicit status → `respond.Error(w, http.StatusXxx, "message")`. For a service-layer error, `respond.FromError(w, r, err)` maps it in one place (`pgx.ErrNoRows` → 404; `apperr.NotFound/Forbidden/Conflict/Validation` → their codes; anything else → 500 with the cause logged) so the same failure can't be 404 in one handler and 500 in another. Never write raw JSON
 - **Audit logging**: all mutations log via `auditSvc.Log()` with before/after state, values redacted to `***`
 - **Variables**: `terraform` category → tfvars file; `env` category → process environment
 - **Encryption**: sensitive variables encrypted with AES-256 via `secrets.Encryptor`, decrypted in worker at run time

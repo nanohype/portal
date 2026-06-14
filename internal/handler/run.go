@@ -88,7 +88,7 @@ func (h *RunHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	run, err := h.svc.Get(r.Context(), runID, userCtx.OrgID)
 	if err != nil {
-		respond.Error(w, http.StatusNotFound, "run not found")
+		respond.FromError(w, r, err)
 		return
 	}
 
@@ -122,7 +122,7 @@ func (h *RunHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// Check if workspace is locked
 	ws, err := h.workspaceSvc.Get(r.Context(), workspaceID, userCtx.OrgID)
 	if err != nil {
-		respond.Error(w, http.StatusNotFound, "workspace not found")
+		respond.FromError(w, r, err)
 		return
 	}
 	if ws.Locked {
@@ -208,7 +208,7 @@ func (h *RunHandler) GetPlanJSON(w http.ResponseWriter, r *http.Request) {
 
 	run, err := h.svc.Get(r.Context(), runID, userCtx.OrgID)
 	if err != nil {
-		respond.Error(w, http.StatusNotFound, "run not found")
+		respond.FromError(w, r, err)
 		return
 	}
 
@@ -244,7 +244,7 @@ func (h *RunHandler) StreamLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := h.svc.Get(r.Context(), runID, userCtx.OrgID); err != nil {
-		respond.Error(w, http.StatusNotFound, "run not found")
+		respond.FromError(w, r, err)
 		return
 	}
 
