@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { api } from "@/api/client";
 import { useRunStream } from "@/hooks/useRunStream";
 import { RunStatusBadge } from "./RunStatusBadge";
+import { isRunInFlight } from "@/lib/status";
 import { ApprovalPanel } from "./ApprovalPanel";
 import { PlanDiffViewer } from "./PlanDiffViewer";
 import { Button } from "@/components/ui/button";
@@ -45,17 +46,7 @@ export function RunView({ workspaceId, runId }: Props) {
     },
     refetchInterval: (query) => {
       const status = query.state.data?.status;
-      if (
-        status === "planning" ||
-        status === "applying" ||
-        status === "pending" ||
-        status === "queued" ||
-        status === "awaiting_approval" ||
-        status === "planned"
-      ) {
-        return 3000;
-      }
-      return false;
+      return status && isRunInFlight(status) ? 3000 : false;
     },
   });
 

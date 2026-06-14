@@ -12,6 +12,7 @@ import { Link } from "@/components/ui/link";
 import { Pagination } from "@/components/ui/pagination";
 import { navigate } from "@/hooks/useNavigate";
 import { formatDuration } from "@/lib/utils";
+import { isPipelineRunInFlight } from "@/lib/status";
 import { GitBranch, Play, ArrowLeft, ChevronRight, Plus, Pencil, Trash2, Lock } from "lucide-react";
 
 function pipelineRunStatusBadge(status: string) {
@@ -55,6 +56,12 @@ export function PipelineDetail({ pipelineId }: { pipelineId: string }) {
       return data!;
     },
     enabled: tab === "runs",
+    // Keep the runs list live while any pipeline run is still advancing, so a
+    // run started here progresses through its stages without a manual refresh.
+    refetchInterval: (query) =>
+      query.state.data?.data?.some((r) => isPipelineRunInFlight(r.status))
+        ? 3000
+        : false,
   });
 
   const startRunMutation = useMutation({

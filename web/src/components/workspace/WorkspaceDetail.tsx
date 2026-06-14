@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { RunStatusBadge } from "@/components/run/RunStatusBadge";
+import { isRunInFlight } from "@/lib/status";
 import { VariablesPanel } from "@/components/workspace/VariablesPanel";
 import { StateExplorer } from "@/components/workspace/StateExplorer";
 import { OutputsPanel } from "@/components/workspace/OutputsPanel";
@@ -107,6 +108,10 @@ export function WorkspaceDetail({ workspaceId }: Props) {
       return data;
     },
     enabled: tab === "runs",
+    // Keep the runs list live while any run is still moving, so a plan/apply
+    // kicked off here (or from the run view) advances without a manual refresh.
+    refetchInterval: (query) =>
+      query.state.data?.data?.some((r) => isRunInFlight(r.status)) ? 3000 : false,
   });
 
   const [showImport, setShowImport] = useState(false);

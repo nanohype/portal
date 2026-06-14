@@ -1,5 +1,9 @@
 import type { BadgeProps } from "@/components/ui/badge";
-import type { ClusterConnectionStatus, RunStatus } from "@/api/types";
+import type {
+  ClusterConnectionStatus,
+  PipelineRunStatus,
+  RunStatus,
+} from "@/api/types";
 import {
   Ban,
   CheckCircle2,
@@ -34,6 +38,32 @@ export const runStatus: Record<RunStatus, StatusVisual> = {
   cancelled: { label: "Cancelled", variant: "secondary", icon: Ban },
   discarded: { label: "Discarded", variant: "secondary", icon: Ban },
 };
+
+// Run statuses that are still moving — or may move without user action (a
+// `planned` run can auto-apply or sit awaiting approval). Used to decide whether
+// a view should keep polling. Terminal: applied, errored, cancelled, discarded.
+const RUN_IN_FLIGHT: ReadonlySet<RunStatus> = new Set([
+  "pending",
+  "queued",
+  "planning",
+  "planned",
+  "awaiting_approval",
+  "applying",
+]);
+export function isRunInFlight(status: RunStatus): boolean {
+  return RUN_IN_FLIGHT.has(status);
+}
+
+// A pipeline run is still moving until it reaches a terminal — `idle` is the
+// created-but-not-yet-picked-up state, `running` is mid-flight. Terminal:
+// completed, errored, cancelled.
+const PIPELINE_RUN_IN_FLIGHT: ReadonlySet<PipelineRunStatus> = new Set([
+  "idle",
+  "running",
+]);
+export function isPipelineRunInFlight(status: PipelineRunStatus): boolean {
+  return PIPELINE_RUN_IN_FLIGHT.has(status);
+}
 
 // Portal's async connection test to a registered cluster.
 const CLUSTER_CONNECTION: Record<ClusterConnectionStatus, StatusVisual> = {
