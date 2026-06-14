@@ -1,9 +1,11 @@
 import {
   type ReactNode,
   type MouseEvent,
+  type AnimationEvent,
   useEffect,
   useCallback,
   useRef,
+  useState,
 } from "react";
 import { cn } from "@/lib/utils";
 
@@ -18,57 +20,76 @@ const FOCUSABLE_SELECTOR =
 
 export function Dialog({ open, onClose, children }: DialogProps) {
   const contentRef = useRef<HTMLDivElement>(null);
+  const [mounted, setMounted] = useState(open);
+  const [closing, setClosing] = useState(false);
 
-  const handleEscape = useCallback(
-    (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    },
-    [onClose]
-  );
+  useEffect(() => {
+    if (open) {
+      setMounted(true);
+      setClosing(false);
+    } else if (mounted) {
+      setClosing(true); // play the exit, then unmount on animationend
+    }
+  }, [open, mounted]);
+
+  // Read onClose through a ref so the keydown handler is stable and the listeners
+  // effect doesn't re-subscribe (or steal focus) on every parent render.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const handleEscape = useCallback((e: KeyboardEvent) => {
+    if (e.key === "Escape") onCloseRef.current();
+  }, []);
 
   const handleFocusTrap = useCallback((e: KeyboardEvent) => {
     if (e.key !== "Tab" || !contentRef.current) return;
-
-    const focusable = contentRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
+    const focusable =
+      contentRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
     if (focusable.length === 0) return;
-
     const first = focusable[0];
     const last = focusable[focusable.length - 1];
-
     if (e.shiftKey) {
       if (document.activeElement === first) {
         e.preventDefault();
         last.focus();
       }
-    } else {
-      if (document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
+    } else if (document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
     }
   }, []);
 
   useEffect(() => {
-    if (open) {
-      document.addEventListener("keydown", handleEscape);
-      document.addEventListener("keydown", handleFocusTrap);
-      document.body.style.overflow = "hidden";
-
-      requestAnimationFrame(() => {
-        if (contentRef.current) {
-          const first = contentRef.current.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
-          first?.focus();
-        }
-      });
-    }
+    if (!mounted) return;
+    document.addEventListener("keydown", handleEscape);
+    document.addEventListener("keydown", handleFocusTrap);
+    document.body.style.overflow = "hidden";
     return () => {
       document.removeEventListener("keydown", handleEscape);
       document.removeEventListener("keydown", handleFocusTrap);
       document.body.style.overflow = "";
     };
-  }, [open, handleEscape, handleFocusTrap]);
+  }, [mounted, handleEscape, handleFocusTrap]);
 
-  if (!open) return null;
+  // Autofocus the first field once when the dialog mounts — not on every render
+  // (which would yank focus out of whatever you're typing in).
+  useEffect(() => {
+    if (!mounted) return;
+    requestAnimationFrame(() => {
+      contentRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR)?.focus();
+    });
+  }, [mounted]);
+
+  // Unmount after the EXIT animation — but only the content's own animationend,
+  // not a child's bubbling up (and not the enter animation).
+  const onContentAnimEnd = (e: AnimationEvent) => {
+    if (e.target !== e.currentTarget) return;
+    if (closing) {
+      setMounted(false);
+      setClosing(false);
+    }
+  };
+
+  if (!mounted) return null;
 
   return (
     <div
@@ -78,11 +99,21 @@ export function Dialog({ open, onClose, children }: DialogProps) {
       aria-labelledby="dialog-title"
     >
       <div
-        className="fixed inset-0 bg-black/70 backdrop-blur-md transition-opacity duration-200"
+        className={cn(
+          "fixed inset-0 bg-black/70 backdrop-blur-md",
+          closing ? "animate-overlay-out" : "animate-overlay-in",
+        )}
         aria-hidden="true"
         onClick={onClose}
       />
-      <div ref={contentRef} className="relative z-50 w-full max-w-lg mx-4 animate-fade-in">
+      <div
+        ref={contentRef}
+        onAnimationEnd={onContentAnimEnd}
+        className={cn(
+          "relative z-50 w-full max-w-lg mx-4",
+          closing ? "animate-pop-out" : "animate-fade-in",
+        )}
+      >
         {children}
       </div>
     </div>

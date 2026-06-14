@@ -1,6 +1,7 @@
 import {
   type ReactNode,
   type MouseEvent,
+  type AnimationEvent,
   useCallback,
   useEffect,
   useRef,
@@ -95,7 +96,8 @@ export function Drawer({
     });
   }, [mounted]);
 
-  const onPanelAnimEnd = () => {
+  const onPanelAnimEnd = (e: AnimationEvent) => {
+    if (e.target !== e.currentTarget) return; // ignore bubbled child animations
     if (closing) {
       setMounted(false);
       setClosing(false);

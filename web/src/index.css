@@ -145,6 +145,15 @@ a, button, [role="tab"], input, select {
   animation: fade-out var(--duration-fast) ease both;
 }
 
+/* Modal/popover exit — fade + slight scale-down (mirror of the fade-in enter). */
+@keyframes pop-out {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(0.98); }
+}
+.animate-pop-out {
+  animation: pop-out var(--duration-fast) var(--ease-out) both;
+}
+
 /* Honor the OS reduced-motion setting — collapse every animation/transition to
    an instant so the UI stays legible without movement. */
 @media (prefers-reduced-motion: reduce) {
