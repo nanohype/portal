@@ -322,7 +322,7 @@ function TemplateAccessSection({ templateID }: { templateID: string }) {
         { params: { path: { templateID } } },
       );
       if (error) throw error;
-      return data!;
+      return data?.data ?? [];
     },
   });
 
@@ -331,7 +331,7 @@ function TemplateAccessSection({ templateID }: { templateID: string }) {
     queryFn: async () => {
       const { data, error } = await api.GET("/teams");
       if (error) throw error;
-      return data!;
+      return data?.data ?? [];
     },
   });
 

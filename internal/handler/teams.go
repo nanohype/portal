@@ -67,7 +67,7 @@ func (h *TeamHandler) List(w http.ResponseWriter, r *http.Request) {
 			respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to list teams")
 			return
 		}
-		respond.JSON(w, http.StatusOK, teams)
+		respond.List(w, teams)
 		return
 	}
 
@@ -77,7 +77,7 @@ func (h *TeamHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respond.JSON(w, http.StatusOK, teams)
+	respond.List(w, teams)
 }
 
 func (h *TeamHandler) Create(w http.ResponseWriter, r *http.Request) {
@@ -176,7 +176,7 @@ func (h *TeamHandler) ListMembers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respond.JSON(w, http.StatusOK, members)
+	respond.List(w, members)
 }
 
 func (h *TeamHandler) AddMember(w http.ResponseWriter, r *http.Request) {
@@ -315,7 +315,7 @@ func (h *TeamHandler) ListWorkspaceAccess(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	respond.JSON(w, http.StatusOK, access)
+	respond.List(w, access)
 }
 
 func (h *TeamHandler) SetWorkspaceAccess(w http.ResponseWriter, r *http.Request) {

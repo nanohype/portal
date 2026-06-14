@@ -29,7 +29,7 @@ export function AccessPanel({ workspaceId }: Props) {
         }
       );
       if (error) throw error;
-      return data;
+      return data?.data ?? [];
     },
   });
 
@@ -38,7 +38,7 @@ export function AccessPanel({ workspaceId }: Props) {
     queryFn: async () => {
       const { data, error } = await api.GET("/teams");
       if (error) throw error;
-      return data;
+      return data?.data ?? [];
     },
     enabled: showForm,
   });

@@ -39,7 +39,7 @@ func (h *OrgVariableHandler) List(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	respond.JSON(w, http.StatusOK, vars)
+	respond.List(w, vars)
 }
 
 func (h *OrgVariableHandler) Create(w http.ResponseWriter, r *http.Request) {

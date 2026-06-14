@@ -32,7 +32,7 @@ export function ApprovalPanel({ workspaceId, runId, runStatus }: Props) {
         }
       );
       if (error) throw error;
-      return data;
+      return data?.data ?? [];
     },
   });
 

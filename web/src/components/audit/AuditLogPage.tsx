@@ -19,7 +19,7 @@ export function AuditLogPage() {
         params: { query: { page, per_page: 50 } },
       });
       if (error) throw error;
-      return data;
+      return data?.data ?? [];
     },
   });
 

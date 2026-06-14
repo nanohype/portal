@@ -30,7 +30,7 @@ func (h *UserHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respond.JSON(w, http.StatusOK, users)
+	respond.List(w, users)
 }
 
 type UpdateRoleRequest struct {

@@ -78,7 +78,7 @@ func (h *TemplateHandler) List(w http.ResponseWriter, r *http.Request) {
 		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to list templates")
 		return
 	}
-	respond.JSON(w, http.StatusOK, templates)
+	respond.List(w, templates)
 }
 
 func (h *TemplateHandler) Get(w http.ResponseWriter, r *http.Request) {
@@ -249,7 +249,7 @@ func (h *TemplateHandler) ListAccess(w http.ResponseWriter, r *http.Request) {
 		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to list access")
 		return
 	}
-	respond.JSON(w, http.StatusOK, access)
+	respond.List(w, access)
 }
 
 type GrantTemplateAccessRequest struct {

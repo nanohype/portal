@@ -308,7 +308,7 @@ func (h *TenantHandler) ListAccess(w http.ResponseWriter, r *http.Request) {
 		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to list access")
 		return
 	}
-	respond.JSON(w, http.StatusOK, access)
+	respond.List(w, access)
 }
 
 type GrantTenantAccessRequest struct {
@@ -391,7 +391,7 @@ func (h *TenantHandler) Operations(w http.ResponseWriter, r *http.Request) {
 		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to list tenant operations")
 		return
 	}
-	respond.JSON(w, http.StatusOK, ops)
+	respond.List(w, ops)
 }
 
 func toAny[T any](xs []T) []any {

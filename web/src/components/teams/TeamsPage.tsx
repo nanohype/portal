@@ -28,7 +28,7 @@ export function TeamsPage() {
     queryFn: async () => {
       const { data, error } = await api.GET("/teams");
       if (error) throw error;
-      return data;
+      return data?.data ?? [];
     },
   });
 
@@ -190,7 +190,7 @@ function TeamDetail({
         params: { path: { teamId: team.id } },
       });
       if (error) throw error;
-      return data;
+      return data?.data ?? [];
     },
   });
 
@@ -209,7 +209,7 @@ function TeamDetail({
     queryFn: async () => {
       const { data, error } = await api.GET("/users");
       if (error) throw error;
-      return data as User[];
+      return data?.data ?? [];
     },
     enabled: showAddMember,
   });

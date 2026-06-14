@@ -72,7 +72,7 @@ func (h *VariableHandler) List(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	respond.JSON(w, http.StatusOK, vars)
+	respond.List(w, vars)
 }
 
 func (h *VariableHandler) Create(w http.ResponseWriter, r *http.Request) {

@@ -105,7 +105,7 @@ func (h *ClusterOrderHandler) Operations(w http.ResponseWriter, r *http.Request)
 		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to list cluster operations")
 		return
 	}
-	respond.JSON(w, http.StatusOK, ops)
+	respond.List(w, ops)
 }
 
 // List returns recent cluster operations across the org — the Clusters-tab
@@ -118,5 +118,5 @@ func (h *ClusterOrderHandler) List(w http.ResponseWriter, r *http.Request) {
 		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to list cluster operations")
 		return
 	}
-	respond.JSON(w, http.StatusOK, ops)
+	respond.List(w, ops)
 }

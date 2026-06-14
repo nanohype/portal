@@ -665,7 +665,7 @@ export interface paths {
   "/users": {
     get: {
       responses: {
-        200: { content: { "application/json": User[] } };
+        200: { content: { "application/json": ListResponse<User> } };
       };
     };
   };
@@ -684,14 +684,14 @@ export interface paths {
     get: {
       parameters: { query?: { page?: number; per_page?: number } };
       responses: {
-        200: { content: { "application/json": AuditLog[] } };
+        200: { content: { "application/json": ListResponse<AuditLog> } };
       };
     };
   };
   "/variables": {
     get: {
       responses: {
-        200: { content: { "application/json": OrgVariable[] } };
+        200: { content: { "application/json": ListResponse<OrgVariable> } };
       };
     };
     post: {
@@ -826,14 +826,14 @@ export interface paths {
   "/ops/feed": {
     get: {
       responses: {
-        200: { content: { "application/json": OpsFeedItem[] } };
+        200: { content: { "application/json": ListResponse<OpsFeedItem> } };
       };
     };
   };
   "/cluster-orders": {
     get: {
       responses: {
-        200: { content: { "application/json": ClusterOperation[] } };
+        200: { content: { "application/json": ListResponse<ClusterOperation> } };
       };
     };
     post: {
@@ -885,14 +885,14 @@ export interface paths {
     get: {
       parameters: { path: { tenantId: string } };
       responses: {
-        200: { content: { "application/json": TenantOperation[] } };
+        200: { content: { "application/json": ListResponse<TenantOperation> } };
       };
     };
   };
   "/templates": {
     get: {
       responses: {
-        200: { content: { "application/json": Template[] } };
+        200: { content: { "application/json": ListResponse<Template> } };
       };
     };
     post: {
@@ -927,7 +927,7 @@ export interface paths {
     get: {
       parameters: { path: { templateID: string } };
       responses: {
-        200: { content: { "application/json": TemplateTeamAccess[] } };
+        200: { content: { "application/json": ListResponse<TemplateTeamAccess> } };
       };
     };
     post: {
@@ -950,7 +950,7 @@ export interface paths {
     get: {
       parameters: { path: { tenantId: string } };
       responses: {
-        200: { content: { "application/json": TenantTeamAccess[] } };
+        200: { content: { "application/json": ListResponse<TenantTeamAccess> } };
       };
     };
     post: {
@@ -973,7 +973,7 @@ export interface paths {
     get: {
       parameters: { query?: { member_of?: "me" } };
       responses: {
-        200: { content: { "application/json": Team[] } };
+        200: { content: { "application/json": ListResponse<Team> } };
       };
     };
     post: {
@@ -1001,7 +1001,7 @@ export interface paths {
     get: {
       parameters: { path: { teamId: string } };
       responses: {
-        200: { content: { "application/json": TeamMember[] } };
+        200: { content: { "application/json": ListResponse<TeamMember> } };
       };
     };
     post: {
@@ -1114,7 +1114,7 @@ export interface paths {
       parameters: { path: { workspaceId: string } };
       responses: {
         200: {
-          content: { "application/json": WorkspaceVariable[] };
+          content: { "application/json": ListResponse<WorkspaceVariable> };
         };
       };
     };
@@ -1193,7 +1193,7 @@ export interface paths {
     get: {
       parameters: { path: { workspaceId: string } };
       responses: {
-        200: { content: { "application/json": StateVersion[] } };
+        200: { content: { "application/json": ListResponse<StateVersion> } };
       };
     };
   };
@@ -1265,7 +1265,7 @@ export interface paths {
     get: {
       parameters: { path: { workspaceId: string } };
       responses: {
-        200: { content: { "application/json": WorkspaceTeamAccess[] } };
+        200: { content: { "application/json": ListResponse<WorkspaceTeamAccess> } };
       };
     };
     post: {
@@ -1333,7 +1333,7 @@ export interface paths {
   "/pipelines": {
     get: {
       responses: {
-        200: { content: { "application/json": Pipeline[] } };
+        200: { content: { "application/json": ListResponse<Pipeline> } };
       };
     };
     post: {
@@ -1405,7 +1405,7 @@ export interface paths {
     get: {
       parameters: { path: { pipelineId: string } };
       responses: {
-        200: { content: { "application/json": PipelineVariable[] } };
+        200: { content: { "application/json": ListResponse<PipelineVariable> } };
       };
     };
     post: {
@@ -1458,7 +1458,7 @@ export interface paths {
     get: {
       parameters: { path: { workspaceId: string; runId: string } };
       responses: {
-        200: { content: { "application/json": Approval[] } };
+        200: { content: { "application/json": ListResponse<Approval> } };
       };
     };
     post: {

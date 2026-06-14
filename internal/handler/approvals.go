@@ -57,7 +57,7 @@ func (h *ApprovalHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respond.JSON(w, http.StatusOK, approvals)
+	respond.List(w, approvals)
 }
 
 func (h *ApprovalHandler) Create(w http.ResponseWriter, r *http.Request) {
