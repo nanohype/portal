@@ -355,7 +355,8 @@ func main() {
 	// Create River client
 	riverClient, err := river.NewClient[pgx.Tx](riverpgxv5.New(dbPool), &river.Config{
 		Queues: map[string]river.QueueConfig{
-			river.QueueDefault: {MaxWorkers: cfg.WorkerConcurrency},
+			river.QueueDefault:    {MaxWorkers: cfg.WorkerConcurrency},
+			worker.ReconcileQueue: {MaxWorkers: cfg.WorkerReconcileConcurrency},
 		},
 		Workers:      workers,
 		ErrorHandler: &jobErrorHandler{logger: logger},

@@ -53,9 +53,13 @@ type Config struct {
 	// VCS Webhooks
 	WebhookSecret string `env:"WEBHOOK_SECRET"`
 
-	// Worker
-	WorkerConcurrency int    `env:"WORKER_CONCURRENCY" envDefault:"10"`
-	WorkerHealthAddr  string `env:"WORKER_HEALTH_ADDR" envDefault:":8081"`
+	// Worker. WorkerConcurrency bounds simultaneous tofu runs on the default
+	// queue; WorkerReconcileConcurrency bounds the separate reconcile queue
+	// (per-cluster watch jobs) so the two can be tuned independently and never
+	// starve each other.
+	WorkerConcurrency          int    `env:"WORKER_CONCURRENCY" envDefault:"10"`
+	WorkerReconcileConcurrency int    `env:"WORKER_RECONCILE_CONCURRENCY" envDefault:"8"`
+	WorkerHealthAddr           string `env:"WORKER_HEALTH_ADDR" envDefault:":8081"`
 
 	// Executor
 	ExecutorType        string `env:"EXECUTOR_TYPE" envDefault:"local"` // "local" or "kubernetes"

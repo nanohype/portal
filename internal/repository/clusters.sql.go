@@ -259,11 +259,13 @@ type ClusterHealthTarget struct {
 // independent of connection status (the ArgoCD Application lives on the hub, not
 // the spoke, so a cluster portal can't reach can still report ArgoCD health).
 func (q *Queries) ListClusterHealthTargets(ctx context.Context) ([]ClusterHealthTarget, error) {
+	// Cap kept in sync with clusterHealthTargetCap so the watcher can warn when
+	// it's hit rather than silently dropping clusters from the sweep.
 	rows, err := q.db.Query(ctx,
 		`SELECT id, org_id, account_id, name, environment, region, auth_mode, eks_cluster_name
 		FROM clusters
 		ORDER BY created_at DESC
-		LIMIT 1000`,
+		LIMIT 10000`,
 	)
 	if err != nil {
 		return nil, err

@@ -20,6 +20,11 @@ import (
 // wall-clock flat as cluster count grows without hammering the hub API or STS.
 const clusterHealthConcurrency = 12
 
+// clusterHealthTargetCap mirrors the LIMIT in ListClusterHealthTargets. It's a
+// generous ceiling for the "many clusters, not hyperscale" target; if a sweep
+// ever hits it, log loudly rather than silently dropping clusters.
+const clusterHealthTargetCap = 10000
+
 // ClusterHealthService is the steady-state per-cluster health projector. Running
 // in-cluster on the hub, every tick it reads — for each registered cluster — the
 // per-cluster ArgoCD Application on the hub (cluster-<environment>-<name>, the
@@ -55,6 +60,10 @@ func (s *ClusterHealthService) Sync(ctx context.Context) (int, error) {
 	targets, err := s.queries.ListClusterHealthTargets(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("list cluster health targets: %w", err)
+	}
+	if len(targets) >= clusterHealthTargetCap {
+		slog.Warn("cluster health sweep hit the target cap; some clusters may be unwatched",
+			"cap", clusterHealthTargetCap)
 	}
 	// Per-cluster work is independent and I/O-bound, so fan out with a bounded
 	// pool instead of a serial pass — wall-clock no longer grows linearly with
