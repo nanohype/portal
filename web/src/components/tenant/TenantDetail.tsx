@@ -55,7 +55,7 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
         { params: { path: { tenantId } } },
       );
       if (error) throw error;
-      return data!;
+      return data?.data ?? [];
     },
     // Operations refresh more aggressively than the tenant itself — the
     // worker transitions a row pending→committed in under a second after
@@ -192,7 +192,7 @@ function AccessPanel({ tenantId }: { tenantId: string }) {
         params: { path: { tenantId } },
       });
       if (error) throw error;
-      return data!;
+      return data?.data ?? [];
     },
   });
 
@@ -201,7 +201,7 @@ function AccessPanel({ tenantId }: { tenantId: string }) {
     queryFn: async () => {
       const { data, error } = await api.GET("/teams");
       if (error) throw error;
-      return data!;
+      return data?.data ?? [];
     },
   });
 

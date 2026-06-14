@@ -42,7 +42,7 @@ func (h *PipelineHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respond.JSON(w, http.StatusOK, pipelines)
+	respond.List(w, pipelines)
 }
 
 func (h *PipelineHandler) Create(w http.ResponseWriter, r *http.Request) {

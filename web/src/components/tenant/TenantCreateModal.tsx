@@ -65,7 +65,7 @@ export function TenantCreateModal({
     queryFn: async () => {
       const { data, error } = await api.GET("/templates");
       if (error) throw error;
-      return data!;
+      return data?.data ?? [];
     },
     enabled: open,
   });
@@ -80,7 +80,7 @@ export function TenantCreateModal({
         params: isAdmin ? {} : { query: { member_of: "me" } },
       });
       if (error) throw error;
-      return data!;
+      return data?.data ?? [];
     },
     enabled: open,
   });

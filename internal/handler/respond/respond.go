@@ -48,6 +48,24 @@ func NoContent(w http.ResponseWriter) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// List writes a collection as the standard ListResponse envelope so every
+// list endpoint has one shape (data/total/page/per_page) and the frontend
+// never has to guess bare-array vs envelope. Use it for endpoints that return
+// the whole collection; a nil slice serializes as [] rather than null. For
+// genuinely server-paginated endpoints, construct ListResponse directly with
+// the real page/per_page/total instead.
+func List[T any](w http.ResponseWriter, items []T) {
+	if items == nil {
+		items = []T{}
+	}
+	JSON(w, http.StatusOK, ListResponse[T]{
+		Data:    items,
+		Total:   int64(len(items)),
+		Page:    1,
+		PerPage: len(items),
+	})
+}
+
 // FromError maps a service-layer error to a status code in one place so the same
 // failure stops being a 404 in one handler and a 500 in another. A bare
 // pgx.ErrNoRows (an org-scoped query that found nothing) is a 404; an

@@ -28,5 +28,5 @@ func (h *OpsHandler) Feed(w http.ResponseWriter, r *http.Request) {
 		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to load operations feed")
 		return
 	}
-	respond.JSON(w, http.StatusOK, items)
+	respond.List(w, items)
 }

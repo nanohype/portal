@@ -31,7 +31,7 @@ export function PipelineList() {
     queryFn: async () => {
       const { data, error } = await api.GET("/pipelines");
       if (error) throw error;
-      return data!;
+      return data?.data ?? [];
     },
   });
 

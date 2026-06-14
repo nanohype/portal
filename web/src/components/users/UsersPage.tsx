@@ -34,7 +34,7 @@ export function UsersPage() {
     queryFn: async () => {
       const { data, error } = await api.GET("/users");
       if (error) throw error;
-      return data;
+      return data?.data ?? [];
     },
   });
 

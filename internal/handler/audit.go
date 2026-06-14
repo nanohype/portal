@@ -41,5 +41,5 @@ func (h *AuditHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respond.JSON(w, http.StatusOK, logs)
+	respond.List(w, logs)
 }

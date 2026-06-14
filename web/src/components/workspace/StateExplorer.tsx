@@ -71,7 +71,7 @@ export function StateExplorer({ workspaceId }: Props) {
         }
       );
       if (error) throw error;
-      return data;
+      return data?.data ?? [];
     },
   });
 

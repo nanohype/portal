@@ -279,7 +279,7 @@ function PipelineVariablesTab({ pipelineId }: { pipelineId: string }) {
         params: { path: { pipelineId } },
       });
       if (error) throw error;
-      return data!;
+      return data?.data ?? [];
     },
   });
 

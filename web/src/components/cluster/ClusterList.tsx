@@ -71,7 +71,7 @@ export function ClusterList() {
     queryFn: async () => {
       const { data, error } = await api.GET("/cluster-orders");
       if (error) throw error;
-      return data!;
+      return data?.data ?? [];
     },
     // Poll while anything is still moving: a pending op, or a committed
     // provision/deprovision still advancing on the hub. The in-cluster watcher

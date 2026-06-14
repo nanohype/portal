@@ -49,7 +49,7 @@ func (h *StateHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respond.JSON(w, http.StatusOK, versions)
+	respond.List(w, versions)
 }
 
 func (h *StateHandler) GetCurrent(w http.ResponseWriter, r *http.Request) {

@@ -43,7 +43,7 @@ export function OpsPage() {
     queryFn: async () => {
       const { data, error } = await api.GET("/ops/feed");
       if (error) throw error;
-      return data!;
+      return data?.data ?? [];
     },
     // Poll while anything across the org is still moving — the page is the only
     // thing polling, so it stops on nav.

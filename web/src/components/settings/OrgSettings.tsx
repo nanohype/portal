@@ -30,7 +30,7 @@ export function OrgSettings() {
     queryFn: async () => {
       const { data, error } = await api.GET("/variables");
       if (error) throw error;
-      return data!;
+      return data?.data ?? [];
     },
   });
 

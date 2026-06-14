@@ -92,7 +92,7 @@ export function VariablesPanel({ workspaceId }: Props) {
         { params: { path: { workspaceId } } }
       );
       if (error) throw error;
-      return data;
+      return data?.data ?? [];
     },
   });
 

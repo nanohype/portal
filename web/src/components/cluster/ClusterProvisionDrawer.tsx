@@ -121,7 +121,7 @@ export function ClusterProvisionDrawer({
     queryFn: async () => {
       const { data, error } = await api.GET("/cluster-orders");
       if (error) throw error;
-      return data!;
+      return data?.data ?? [];
     },
     enabled: orderedId !== null,
     refetchInterval: (query) => {
