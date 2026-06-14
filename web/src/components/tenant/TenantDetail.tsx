@@ -10,7 +10,11 @@ import { Spinner } from "@/components/ui/spinner";
 import { Link } from "@/components/ui/link";
 import { formatRelativeTime } from "@/lib/utils";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { tenantPhase, tenantOpStatus } from "@/lib/status";
+import {
+  tenantPhase,
+  tenantOpStatus,
+  isTenantPhaseTransitional,
+} from "@/lib/status";
 import {
   ArrowLeft,
   Boxes,
@@ -36,7 +40,11 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
       if (error) throw error;
       return data!;
     },
-    refetchInterval: 10000,
+    // Poll fast only while the tenant is still settling; otherwise back off.
+    refetchInterval: (query) =>
+      query.state.data && isTenantPhaseTransitional(query.state.data.phase)
+        ? 5000
+        : 30000,
   });
 
   const { data: operations } = useQuery({
