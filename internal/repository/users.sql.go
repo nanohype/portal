@@ -109,14 +109,15 @@ func (q *Queries) CountUsersByOrg(ctx context.Context, orgID string) (int64, err
 }
 
 type UpdateUserRoleParams struct {
-	ID   string `json:"id"`
-	Role string `json:"role"`
+	ID    string `json:"id"`
+	Role  string `json:"role"`
+	OrgID string `json:"org_id"`
 }
 
 func (q *Queries) UpdateUserRole(ctx context.Context, arg UpdateUserRoleParams) (User, error) {
 	row := q.db.QueryRow(ctx,
-		`UPDATE users SET role = $2, updated_at = NOW() WHERE id = $1 RETURNING `+userColumns,
-		arg.ID, arg.Role,
+		`UPDATE users SET role = $2, updated_at = NOW() WHERE id = $1 AND org_id = $3 RETURNING `+userColumns,
+		arg.ID, arg.Role, arg.OrgID,
 	)
 	return scanUser(row)
 }

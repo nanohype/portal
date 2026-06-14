@@ -401,7 +401,11 @@ func (s *Server) setupRouter() {
 
 								// Approvals
 								r.Get("/approvals", s.approvalHandler.List)
-								r.Post("/approvals", s.approvalHandler.Create)
+								// Approving releases a gated (typically prod) apply — same bar
+								// as ActionApplyProd. Without this a viewer could self-approve
+								// and trigger a real tofu apply.
+								r.With(auth.RequireAction(auth.ActionApplyProd)).
+									Post("/approvals", s.approvalHandler.Create)
 							})
 						})
 					})

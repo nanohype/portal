@@ -52,29 +52,32 @@ func (h *UserHandler) UpdateRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Load the target scoped to the caller's org. A cross-org target must 404
+	// (without this, an owner in org A could re-role any user in org B by ID);
+	// the owner-count guard below also needs the target's current role.
+	targetUser, err := h.queries.GetUser(r.Context(), targetUserID)
+	if err != nil || targetUser.OrgID != userCtx.OrgID {
+		respond.Error(w, http.StatusNotFound, "user not found")
+		return
+	}
+
 	// Prevent demoting the last owner
-	if req.Role != "owner" {
-		targetUser, err := h.queries.GetUser(r.Context(), targetUserID)
+	if req.Role != "owner" && targetUser.Role == "owner" {
+		ownerCount, err := h.queries.CountOwnersByOrg(r.Context(), userCtx.OrgID)
 		if err != nil {
-			respond.Error(w, http.StatusNotFound, "user not found")
+			respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to check owner count")
 			return
 		}
-		if targetUser.Role == "owner" {
-			ownerCount, err := h.queries.CountOwnersByOrg(r.Context(), userCtx.OrgID)
-			if err != nil {
-				respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to check owner count")
-				return
-			}
-			if ownerCount <= 1 {
-				respond.Error(w, http.StatusBadRequest, "cannot demote the last owner")
-				return
-			}
+		if ownerCount <= 1 {
+			respond.Error(w, http.StatusBadRequest, "cannot demote the last owner")
+			return
 		}
 	}
 
 	updated, err := h.queries.UpdateUserRole(r.Context(), repository.UpdateUserRoleParams{
-		ID:   targetUserID,
-		Role: req.Role,
+		ID:    targetUserID,
+		Role:  req.Role,
+		OrgID: userCtx.OrgID,
 	})
 	if err != nil {
 		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to update role")
