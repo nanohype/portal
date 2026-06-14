@@ -3,6 +3,8 @@ package service
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/nanohype/portal/internal/apperr"
 )
 
 // TestNonNullJSON guards the JSONB column default. The watcher hands us
@@ -112,4 +114,112 @@ func equalUnordered(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// TestCreateTenantInputValidate covers the tenant identity rules — a cluster is
+// required and the name must be an RFC-1123 label — and that failures carry
+// KindValidation so the handler maps them to 400.
+func TestCreateTenantInputValidate(t *testing.T) {
+	tests := []struct {
+		name    string
+		in      CreateTenantInput
+		wantErr bool
+	}{
+		{"valid", CreateTenantInput{ClusterID: "c1", Name: "my-tenant"}, false},
+		{"valid single char", CreateTenantInput{ClusterID: "c1", Name: "a"}, false},
+		{"missing cluster", CreateTenantInput{Name: "my-tenant"}, true},
+		{"empty name", CreateTenantInput{ClusterID: "c1", Name: ""}, true},
+		{"uppercase name", CreateTenantInput{ClusterID: "c1", Name: "MyTenant"}, true},
+		{"leading hyphen", CreateTenantInput{ClusterID: "c1", Name: "-bad"}, true},
+		{"trailing hyphen", CreateTenantInput{ClusterID: "c1", Name: "bad-"}, true},
+		{"underscore", CreateTenantInput{ClusterID: "c1", Name: "bad_name"}, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.in.Validate()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("Validate() = nil, want error")
+				}
+				if apperr.KindOf(err) != apperr.KindValidation {
+					t.Errorf("Validate() kind = %v, want KindValidation", apperr.KindOf(err))
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("Validate() = %v, want nil", err)
+			}
+		})
+	}
+}
+
+// TestResolveOwningTeam covers the four-way owning-team rule and that the
+// bad-input cases surface as KindValidation.
+func TestResolveOwningTeam(t *testing.T) {
+	tests := []struct {
+		name      string
+		isAdmin   bool
+		owning    string
+		userTeams []string
+		want      string
+		wantErr   bool
+	}{
+		{"admin omits", true, "", nil, "", false},
+		{"admin explicit (even outside teams)", true, "t9", nil, "t9", false},
+		{"non-admin sole team defaults", false, "", []string{"t1"}, "t1", false},
+		{"non-admin explicit own team", false, "t2", []string{"t1", "t2"}, "t2", false},
+		{"non-admin zero teams", false, "", nil, "", true},
+		{"non-admin multi no pick", false, "", []string{"t1", "t2"}, "", true},
+		{"non-admin pick not a member", false, "t9", []string{"t1", "t2"}, "", true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := ResolveOwningTeam(tc.isAdmin, tc.owning, tc.userTeams)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("ResolveOwningTeam() = nil err, want error")
+				}
+				if apperr.KindOf(err) != apperr.KindValidation {
+					t.Errorf("kind = %v, want KindValidation", apperr.KindOf(err))
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ResolveOwningTeam() unexpected err: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("ResolveOwningTeam() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestForcePlatformIdentity asserts the security invariant: platform.name is
+// always the tenant name even when the caller's blob set a different one, and
+// platform.tenant defaults to the name only when unset.
+func TestForcePlatformIdentity(t *testing.T) {
+	t.Run("adds platform when absent", func(t *testing.T) {
+		v := map[string]interface{}{}
+		forcePlatformIdentity(v, "alpha")
+		pf := v["platform"].(map[string]interface{})
+		if pf["name"] != "alpha" || pf["tenant"] != "alpha" {
+			t.Errorf("got %v, want name+tenant=alpha", pf)
+		}
+	})
+	t.Run("overrides a divergent name", func(t *testing.T) {
+		v := map[string]interface{}{"platform": map[string]interface{}{"name": "evil-other"}}
+		forcePlatformIdentity(v, "alpha")
+		pf := v["platform"].(map[string]interface{})
+		if pf["name"] != "alpha" {
+			t.Errorf("name = %v, want forced to alpha", pf["name"])
+		}
+	})
+	t.Run("preserves an explicit tenant", func(t *testing.T) {
+		v := map[string]interface{}{"platform": map[string]interface{}{"tenant": "shared"}}
+		forcePlatformIdentity(v, "alpha")
+		pf := v["platform"].(map[string]interface{})
+		if pf["name"] != "alpha" || pf["tenant"] != "shared" {
+			t.Errorf("got name=%v tenant=%v, want name=alpha tenant=shared", pf["name"], pf["tenant"])
+		}
+	})
 }

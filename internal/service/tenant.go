@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -11,6 +12,8 @@ import (
 	"github.com/oklog/ulid/v2"
 	"github.com/riverqueue/river"
 
+	"github.com/nanohype/portal/internal/apperr"
+	"github.com/nanohype/portal/internal/clusterspec"
 	"github.com/nanohype/portal/internal/repository"
 	"github.com/nanohype/portal/internal/worker"
 )
@@ -148,19 +151,107 @@ func nonNullJSON(b json.RawMessage) json.RawMessage {
 	return b
 }
 
-// EnqueueCreate records a "portal wants this tenant to exist" intent and
-// schedules the worker job that will render the chart + commit to git. The
-// returned TenantOperation row carries id=pending until the worker
-// transitions it. Idempotency lives at the worker — repeated create
-// commits with identical content are no-ops because git status will be
-// clean and Commit() returns ("", nil) in that case.
+// CreateTenantInput is the validated shape of a tenant-create request plus the
+// caller context needed to authorize it. Validate() + EnqueueCreate own the
+// tenant identity rules so no handler can skip them.
+type CreateTenantInput struct {
+	OrgID        string
+	ClusterID    string
+	Name         string
+	TemplateID   string // optional; recorded on the operation row
+	OwningTeamID string
+	CreatedBy    string
+	Values       map[string]interface{}
+}
+
+// Normalize trims the identity fields and defaults the values blob so an empty
+// body still renders. Call before Validate / template-apply.
+func (in *CreateTenantInput) Normalize() {
+	in.ClusterID = strings.TrimSpace(in.ClusterID)
+	in.Name = strings.TrimSpace(in.Name)
+	in.OwningTeamID = strings.TrimSpace(in.OwningTeamID)
+	if in.Values == nil {
+		in.Values = map[string]interface{}{}
+	}
+}
+
+// Validate enforces the tenant identity rules: a cluster is required and the
+// name must be a valid RFC-1123 label — it becomes a k8s resource name and a
+// filename in the tenants repo. Returns apperr.Validation so the handler maps
+// it to 400 via respond.FromError.
+func (in CreateTenantInput) Validate() error {
+	if in.ClusterID == "" {
+		return apperr.Validation("cluster_id is required")
+	}
+	if !clusterspec.ValidName(in.Name) {
+		return apperr.Validation("name must be a valid Kubernetes name (lowercase alphanumeric + hyphen, 1-63 chars)")
+	}
+	return nil
+}
+
+// ResolveOwningTeam picks the team that will own a new tenant and authorizes the
+// caller's choice. An admin may omit it (no ownership = admin-only visibility).
+// A non-admin defaults to their sole team, must name one when in several, and
+// can only name a team they belong to. Bad-input cases return apperr.Validation.
+func ResolveOwningTeam(isAdmin bool, owningTeamID string, userTeams []string) (string, error) {
+	if isAdmin {
+		return owningTeamID, nil
+	}
+	switch {
+	case len(userTeams) == 0:
+		return "", apperr.Validation("you must belong to a team before creating tenants")
+	case owningTeamID == "" && len(userTeams) == 1:
+		return userTeams[0], nil
+	case owningTeamID == "":
+		return "", apperr.Validation("owning_team_id is required when you belong to multiple teams")
+	default:
+		for _, t := range userTeams {
+			if t == owningTeamID {
+				return owningTeamID, nil
+			}
+		}
+		return "", apperr.Validation("owning_team_id must be a team you belong to")
+	}
+}
+
+// forcePlatformIdentity stamps the authoritative tenant identity onto the values
+// blob: platform.name is always the validated tenant name (the operator derives
+// the namespace / IRSA boundary / git path from it, so it must never diverge),
+// and platform.tenant defaults to the same name when unset. A caller-supplied
+// blob can't point the rendered Platform at another tenant's name.
+func forcePlatformIdentity(values map[string]interface{}, name string) {
+	pf, _ := values["platform"].(map[string]interface{})
+	if pf == nil {
+		pf = map[string]interface{}{}
+		values["platform"] = pf
+	}
+	pf["name"] = name
+	if t, _ := pf["tenant"].(string); t == "" {
+		pf["tenant"] = name
+	}
+}
+
+// EnqueueCreate validates the input, forces the authoritative Platform identity
+// onto the values blob, records a "portal wants this tenant to exist" intent,
+// and schedules the worker job that renders the chart + commits to git. The
+// returned TenantOperation carries status=pending until the worker transitions
+// it. Idempotency lives at the worker — repeated create commits with identical
+// content are no-ops because git status stays clean.
 //
-// `templateID` is optional — when non-empty it gets recorded on the
-// operation row so audit history shows which curated template the tenant
-// came from. The handler is responsible for ApplyToValues-ing the template
-// before reaching this layer; the service trusts the values it gets.
-func (s *TenantService) EnqueueCreate(ctx context.Context, orgID, clusterID, name, templateID, createdBy string, values map[string]interface{}) (repository.TenantOperation, error) {
-	return s.enqueue(ctx, orgID, clusterID, name, "create", templateID, createdBy, values)
+// Validation runs before the DB write so a bad form never creates a dangling
+// operation row (mirrors ClusterOrderService.EnqueueProvision). The caller
+// ApplyToValues-es any referenced template before this layer; the service
+// trusts the merged values but always re-forces platform.name/platform.tenant.
+func (s *TenantService) EnqueueCreate(ctx context.Context, in CreateTenantInput) (repository.TenantOperation, error) {
+	if err := in.Validate(); err != nil {
+		return repository.TenantOperation{}, err
+	}
+	values := in.Values
+	if values == nil {
+		values = map[string]interface{}{}
+	}
+	forcePlatformIdentity(values, in.Name)
+	return s.enqueue(ctx, in.OrgID, in.ClusterID, in.Name, "create", in.TemplateID, in.CreatedBy, values)
 }
 
 // EnqueueDelete is the symmetric operation: records intent to remove a

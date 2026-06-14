@@ -84,6 +84,11 @@ func (in Input) Validate() error {
 	return nil
 }
 
+// ValidName reports whether s is a valid RFC-1123 label — the shape Kubernetes
+// requires for names that become resource names / namespaces. Exported so the
+// tenant write-path shares this one rule instead of re-declaring the regex.
+func ValidName(s string) bool { return k8sName.MatchString(s) }
+
 // EffectiveEnvironment is the environment after defaulting — also the GitOps
 // path segment (clusters/<environment>/<name>.yaml).
 func (in Input) EffectiveEnvironment() string {
