@@ -87,20 +87,82 @@ tofu output            # spoke_role_arn, external_id
 
 ## 2. Deploy portal on the hub
 
-Build + push portal's images to a registry the hub can pull (or use your release
-images), then install the chart with IRSA + the state bucket + the watchers on.
-`values-hub.yaml`:
+Three things to wire: **(2a)** the container images, **(2b)** the clusters GitOps
+repo portal vends through, **(2c)** the chart itself.
+
+### 2a. Build + push the images
+
+Portal publishes no images — build the four and push them to **ECR in the hub
+account** (the node role pulls from ECR with no imagePullSecret). Build **arm64** —
+the hub's system nodes are Graviton:
+
+```bash
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+REGION=us-west-2
+ECR="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
+TAG=$(git rev-parse --short HEAD)
+
+aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$ECR"
+for r in server worker web migrate; do
+  aws ecr create-repository --repository-name "portal/$r" --region "$REGION" >/dev/null 2>&1 || true
+  docker buildx build --platform linux/arm64 -f "docker/Dockerfile.$r" -t "$ECR/portal/$r:$TAG" --push .
+done
+echo "pushed $ECR/portal/{server,worker,web,migrate}:$TAG"
+```
+
+> Build amd64 by mistake (plain `docker build` on an Intel host) and the pods
+> `CrashLoop` with an exec-format error on the arm64 nodes. `kubectl get nodes -o wide`
+> confirms node arch.
+
+### 2b. Wire the clusters GitOps repo
+
+Portal vends git-only: the worker commits a `Cluster` CR to `nanohype/clusters`, and
+the hub's ArgoCD applies it. That needs **two deploy keys** on that repo (a GitHub key
+can be a deploy key on only one repo, so write and read are separate) plus the
+ApplicationSet that reconciles the CRs.
+
+```bash
+# (i) WRITE key — portal's worker pushes the CR (no passphrase: go-git reads the file directly)
+ssh-keygen -t ed25519 -f ~/.ssh/portal-clusters-rw -N "" -C "portal-clusters-rw"
+gh repo deploy-key add ~/.ssh/portal-clusters-rw.pub --repo nanohype/clusters --title portal-clusters-rw --allow-write
+
+# (ii) READ key — the hub's ArgoCD pulls the CR
+ssh-keygen -t ed25519 -f ~/.ssh/portal-clusters-ro -N "" -C "argocd-clusters-ro"
+gh repo deploy-key add ~/.ssh/portal-clusters-ro.pub --repo nanohype/clusters --title argocd-clusters-ro
+
+# (iii) register the READ key + apply the appset on the hub (run against the hub context):
+kubectl create secret generic clusters-repo -n argocd \
+  --from-literal=type=git \
+  --from-literal=url=git@github.com:nanohype/clusters.git \
+  --from-file=sshPrivateKey="$HOME/.ssh/portal-clusters-ro"
+kubectl label secret clusters-repo -n argocd argocd.argoproj.io/secret-type=repository
+kubectl apply -f eks-gitops/applicationsets/clusters-appset.yaml
+```
+
+> Without the read cred + appset, portal pushes the CR to GitHub and **nothing
+> vends**. The appset needs the `platform` AppProject — the hub's cluster-bootstrap
+> already created it (`kubectl get appproject platform -n argocd` to confirm).
+
+### 2c. Install the chart
+
+The **WRITE** key (`~/.ssh/portal-clusters-rw`) is portal's `SSH_KEY_PATH` /
+`gitops.sshKey`; the images are the ECR refs from 2a. Install with IRSA + the state
+bucket + the watchers on. Create `values-hub.yaml` — a file you author (it's **not**
+in the repo), and **keep it out of git**: it holds the write deploy key + secrets.
+Put it wherever you run `helm` (the portal repo root → `helm … -f values-hub.yaml`),
+or pass an absolute path. The `task hub:install` path below skips this file
+entirely (the key goes via `SSH_KEY_PATH`, secrets via `EXTRA_ARGS`).
 
 ```yaml
 config:
   environment: production          # real GitHub OAuth + non-default secrets
   # set jwtSecret, encryptionKey (32 bytes), githubClientID/Secret
 
-image:                             # point at your pushed images
-  server: { repository: <registry>/portal/server, tag: <tag> }
-  worker: { repository: <registry>/portal/worker, tag: <tag> }
-  web:    { repository: <registry>/portal/web,    tag: <tag> }
-  migrate:{ repository: <registry>/portal/migrate,tag: <tag> }
+image:                             # the ECR refs from 2a ($ECR/portal/<svc>:$TAG)
+  server: { repository: <ECR>/portal/server, tag: <TAG> }
+  worker: { repository: <ECR>/portal/worker, tag: <TAG> }
+  web:    { repository: <ECR>/portal/web,    tag: <TAG> }
+  migrate:{ repository: <ECR>/portal/migrate,tag: <TAG> }
 
 serviceAccount:
   roleArn: <hub_role_arn>          # IRSA — the worker assumes spokes + uses S3
@@ -115,7 +177,7 @@ objectStore:
 gitops:
   clustersRepoURL: "git@github.com:nanohype/clusters.git"
   sshKey: |
-    <clusters-repo WRITE deploy key — keep out of git>
+    <contents of ~/.ssh/portal-clusters-rw — the WRITE key from 2b; keep out of git>
 
 clusterWatchback: { enabled: true, interval: "30s" }
 clusterHealth:    { enabled: true, interval: "60s" }
@@ -139,9 +201,14 @@ STATE_BUCKET=$(cd ../landing-zone/components/aws/portal-hub && tofu output -raw 
 
 task hub:install \
   ROLE_ARN="$ROLE_ARN" STATE_BUCKET="$STATE_BUCKET" REGION=us-west-2 NAMESPACE=portal \
-  CLUSTERS_REPO_URL=git@github.com:nanohype/clusters.git SSH_KEY_PATH=<deploy-key path>
-# ENVIRONMENT defaults to development (dev-login). For production pass
-# ENVIRONMENT=production plus the secrets via EXTRA_ARGS='--set config.jwtSecret=... -f secrets.yaml'.
+  CLUSTERS_REPO_URL=git@github.com:nanohype/clusters.git \
+  SSH_KEY_PATH="$HOME/.ssh/portal-clusters-rw" \
+  EXTRA_ARGS="$(for r in server worker web migrate; do \
+    printf -- '--set image.%s.repository=%s/portal/%s --set image.%s.tag=%s ' "$r" "$ECR" "$r" "$r" "$TAG"; done)"
+# SSH_KEY_PATH = the WRITE key from 2b; the EXTRA_ARGS loop points all four images at
+# your ECR refs from 2a (reuses $ECR/$TAG from that step's shell).
+# ENVIRONMENT defaults to development (dev-login). For production add
+# ENVIRONMENT=production + the secrets to EXTRA_ARGS ('--set config.jwtSecret=... -f secrets.yaml').
 ```
 
 > Leave `objectStore.accessKey/secretKey` empty (the task does): portal's S3
