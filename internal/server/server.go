@@ -172,7 +172,8 @@ func (s *Server) setupRouter() {
 		wsOrigins = append(wsOrigins, "http://localhost:5173")
 	}
 	runHandler := handler.NewRunHandler(s.runSvc, workspaceSvc, streamer, auditSvc, wsOrigins, store)
-	variableHandler := handler.NewVariableHandler(queries, encryptor, auditSvc, workspaceSvc, store)
+	discoverySvc := service.NewDiscoveryService(queries, store)
+	variableHandler := handler.NewVariableHandler(queries, encryptor, auditSvc, workspaceSvc, discoverySvc, store)
 	teamHandler := handler.NewTeamHandler(queries, auditSvc)
 	stateHandler := handler.NewStateHandler(queries, store, auditSvc)
 	s.approvalHandler = handler.NewApprovalHandler(queries, s.db, auditSvc)

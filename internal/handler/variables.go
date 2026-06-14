@@ -1,20 +1,10 @@
 package handler
 
 import (
-	"archive/tar"
-	"bytes"
-	"compress/gzip"
-	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"log/slog"
 	"net/http"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/oklog/ulid/v2"
@@ -25,7 +15,6 @@ import (
 	"github.com/nanohype/portal/internal/secrets"
 	"github.com/nanohype/portal/internal/service"
 	"github.com/nanohype/portal/internal/storage"
-	"github.com/nanohype/portal/internal/tfparse"
 	"github.com/nanohype/portal/internal/tfstate"
 )
 
@@ -34,11 +23,12 @@ type VariableHandler struct {
 	encryptor    *secrets.Encryptor
 	auditSvc     *service.AuditService
 	workspaceSvc *service.WorkspaceService
+	discoverySvc *service.DiscoveryService
 	storage      *storage.S3Storage
 }
 
-func NewVariableHandler(queries *repository.Queries, encryptor *secrets.Encryptor, auditSvc *service.AuditService, workspaceSvc *service.WorkspaceService, store *storage.S3Storage) *VariableHandler {
-	return &VariableHandler{queries: queries, encryptor: encryptor, auditSvc: auditSvc, workspaceSvc: workspaceSvc, storage: store}
+func NewVariableHandler(queries *repository.Queries, encryptor *secrets.Encryptor, auditSvc *service.AuditService, workspaceSvc *service.WorkspaceService, discoverySvc *service.DiscoveryService, store *storage.S3Storage) *VariableHandler {
+	return &VariableHandler{queries: queries, encryptor: encryptor, auditSvc: auditSvc, workspaceSvc: workspaceSvc, discoverySvc: discoverySvc, storage: store}
 }
 
 type CreateVariableRequest struct {
@@ -235,330 +225,25 @@ func (h *VariableHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	respond.NoContent(w)
 }
 
-type DiscoverVariableResponse struct {
-	Name         string  `json:"name"`
-	Type         string  `json:"type,omitempty"`
-	Description  string  `json:"description,omitempty"`
-	Default      *string `json:"default,omitempty"`
-	Required     bool    `json:"required"`
-	Configured   bool    `json:"configured"`
-	ConfiguredBy string  `json:"configured_by,omitempty"` // "terragrunt" | "portal"
-}
-
 func (h *VariableHandler) Discover(w http.ResponseWriter, r *http.Request) {
 	userCtx := auth.GetUser(r.Context())
 	workspaceID := chi.URLParam(r, "workspaceID")
 
 	ws, err := h.workspaceSvc.Get(r.Context(), workspaceID, userCtx.OrgID)
 	if err != nil {
-		respond.Error(w, http.StatusNotFound, "workspace not found")
+		respond.FromError(w, r, err)
 		return
 	}
 
-	tmpDir, err := os.MkdirTemp("", "portal-discover-*")
+	// Discover acquires the config + parses its variable surface in the service
+	// layer. It is synchronous and request-scoped — the UI consumes the array
+	// inline (no job). /discover is intentionally not list-enveloped.
+	result, err := h.discoverySvc.DiscoverVariables(r.Context(), ws, userCtx.OrgID)
 	if err != nil {
-		respond.Error(w, http.StatusInternalServerError, "failed to create temp directory")
+		respond.FromError(w, r, err)
 		return
 	}
-	defer os.RemoveAll(tmpDir)
-
-	if ws.Source == "upload" {
-		// Extract config archive from S3
-		if ws.CurrentConfigVersionID == "" {
-			respond.Error(w, http.StatusBadRequest, "no configuration uploaded yet")
-			return
-		}
-		if h.storage == nil {
-			respond.Error(w, http.StatusServiceUnavailable, "storage not configured")
-			return
-		}
-		key := fmt.Sprintf("configs/%s/%s.tar.gz", workspaceID, ws.CurrentConfigVersionID)
-		data, err := h.storage.GetConfigArchive(r.Context(), key)
-		if err != nil {
-			respond.Error(w, http.StatusInternalServerError, "failed to download configuration")
-			return
-		}
-		if err := extractDiscoverArchive(data, tmpDir); err != nil {
-			respond.Error(w, http.StatusInternalServerError, "failed to extract configuration")
-			return
-		}
-	} else {
-		if ws.RepoURL == "" {
-			respond.Error(w, http.StatusBadRequest, "workspace has no repository URL configured")
-			return
-		}
-		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-		defer cancel()
-
-		cmd := exec.CommandContext(ctx, "git", "clone", "--depth", "1", "--branch", ws.RepoBranch, ws.RepoURL, tmpDir)
-		if output, err := cmd.CombinedOutput(); err != nil {
-			slog.Error("git clone failed", "error", err, "output", string(output), "repo", ws.RepoURL)
-			respond.Error(w, http.StatusBadGateway, "failed to clone repository")
-			return
-		}
-	}
-
-	parseDir := tmpDir
-	if ws.WorkingDir != "" && ws.WorkingDir != "." {
-		parseDir = filepath.Join(tmpDir, ws.WorkingDir)
-	}
-
-	// Load existing portal-managed workspace variables for cross-reference.
-	existing, err := h.queries.ListWorkspaceVariables(r.Context(), repository.ListWorkspaceVariablesParams{
-		WorkspaceID: workspaceID, OrgID: userCtx.OrgID,
-	})
-	if err != nil {
-		respond.Error(w, http.StatusInternalServerError, "failed to list existing variables")
-		return
-	}
-	configuredKeys := make(map[string]bool, len(existing))
-	for _, v := range existing {
-		configuredKeys[v.Key] = true
-	}
-
-	// Terragrunt-driven workspaces: shell out to `terragrunt render --json`
-	// to get the resolved inputs (merged from leaf + includes + _envcommon)
-	// and the absolute path to the underlying terraform module. Parse the
-	// module's variables.tf for the canonical schema and merge.
-	if _, statErr := os.Stat(filepath.Join(parseDir, "terragrunt.hcl")); statErr == nil {
-		respond.JSON(w, http.StatusOK, discoverTerragrunt(r.Context(), parseDir, configuredKeys))
-		return
-	}
-
-	discovered, err := tfparse.ParseDirectory(parseDir)
-	if err != nil {
-		respond.Error(w, http.StatusBadGateway, "failed to parse terraform files")
-		return
-	}
-
-	result := make([]DiscoverVariableResponse, len(discovered))
-	for i, d := range discovered {
-		result[i] = DiscoverVariableResponse{
-			Name:        d.Name,
-			Type:        d.Type,
-			Description: d.Description,
-			Default:     d.Default,
-			Required:    d.Required,
-			Configured:  configuredKeys[d.Name],
-		}
-		if result[i].Configured {
-			result[i].ConfiguredBy = "portal"
-		}
-	}
-
 	respond.JSON(w, http.StatusOK, result)
-}
-
-// renderedTerragrunt is the minimal subset of `terragrunt render --json`
-// output that the Discover endpoint cares about.
-type renderedTerragrunt struct {
-	Terraform struct {
-		Source string `json:"source"`
-	} `json:"terraform"`
-	Inputs map[string]any `json:"inputs"`
-}
-
-// discoverTerragrunt resolves the variable surface for a terragrunt
-// workspace by shelling out to `terragrunt render --json` and parsing the
-// underlying module's variables.tf. It returns the merged result, falling
-// back to leaf-only parsing if render fails or the module source is
-// remote.
-func discoverTerragrunt(ctx context.Context, leafDir string, portalConfigured map[string]bool) []DiscoverVariableResponse {
-	rendered, err := runTerragruntRender(ctx, leafDir)
-	if err != nil {
-		slog.Warn("terragrunt render failed; falling back to leaf-only discovery", "dir", leafDir, "error", err)
-		return discoverTerragruntLeafOnly(leafDir)
-	}
-
-	modulePath := strings.TrimSpace(rendered.Terraform.Source)
-	var moduleVars []tfparse.DiscoveredVariable
-	if isLocalModuleSource(modulePath) {
-		clean := filepath.Clean(modulePath)
-		if mvs, parseErr := tfparse.ParseDirectory(clean); parseErr == nil {
-			moduleVars = mvs
-		} else {
-			slog.Warn("failed to parse module variables.tf; surfacing inputs only",
-				"module", clean, "error", parseErr)
-		}
-	}
-
-	return mergeDiscovered(moduleVars, rendered.Inputs, portalConfigured)
-}
-
-func runTerragruntRender(ctx context.Context, leafDir string) (*renderedTerragrunt, error) {
-	cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(cctx, "terragrunt", "render", "--json", "--log-disable",
-		"--non-interactive", "--working-dir", leafDir)
-	cmd.Env = append(os.Environ(), "TG_NO_COLOR=1")
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("terragrunt render: %w", err)
-	}
-	var r renderedTerragrunt
-	if jerr := json.Unmarshal(out, &r); jerr != nil {
-		return nil, fmt.Errorf("parse render output: %w", jerr)
-	}
-	return &r, nil
-}
-
-// isLocalModuleSource returns true when source is a filesystem path we can
-// open and parse. Remote sources (git, https, terraform registry, etc.) are
-// out of scope for in-process schema parsing.
-func isLocalModuleSource(source string) bool {
-	if source == "" {
-		return false
-	}
-	for _, prefix := range []string{"git::", "github.com/", "bitbucket.org/", "hg::", "s3::", "gcs::", "http://", "https://", "tfr:"} {
-		if strings.HasPrefix(source, prefix) {
-			return false
-		}
-	}
-	return filepath.IsAbs(source) || strings.HasPrefix(source, ".") || strings.HasPrefix(source, "/")
-}
-
-// discoverTerragruntLeafOnly is the safety net used when `terragrunt
-// render` fails — surfaces only the literal inputs block from the leaf.
-func discoverTerragruntLeafOnly(leafDir string) []DiscoverVariableResponse {
-	leafInputs, err := tfparse.ParseTerragruntInputs(leafDir)
-	if err != nil {
-		return []DiscoverVariableResponse{}
-	}
-	result := make([]DiscoverVariableResponse, len(leafInputs))
-	for i, d := range leafInputs {
-		result[i] = DiscoverVariableResponse{
-			Name:         d.Name,
-			Default:      d.Default,
-			Required:     false,
-			Configured:   true,
-			ConfiguredBy: "terragrunt",
-			Description:  "from terragrunt.hcl inputs",
-		}
-	}
-	return result
-}
-
-// mergeDiscovered combines the module's variable schema (from
-// variables.tf) with terragrunt's resolved inputs and portal's existing
-// workspace_variables. Every module variable is returned with its source
-// of truth recorded in ConfiguredBy: "terragrunt" when terragrunt's
-// resolved inputs supply the value, "portal" when a workspace_variable is
-// set, or empty (and Configured=false) when no value exists anywhere.
-//
-// Resolved-input keys with no matching module variable are appended as
-// extra entries (configured_by=terragrunt) so the user can still see
-// what terragrunt is passing in.
-func mergeDiscovered(moduleVars []tfparse.DiscoveredVariable, resolved map[string]any, portalConfigured map[string]bool) []DiscoverVariableResponse {
-	seen := make(map[string]bool, len(moduleVars))
-	out := make([]DiscoverVariableResponse, 0, len(moduleVars)+len(resolved))
-
-	for _, v := range moduleVars {
-		entry := DiscoverVariableResponse{
-			Name:        v.Name,
-			Type:        v.Type,
-			Description: v.Description,
-			Default:     v.Default,
-			Required:    v.Required,
-		}
-		if val, ok := resolved[v.Name]; ok {
-			entry.Configured = true
-			entry.ConfiguredBy = "terragrunt"
-			if def := formatHCL(val); def != "" {
-				entry.Default = &def
-			}
-		} else if portalConfigured[v.Name] {
-			entry.Configured = true
-			entry.ConfiguredBy = "portal"
-		}
-		seen[v.Name] = true
-		out = append(out, entry)
-	}
-
-	// Surface inputs that don't match any module variable — rare but
-	// useful for spotting drift between hcl and module signatures.
-	for k, val := range resolved {
-		if seen[k] {
-			continue
-		}
-		def := formatHCL(val)
-		out = append(out, DiscoverVariableResponse{
-			Name:         k,
-			Default:      &def,
-			Configured:   true,
-			ConfiguredBy: "terragrunt",
-			Description:  "set in terragrunt.hcl (no matching module variable)",
-		})
-	}
-
-	return out
-}
-
-// formatHCL returns an HCL-literal string representation of an arbitrary
-// JSON value coming back from `terragrunt render --json`. Strings are
-// quoted; booleans and numbers are bare; maps and lists are JSON-encoded
-// (which is valid HCL for those types).
-func formatHCL(v any) string {
-	switch x := v.(type) {
-	case nil:
-		return ""
-	case string:
-		return fmt.Sprintf("%q", x)
-	case bool:
-		if x {
-			return "true"
-		}
-		return "false"
-	case float64:
-		// JSON numbers all come through as float64. Render integers
-		// without a trailing decimal where possible.
-		if x == float64(int64(x)) {
-			return fmt.Sprintf("%d", int64(x))
-		}
-		return fmt.Sprintf("%g", x)
-	default:
-		b, err := json.Marshal(v)
-		if err != nil {
-			return ""
-		}
-		return string(b)
-	}
-}
-
-func extractDiscoverArchive(data []byte, destDir string) error {
-	gr, err := gzip.NewReader(bytes.NewReader(data))
-	if err != nil {
-		return fmt.Errorf("invalid gzip: %w", err)
-	}
-	defer gr.Close()
-
-	tr := tar.NewReader(gr)
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return err
-		}
-		cleanName := filepath.Clean(hdr.Name)
-		if strings.HasPrefix(cleanName, "..") {
-			continue
-		}
-		target := filepath.Join(destDir, cleanName)
-		switch hdr.Typeflag {
-		case tar.TypeDir:
-			os.MkdirAll(target, 0755)
-		case tar.TypeReg:
-			os.MkdirAll(filepath.Dir(target), 0755)
-			f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(hdr.Mode))
-			if err != nil {
-				return err
-			}
-			io.Copy(f, tr)
-			f.Close()
-		}
-	}
-	return nil
 }
 
 type BulkCreateVariablesRequest struct {

@@ -1,4 +1,4 @@
-package handler
+package service
 
 import (
 	"testing"
@@ -117,9 +117,9 @@ func TestFormatHCL(t *testing.T) {
 	}
 }
 
-// TestIsLocalModuleSource covers the local-vs-remote discrimination used
-// to decide whether tfparse.ParseDirectory can read the module's
-// variables.tf, or whether to fall back to inputs-only.
+// TestIsLocalModuleSource covers the local-vs-remote discrimination used to
+// decide whether tfparse.ParseDirectory can read the module's variables.tf, or
+// whether to fall back to inputs-only.
 func TestIsLocalModuleSource(t *testing.T) {
 	local := []string{
 		"/home/dev/repo/components/aws/network",
