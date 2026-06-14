@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -355,10 +356,8 @@ func (w *RunJobWorker) Work(ctx context.Context, job *river.Job[RunJobArgs]) err
 		logger.Info("run was cancelled during execution, skipping status update")
 		w.streamer.Publish(args.RunID, []byte("\r\n\033[33mRun was cancelled\033[0m\r\n"))
 		w.streamer.Close(args.RunID)
-		if err := w.queries.SetWorkspaceCurrentRun(ctx, repository.SetWorkspaceCurrentRunParams{
-			ID: args.WorkspaceID, OrgID: args.OrgID, CurrentRunID: nil,
-		}); err != nil {
-			logger.Error("failed to unlock workspace after cancel", "error", err)
+		if err := w.queries.ReleaseWorkspaceRun(ctx, args.WorkspaceID, args.OrgID, args.RunID); err != nil {
+			logger.Error("failed to release workspace run slot after cancel", "error", err)
 		}
 		w.enqueueNextPendingRun(ctx, args.WorkspaceID, logger)
 		return nil
@@ -399,10 +398,8 @@ func (w *RunJobWorker) Work(ctx context.Context, job *river.Job[RunJobArgs]) err
 	}
 
 	// Unlock workspace and pick up next queued run
-	if err := w.queries.SetWorkspaceCurrentRun(ctx, repository.SetWorkspaceCurrentRunParams{
-		ID: args.WorkspaceID, OrgID: args.OrgID, CurrentRunID: nil,
-	}); err != nil {
-		logger.Error("failed to unlock workspace", "error", err)
+	if err := w.queries.ReleaseWorkspaceRun(ctx, args.WorkspaceID, args.OrgID, args.RunID); err != nil {
+		logger.Error("failed to release workspace run slot", "error", err)
 	}
 
 	w.enqueueNextPendingRun(ctx, args.WorkspaceID, logger)
@@ -438,10 +435,8 @@ func (w *RunJobWorker) failRun(ctx context.Context, args RunJobArgs, logger *slo
 	w.streamer.Close(args.RunID)
 
 	// Unlock workspace
-	if err := w.queries.SetWorkspaceCurrentRun(ctx, repository.SetWorkspaceCurrentRunParams{
-		ID: args.WorkspaceID, OrgID: args.OrgID, CurrentRunID: nil,
-	}); err != nil {
-		logger.Error("failed to unlock workspace after failure", "error", err)
+	if err := w.queries.ReleaseWorkspaceRun(ctx, args.WorkspaceID, args.OrgID, args.RunID); err != nil {
+		logger.Error("failed to release workspace run slot after failure", "error", err)
 	}
 
 	w.enqueueNextPendingRun(ctx, args.WorkspaceID, logger)
@@ -658,29 +653,47 @@ func deepMergeJSON(a, b string) string {
 }
 
 func (w *RunJobWorker) enqueueNextPendingRun(ctx context.Context, workspaceID string, logger *slog.Logger) {
-	if w.riverClient == nil || w.db == nil {
+	ClaimAndEnqueueNextRun(ctx, w.queries, w.db, w.riverClient, workspaceID, logger)
+}
+
+// ClaimAndEnqueueNextRun atomically claims the workspace's run slot for the
+// oldest pending run and enqueues it, in one transaction. It's a no-op when the
+// slot is already held or nothing is pending. Safe to call from multiple paths
+// at once (a worker finishing, an API cancel): the conditional claim guarantees
+// only one caller can take the slot, so the same run can't be enqueued twice.
+func ClaimAndEnqueueNextRun(ctx context.Context, q *repository.Queries, db *pgxpool.Pool, riverClient *river.Client[pgx.Tx], workspaceID string, logger *slog.Logger) {
+	if riverClient == nil || db == nil {
 		return
 	}
 
-	nextRun, err := w.queries.GetNextPendingRun(ctx, workspaceID)
-	if err != nil {
-		return // no pending runs
-	}
-
-	tx, err := w.db.Begin(ctx)
+	tx, err := db.Begin(ctx)
 	if err != nil {
 		logger.Error("failed to begin tx for next pending run", "error", err)
 		return
 	}
 	defer tx.Rollback(ctx)
+	qtx := q.WithTx(tx)
 
-	_, err = w.riverClient.InsertTx(ctx, tx, RunJobArgs{
+	nextRun, err := qtx.GetNextPendingRun(ctx, workspaceID)
+	if err != nil {
+		return // no pending runs (pgx.ErrNoRows)
+	}
+
+	// Take the slot atomically. If another path already claimed it, back off and
+	// let that run proceed — this pending run is picked up on the next release.
+	if _, err := qtx.ClaimWorkspaceForRun(ctx, workspaceID, nextRun.OrgID, nextRun.ID); err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			logger.Error("failed to claim workspace for next run", "error", err, "run_id", nextRun.ID)
+		}
+		return
+	}
+
+	if _, err := riverClient.InsertTx(ctx, tx, RunJobArgs{
 		RunID:       nextRun.ID,
 		WorkspaceID: nextRun.WorkspaceID,
 		OrgID:       nextRun.OrgID,
 		Operation:   nextRun.Operation,
-	}, nil)
-	if err != nil {
+	}, nil); err != nil {
 		logger.Error("failed to enqueue next pending run", "error", err, "run_id", nextRun.ID)
 		return
 	}

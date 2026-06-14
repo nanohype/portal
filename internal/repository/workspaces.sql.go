@@ -196,6 +196,34 @@ func (q *Queries) SetWorkspaceCurrentRun(ctx context.Context, arg SetWorkspaceCu
 	return err
 }
 
+// ClaimWorkspaceForRun atomically takes the workspace's single run slot for
+// runID, but only if the slot is free. Returns the workspace id when claimed and
+// pgx.ErrNoRows when another run already holds it. The conditional UPDATE
+// serializes concurrent claimers on the workspace row — the basis for run
+// serialization, so two runs can never execute against the same tofu state.
+func (q *Queries) ClaimWorkspaceForRun(ctx context.Context, id, orgID, runID string) (string, error) {
+	var claimed string
+	err := q.db.QueryRow(ctx,
+		`UPDATE workspaces SET current_run_id = $3, updated_at = NOW()
+		 WHERE id = $1 AND org_id = $2 AND current_run_id IS NULL
+		 RETURNING id`,
+		id, orgID, runID,
+	).Scan(&claimed)
+	return claimed, err
+}
+
+// ReleaseWorkspaceRun frees the slot only if runID still holds it, so releasing
+// a run that isn't the active holder (e.g. cancelling a queued run) can't free
+// the running run's slot out from under it.
+func (q *Queries) ReleaseWorkspaceRun(ctx context.Context, id, orgID, runID string) error {
+	_, err := q.db.Exec(ctx,
+		`UPDATE workspaces SET current_run_id = NULL, updated_at = NOW()
+		 WHERE id = $1 AND org_id = $2 AND current_run_id = $3`,
+		id, orgID, runID,
+	)
+	return err
+}
+
 func scanWorkspaceSummary(row interface{ Scan(...interface{}) error }) (WorkspaceSummary, error) {
 	var ws WorkspaceSummary
 	err := row.Scan(

@@ -42,6 +42,21 @@ UPDATE workspaces
 SET current_run_id = $3, updated_at = NOW()
 WHERE id = $1 AND org_id = $2;
 
+-- ClaimWorkspaceForRun atomically takes the single run slot iff it's free —
+-- the basis for run serialization (one executing run per workspace).
+-- name: ClaimWorkspaceForRun :one
+UPDATE workspaces
+SET current_run_id = $3, updated_at = NOW()
+WHERE id = $1 AND org_id = $2 AND current_run_id IS NULL
+RETURNING id;
+
+-- ReleaseWorkspaceRun frees the slot only if runID still holds it, so releasing
+-- a non-holder (e.g. a cancelled queued run) can't free the active run's slot.
+-- name: ReleaseWorkspaceRun :exec
+UPDATE workspaces
+SET current_run_id = NULL, updated_at = NOW()
+WHERE id = $1 AND org_id = $2 AND current_run_id = $3;
+
 -- name: ListWorkspacesWithSummary :many
 SELECT w.*,
        lr.status AS last_run_status,
