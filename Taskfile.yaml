@@ -59,6 +59,19 @@ tasks:
     cmds:
       - REUPLOAD=true ./scripts/seed.sh
 
+  seed:demo:
+    desc: |
+      Reset the database and populate a full demo dataset across every
+      surface (accounts, clusters with live status, tenants, vend orders
+      with phase timelines, workspaces + runs + state, pipelines, templates,
+      operations, org vars, teams, users, audit). Scoped to the "default" org
+      the Dev Login lands on. WIPES all data first; dev-only. Run on a migrated
+      DB, then `task dev` and click Dev Login.
+    env:
+      DATABASE_URL: "{{.DATABASE_URL}}"
+    cmds:
+      - go run ./cmd/seeddemo
+
   # === Database ===
 
   db:up:
