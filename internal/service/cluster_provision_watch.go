@@ -74,7 +74,15 @@ func (s *ClusterProvisionWatchService) Sync(ctx context.Context) (completed, pen
 func (s *ClusterProvisionWatchService) reconcile(ctx context.Context, op repository.ClusterOperation) (bool, error) {
 	xr, err := s.hub.Resource(k8s.ClusterGVR).Namespace(op.Team).Get(ctx, op.Name, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
-		return false, nil // ArgoCD hasn't applied the Cluster CR yet
+		// ArgoCD hasn't applied the Cluster CR yet — wait. Unless this op has been
+		// committed long past the worst-case vend, in which case the CR is never
+		// coming (watcher off on a local order, the order abandoned, or the CR
+		// deleted out-of-band on the hub): reap it so it leaves the committed
+		// working set instead of being re-reconciled fruitlessly every tick.
+		if time.Since(op.CreatedAt) > provisionReapAfter {
+			return s.reapStuckProvision(ctx, op)
+		}
+		return false, nil
 	}
 	if err != nil {
 		return false, fmt.Errorf("get Cluster XR %s/%s: %w", op.Team, op.Name, err)
@@ -97,6 +105,30 @@ func (s *ClusterProvisionWatchService) reconcile(ctx context.Context, op reposit
 		return false, fmt.Errorf("activate op: %w", err)
 	}
 	slog.Info("provision watch-back: cluster registered", "op", op.ID, "name", op.Name, "cluster_id", clusterID)
+	return true, nil
+}
+
+// provisionReapAfter bounds how long a committed provision may have no Cluster
+// XR before the watcher gives up on it. It must comfortably exceed the worst-case
+// vend (cluster-stack + cluster-bootstrap converge in well under an hour), so a
+// slow-but-live build is never reaped — only a CR that genuinely never applied.
+const provisionReapAfter = 2 * time.Hour
+
+// reapStuckProvision marks a committed provision terminal when its Cluster XR
+// never appeared past provisionReapAfter. status=failed, so the frontend stops
+// polling and surfaces op.error; the reason makes clear it expired rather than
+// hard-failed. Mirrors reconcileDeprovision's terminal write — phase first
+// (best-effort), then the guarded status flip.
+func (s *ClusterProvisionWatchService) reapStuckProvision(ctx context.Context, op repository.ClusterOperation) (bool, error) {
+	const reason = "provision expired: the Cluster CR never appeared on the hub after commit — ArgoCD isn't syncing the clusters repo, the order was abandoned, or the CR was deleted out-of-band. Re-order to retry."
+	s.setVendPhase(ctx, op, "failed", reason)
+	if err := s.queries.ExpireClusterOperation(ctx, repository.ExpireClusterOperationParams{
+		ID: op.ID, OrgID: op.OrgID, Error: reason, CompletedAt: time.Now(),
+	}); err != nil {
+		return false, fmt.Errorf("expire stuck provision op: %w", err)
+	}
+	slog.Info("provision watch-back: reaped stuck provision (Cluster XR never applied)",
+		"op", op.ID, "name", op.Name, "age", time.Since(op.CreatedAt).Round(time.Minute))
 	return true, nil
 }
 

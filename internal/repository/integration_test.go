@@ -315,3 +315,49 @@ func TestBatchUpsertTenants(t *testing.T) {
 		t.Errorf("updated_at should move on a phase change: %v -> %v", updated2, updated3)
 	}
 }
+
+// TestExpireClusterOperation covers the watch-back's stuck-provision reap: a
+// committed op is marked failed with a reason, and the WHERE status='committed'
+// guard leaves a non-committed (e.g. already active) op untouched so the reap
+// can't race the active flip.
+func TestExpireClusterOperation(t *testing.T) {
+	requireDB(t)
+	ctx := context.Background()
+	orgID, userID := seedOrg(t, ctx, "expire")
+
+	seedOp := func(status string) string {
+		opID := id()
+		exec(t, ctx, `INSERT INTO cluster_operations (id, org_id, name, environment, team, operation, status, spec_json, created_by)
+			VALUES ($1,$2,$3,'dev','platform','provision'::cluster_op_kind,$4::cluster_op_status,'{}'::jsonb,$5)`,
+			opID, orgID, "cl-"+opID, status, userID)
+		return opID
+	}
+	read := func(opID string) (status, errMsg string) {
+		if err := testPool.QueryRow(ctx, `SELECT status::text, error FROM cluster_operations WHERE id=$1`, opID).Scan(&status, &errMsg); err != nil {
+			t.Fatalf("read op: %v", err)
+		}
+		return
+	}
+
+	// A committed provision is reaped → failed + reason recorded.
+	committed := seedOp("committed")
+	if err := testQueries.ExpireClusterOperation(ctx, repository.ExpireClusterOperationParams{
+		ID: committed, OrgID: orgID, Error: "expired: never applied", CompletedAt: time.Now(),
+	}); err != nil {
+		t.Fatalf("expire committed: %v", err)
+	}
+	if st, msg := read(committed); st != "failed" || msg != "expired: never applied" {
+		t.Errorf("committed op = (%q, %q), want (failed, reason)", st, msg)
+	}
+
+	// Guard: an already-active op must not be reaped (status != committed).
+	active := seedOp("active")
+	if err := testQueries.ExpireClusterOperation(ctx, repository.ExpireClusterOperationParams{
+		ID: active, OrgID: orgID, Error: "should-not-apply", CompletedAt: time.Now(),
+	}); err != nil {
+		t.Fatalf("expire active: %v", err)
+	}
+	if st, msg := read(active); st != "active" || msg != "" {
+		t.Errorf("active op must be untouched, got (%q, %q)", st, msg)
+	}
+}

@@ -205,6 +205,31 @@ func (q *Queries) DeprovisionClusterOperation(ctx context.Context, arg Deprovisi
 	return err
 }
 
+type ExpireClusterOperationParams struct {
+	ID          string    `json:"id"`
+	OrgID       string    `json:"org_id"`
+	Error       string    `json:"error"`
+	CompletedAt time.Time `json:"completed_at"`
+}
+
+// ExpireClusterOperation is the watch-back's terminal transition for a committed
+// provision whose Cluster XR never appeared on the hub (ArgoCD not syncing, the
+// order abandoned, or the CR deleted out-of-band). It marks the op failed with a
+// reason so the row leaves the committed working set instead of being
+// re-reconciled forever. Guarded WHERE status='committed' so it can't race the
+// active flip or double-close.
+func (q *Queries) ExpireClusterOperation(ctx context.Context, arg ExpireClusterOperationParams) error {
+	_, err := q.db.Exec(ctx,
+		`UPDATE cluster_operations
+		SET status = 'failed'::cluster_op_status,
+		    error = $3,
+		    completed_at = $4
+		WHERE id = $1 AND org_id = $2 AND status = 'committed'`,
+		arg.ID, arg.OrgID, arg.Error, arg.CompletedAt,
+	)
+	return err
+}
+
 // SetVendPhase merges a single phase checkpoint into vend_phases (a regressible
 // map keyed by phase). jsonb `||` overwrites the key, so a phase can advance or
 // move backward as the substrate's truth changes. `phase` is a one-key object,
