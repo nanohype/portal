@@ -120,7 +120,9 @@ func seedOrg(t *testing.T, ctx context.Context, slug string) (orgID, userID stri
 func seedWorkspace(t *testing.T, ctx context.Context, orgID, userID string) string {
 	t.Helper()
 	wsID := id()
-	exec(t, ctx, `INSERT INTO workspaces (id,org_id,name,created_by) VALUES ($1,$2,$3,$4)`, wsID, orgID, "ws-"+id()[:8], userID)
+	// Name off the full ULID (not a prefix): the prefix is the shared ms timestamp,
+	// so several workspaces seeded in one test would collide on (org_id, name).
+	exec(t, ctx, `INSERT INTO workspaces (id,org_id,name,created_by) VALUES ($1,$2,$3,$4)`, wsID, orgID, "ws-"+wsID, userID)
 	return wsID
 }
 
@@ -147,4 +149,27 @@ func runStatus(t *testing.T, ctx context.Context, runID string) string {
 		t.Fatalf("read run status: %v", err)
 	}
 	return status
+}
+
+func seedVar(t *testing.T, ctx context.Context, wsID, orgID, key, value, category string) {
+	t.Helper()
+	if _, err := testQueries.CreateWorkspaceVariable(ctx, repository.CreateWorkspaceVariableParams{
+		ID: id(), WorkspaceID: wsID, OrgID: orgID, Key: key, Value: value, Sensitive: false, Category: category, Description: "",
+	}); err != nil {
+		t.Fatalf("seed var %q: %v", key, err)
+	}
+}
+
+// listVarMap returns a workspace's variables as key→value for easy assertions.
+func listVarMap(t *testing.T, ctx context.Context, wsID, orgID string) map[string]string {
+	t.Helper()
+	vars, err := testQueries.ListWorkspaceVariables(ctx, repository.ListWorkspaceVariablesParams{WorkspaceID: wsID, OrgID: orgID})
+	if err != nil {
+		t.Fatalf("list vars: %v", err)
+	}
+	out := make(map[string]string, len(vars))
+	for _, v := range vars {
+		out[v.Key] = v.Value
+	}
+	return out
 }

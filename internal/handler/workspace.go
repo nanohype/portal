@@ -443,30 +443,11 @@ func (h *WorkspaceHandler) Clone(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Copy variables from source workspace
-	vars, err := h.queries.ListWorkspaceVariables(r.Context(), repository.ListWorkspaceVariablesParams{
-		WorkspaceID: sourceID, OrgID: userCtx.OrgID,
-	})
-	if err != nil {
-		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to list source variables")
+	// Copy the source workspace's variables into the new one, transactionally —
+	// a mid-copy failure must not leave the clone with only some of them.
+	if _, err := h.svc.CopyAll(r.Context(), sourceID, workspace.ID, userCtx.OrgID); err != nil {
+		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to copy variables")
 		return
-	}
-
-	for _, v := range vars {
-		_, err := h.queries.CreateWorkspaceVariable(r.Context(), repository.CreateWorkspaceVariableParams{
-			ID:          ulid.Make().String(),
-			WorkspaceID: workspace.ID,
-			OrgID:       userCtx.OrgID,
-			Key:         v.Key,
-			Value:       v.Value, // copy encrypted value as-is
-			Sensitive:   v.Sensitive,
-			Category:    v.Category,
-			Description: v.Description,
-		})
-		if err != nil {
-			respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to copy variable: "+v.Key)
-			return
-		}
 	}
 
 	ip, ua := auditContext(r)

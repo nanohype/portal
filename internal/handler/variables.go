@@ -493,69 +493,18 @@ func (h *VariableHandler) CopyVariables(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// List source variables
-	sourceVars, err := h.queries.ListWorkspaceVariables(r.Context(), repository.ListWorkspaceVariablesParams{
-		WorkspaceID: req.SourceWorkspaceID, OrgID: userCtx.OrgID,
-	})
+	// The copy is one transaction (create-or-update by key+category) in the
+	// service, so a mid-copy failure leaves the target unchanged. Values copy as
+	// stored — the encryption key is org-wide, so ciphertext is portable.
+	affected, err := h.workspaceSvc.CopyInto(r.Context(), req.SourceWorkspaceID, workspaceID, userCtx.OrgID)
 	if err != nil {
-		respond.Error(w, http.StatusInternalServerError, "failed to list source variables")
+		respond.FromError(w, r, err)
 		return
-	}
-
-	if len(sourceVars) == 0 {
-		respond.Error(w, http.StatusBadRequest, "source workspace has no variables")
-		return
-	}
-
-	// List target's existing variables, build map keyed by key+category
-	targetVars, err := h.queries.ListWorkspaceVariables(r.Context(), repository.ListWorkspaceVariablesParams{
-		WorkspaceID: workspaceID, OrgID: userCtx.OrgID,
-	})
-	if err != nil {
-		respond.Error(w, http.StatusInternalServerError, "failed to list target variables")
-		return
-	}
-
-	existingByKey := make(map[string]repository.WorkspaceVariable, len(targetVars))
-	for _, v := range targetVars {
-		existingByKey[v.Key+"|"+v.Category] = v
 	}
 
 	ip, ua := auditContext(r)
-	copied := make([]repository.WorkspaceVariable, 0, len(sourceVars))
-
-	for _, sv := range sourceVars {
-		compositeKey := sv.Key + "|" + sv.Category
-
-		var v repository.WorkspaceVariable
-		if existing, ok := existingByKey[compositeKey]; ok {
-			// Update existing variable — copy encrypted value directly (same org key)
-			v, err = h.queries.UpdateWorkspaceVariable(r.Context(), repository.UpdateWorkspaceVariableParams{
-				ID: existing.ID, OrgID: userCtx.OrgID,
-				Value: sv.Value, Sensitive: sv.Sensitive, Description: sv.Description,
-			})
-			if err != nil {
-				respond.Error(w, http.StatusInternalServerError, "failed to update variable: "+sv.Key)
-				return
-			}
-		} else {
-			// Create new variable — copy encrypted value directly (same org key)
-			v, err = h.queries.CreateWorkspaceVariable(r.Context(), repository.CreateWorkspaceVariableParams{
-				ID:          ulid.Make().String(),
-				WorkspaceID: workspaceID,
-				OrgID:       userCtx.OrgID,
-				Key:         sv.Key,
-				Value:       sv.Value,
-				Sensitive:   sv.Sensitive,
-				Category:    sv.Category,
-				Description: sv.Description,
-			})
-			if err != nil {
-				respond.Error(w, http.StatusInternalServerError, "failed to create variable: "+sv.Key)
-				return
-			}
-		}
-
+	copied := make([]repository.WorkspaceVariable, 0, len(affected))
+	for _, v := range affected {
 		auditVar := v
 		auditVar.Value = "***"
 		h.auditSvc.Log(r.Context(), service.AuditEntry{

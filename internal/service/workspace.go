@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/oklog/ulid/v2"
 
+	"github.com/nanohype/portal/internal/apperr"
 	"github.com/nanohype/portal/internal/repository"
 )
 
@@ -169,4 +170,115 @@ func (s *WorkspaceService) Lock(ctx context.Context, id, orgID, lockedBy string)
 
 func (s *WorkspaceService) Unlock(ctx context.Context, id, orgID string) (repository.Workspace, error) {
 	return s.queries.UnlockWorkspace(ctx, id, orgID)
+}
+
+// CopyAll copies every variable from source into target in one transaction. It
+// backs workspace clone, whose target is a freshly created, empty workspace.
+// Values are copied as stored (ciphertext; the encryption key is org-wide, so a
+// value is portable between workspaces) — the previous inline loop copied them
+// one row at a time, non-transactionally, so a mid-copy failure left a workspace
+// with half its variables. One transaction makes the copy all-or-nothing.
+// Returns the number copied.
+func (s *WorkspaceService) CopyAll(ctx context.Context, sourceID, targetID, orgID string) (int, error) {
+	vars, err := s.queries.ListWorkspaceVariables(ctx, repository.ListWorkspaceVariablesParams{
+		WorkspaceID: sourceID, OrgID: orgID,
+	})
+	if err != nil {
+		return 0, err
+	}
+	if len(vars) == 0 {
+		return 0, nil
+	}
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("begin variable-copy tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	qtx := s.queries.WithTx(tx)
+
+	for _, v := range vars {
+		if _, err := qtx.CreateWorkspaceVariable(ctx, repository.CreateWorkspaceVariableParams{
+			ID:          ulid.Make().String(),
+			WorkspaceID: targetID,
+			OrgID:       orgID,
+			Key:         v.Key,
+			Value:       v.Value,
+			Sensitive:   v.Sensitive,
+			Category:    v.Category,
+			Description: v.Description,
+		}); err != nil {
+			return 0, fmt.Errorf("copy variable %q: %w", v.Key, err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("commit variable-copy tx: %w", err)
+	}
+	return len(vars), nil
+}
+
+// CopyInto copies source's variables into target, upserting by key+category, in
+// one transaction (the explicit copy-from-another-workspace action). Values are
+// copied as stored. Returns the affected variables so the caller can audit each;
+// a source with no variables is apperr.Validation (the caller maps it to 400).
+func (s *WorkspaceService) CopyInto(ctx context.Context, sourceID, targetID, orgID string) ([]repository.WorkspaceVariable, error) {
+	sourceVars, err := s.queries.ListWorkspaceVariables(ctx, repository.ListWorkspaceVariablesParams{
+		WorkspaceID: sourceID, OrgID: orgID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(sourceVars) == 0 {
+		return nil, apperr.Validation("source workspace has no variables")
+	}
+
+	targetVars, err := s.queries.ListWorkspaceVariables(ctx, repository.ListWorkspaceVariablesParams{
+		WorkspaceID: targetID, OrgID: orgID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	existingByKey := make(map[string]repository.WorkspaceVariable, len(targetVars))
+	for _, v := range targetVars {
+		existingByKey[v.Key+"|"+v.Category] = v
+	}
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin variable-copy tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	qtx := s.queries.WithTx(tx)
+
+	affected := make([]repository.WorkspaceVariable, 0, len(sourceVars))
+	for _, sv := range sourceVars {
+		var v repository.WorkspaceVariable
+		if existing, ok := existingByKey[sv.Key+"|"+sv.Category]; ok {
+			v, err = qtx.UpdateWorkspaceVariable(ctx, repository.UpdateWorkspaceVariableParams{
+				ID: existing.ID, OrgID: orgID,
+				Value: sv.Value, Sensitive: sv.Sensitive, Description: sv.Description,
+			})
+		} else {
+			v, err = qtx.CreateWorkspaceVariable(ctx, repository.CreateWorkspaceVariableParams{
+				ID:          ulid.Make().String(),
+				WorkspaceID: targetID,
+				OrgID:       orgID,
+				Key:         sv.Key,
+				Value:       sv.Value,
+				Sensitive:   sv.Sensitive,
+				Category:    sv.Category,
+				Description: sv.Description,
+			})
+		}
+		if err != nil {
+			return nil, fmt.Errorf("copy variable %q: %w", sv.Key, err)
+		}
+		affected = append(affected, v)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit variable-copy tx: %w", err)
+	}
+	return affected, nil
 }
