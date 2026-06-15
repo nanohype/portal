@@ -30,6 +30,7 @@ type Server struct {
 	logger          *slog.Logger
 	http            *http.Server
 	approvalHandler *handler.ApprovalHandler
+	approvalSvc     *service.ApprovalService
 	runSvc          *service.RunService
 	pipelineSvc     *service.PipelineService
 	clusterSvc      *service.ClusterService
@@ -76,8 +77,8 @@ func (s *Server) ClusterOrderService() *service.ClusterOrderService {
 	return s.clusterOrderSvc
 }
 
-func (s *Server) ApprovalHandler() *handler.ApprovalHandler {
-	return s.approvalHandler
+func (s *Server) ApprovalService() *service.ApprovalService {
+	return s.approvalSvc
 }
 
 func (s *Server) setupRouter() {
@@ -179,7 +180,8 @@ func (s *Server) setupRouter() {
 	teamHandler := handler.NewTeamHandler(queries, auditSvc)
 	stateSvc := service.NewStateService(queries, store)
 	stateHandler := handler.NewStateHandler(stateSvc, auditSvc)
-	s.approvalHandler = handler.NewApprovalHandler(queries, s.db, auditSvc)
+	s.approvalSvc = service.NewApprovalService(queries, s.db)
+	s.approvalHandler = handler.NewApprovalHandler(s.approvalSvc, auditSvc)
 	auditHandler := handler.NewAuditHandler(queries)
 	healthHandler := handler.NewHealthHandler(s.db, s.cfg.Environment)
 	userHandler := handler.NewUserHandler(queries, auditSvc)
