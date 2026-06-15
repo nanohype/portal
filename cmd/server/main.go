@@ -91,7 +91,7 @@ func main() {
 		logger.Warn("failed to create river client, job enqueue disabled", "error", err)
 	} else {
 		srv.RunService().SetRiverClient(riverClient)
-		srv.ApprovalHandler().SetRiverClient(riverClient)
+		srv.ApprovalService().SetRiverClient(riverClient)
 		srv.PipelineService().SetRiverClient(riverClient)
 		srv.ClusterService().SetRiverClient(riverClient)
 		srv.TenantService().SetRiverClient(riverClient)
