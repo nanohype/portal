@@ -173,22 +173,23 @@ Two credential paths, picked by whether keys are set:
   S3 bucket: `endpoint: s3.<region>.amazonaws.com`, `useSSL: true`, `region`
   set to match.
 
-### PostgreSQL and Redis subcharts
+### PostgreSQL and Redis
 
-`postgresql` and `redis` are Bitnami subcharts, on by default for a
-self-contained install (kx, dev). They carry the Bitnami-catalog image caveat
-tracked in **portal#43** — the public Bitnami image tags churn. For production,
-turn the subcharts off and point at managed services:
+Portal bundles no database or cache — it points at managed external services
+(the chart carries no Bitnami subcharts). Set the connection URLs in values; they
+land in the Secret, since they carry credentials:
 
 ```yaml
-postgresql:
-  enabled: false
+database:
+  url: "postgres://portal:<pw>@db.<region>.rds.amazonaws.com:5432/portal?sslmode=require"  # required
 redis:
-  enabled: false
+  url: "redis://cache.<id>.<region>.cache.amazonaws.com:6379"                                # optional
 ```
 
-Then supply the connection strings via `worker`/`server` `extraEnv`/`extraEnvFrom`
-(below) — `DATABASE_URL` at managed RDS, `REDIS_URL` at ElastiCache.
+`database.url` is **required** — the install fails closed without it (there's no
+bundled database to fall back to). `redis.url` is **optional**: leave it empty
+and the log streamer runs in-memory (no Redis). For local development, `task dev`
+brings up Postgres + Redis via docker-compose, not this chart.
 
 ### GitOps write paths
 
@@ -314,7 +315,7 @@ The migrate Job runs automatically on upgrade.
 - [ ] `webhookSecret` is set and matches the GitHub webhook config
 - [ ] object store uses IRSA (empty keys) or a real access key — not `minioadmin`
 - [ ] database password is not the default `portal`
-- [ ] `postgresql.enabled`/`redis.enabled` false, pointed at managed RDS/ElastiCache (portal#43)
+- [ ] `database.url` points at a managed Postgres (RDS); `redis.url` at ElastiCache (or empty for in-memory streaming)
 - [ ] HTTPS terminates at the ingress/load balancer
 - [ ] GitHub OAuth callback URL points to the production domain
 - [ ] `webURL` and `serverBaseURL` use the production domain

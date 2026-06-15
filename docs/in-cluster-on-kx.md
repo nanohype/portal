@@ -109,13 +109,16 @@ worker:
     - secretRef:
         name: portal-aws
 
-# confirm: the bundled Bitnami postgres/redis images moved to the archived legacy
-# registry (portal#43). If their pods ImagePullBackOff, either override to legacy
-# (below) or `kind load` the images yourself.
-# postgresql:
-#   image: { registry: docker.io, repository: bitnamilegacy/postgresql }
-# redis:
-#   image: { registry: docker.io, repository: bitnamilegacy/redis }
+# Portal bundles no database/cache. kind has no managed RDS, so stand up a
+# Postgres + Redis in this namespace first and point portal at them:
+#   kubectl create deployment postgres --image=postgres:17 -n portal
+#   kubectl set env deploy/postgres POSTGRES_USER=portal POSTGRES_PASSWORD=portal POSTGRES_DB=portal -n portal
+#   kubectl expose deploy/postgres --port=5432 -n portal
+#   kubectl create deployment redis --image=redis:7 -n portal && kubectl expose deploy/redis --port=6379 -n portal
+database:
+  url: "postgres://portal:portal@postgres:5432/portal?sslmode=disable"
+redis:
+  url: "redis://redis:6379"
 ```
 
 ## 4. Create the worker AWS secret (kx only)
@@ -203,7 +206,7 @@ residue tofu destroy can't reach.
 
 - Service names/ports for the port-forwards (web + server).
 - The seed task's API-URL env var.
-- The bundled postgres/redis images (portal#43) — pull from legacy or `kind load`.
+- Standing up Postgres + Redis for portal (kind has no managed RDS) — portal bundles neither; set `database.url`/`redis.url`.
 
 ## Non-goals
 

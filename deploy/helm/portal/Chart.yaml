@@ -5,18 +5,10 @@ type: application
 version: 0.1.0
 appVersion: "0.1.0"
 
-dependencies:
-  - name: postgresql
-    version: "16.4.5"
-    repository: "oci://registry-1.docker.io/bitnamicharts"
-    condition: postgresql.enabled
-  - name: redis
-    version: "20.6.2"
-    repository: "oci://registry-1.docker.io/bitnamicharts"
-    condition: redis.enabled
-  # No bundled object store: portal speaks the generic S3 API, so it points at
-  # external object storage (AWS S3 on a real hub; an S3 bucket / standalone store
-  # for kx) via objectStore in values.yaml. This keeps the chart off the purged
-  # Bitnami minio (the only dep that failed to resolve — #35). The bundled
-  # postgresql/redis above remain for self-contained dev; production points at
-  # managed services (postgresql.enabled / redis.enabled false) — see #43.
+# Portal bundles no database, cache, or object store — it speaks to managed
+# external services: Postgres (RDS), Redis (ElastiCache), and S3, configured via
+# database.url / redis.url / objectStore in values.yaml. This keeps the chart
+# entirely off the archived Bitnami catalog: the postgresql + redis subcharts
+# moved to the bitnamilegacy namespace (unpatched, ImagePullBackOff-prone), and
+# minio was already dropped for external S3 (#35). For local development,
+# `task dev` brings up Postgres + Redis via docker-compose, not this chart.

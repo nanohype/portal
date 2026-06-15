@@ -60,26 +60,15 @@ config:
   dbMaxConns: "25"
   dbMinConns: "5"
 
-# -- PostgreSQL subchart (Bitnami)
-postgresql:
-  enabled: true
-  auth:
-    username: portal
-    password: portal          # Change in production
-    database: portal
-  primary:
-    persistence:
-      size: 1Gi
-
-# -- Redis subchart (Bitnami)
+# -- External Postgres + Redis. Portal bundles neither — point these at managed
+# services (RDS / ElastiCache on a real hub; any reachable Postgres/Redis for kx).
+# database.url is REQUIRED and carries credentials, so it lands in the Secret.
+# redis.url is OPTIONAL: leave it empty to run the log streamer in-memory (no
+# Redis). For local dev, `task dev` brings these up via docker-compose, not the chart.
+database:
+  url: ""   # REQUIRED — postgres://user:pass@host:5432/portal?sslmode=require
 redis:
-  enabled: true
-  architecture: standalone
-  auth:
-    enabled: false
-  master:
-    persistence:
-      size: 256Mi
+  url: ""   # optional — redis://host:6379 ; empty = in-memory log streaming
 
 # -- MinIO subchart (Bitnami)
 # -- Object store (S3-compatible) for OpenTofu state + run logs. Portal speaks the
