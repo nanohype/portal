@@ -16,6 +16,7 @@ import { OutputsPanel } from "@/components/workspace/OutputsPanel";
 import { AccessPanel } from "@/components/workspace/AccessPanel";
 import { WorkspaceSettings } from "@/components/workspace/WorkspaceSettings";
 import { Pagination } from "@/components/ui/pagination";
+import { useConfirm } from "@/components/ui/confirm";
 import { formatRelativeTime, formatDuration, getEnvironmentColor } from "@/lib/utils";
 import { navigate } from "@/hooks/useNavigate";
 import { Link } from "@/components/ui/link";
@@ -67,6 +68,7 @@ function getTabFromURL(): Tab {
 
 export function WorkspaceDetail({ workspaceId }: Props) {
   const queryClient = useQueryClient();
+  const confirm = useConfirm();
   const [tab, setTab] = useState<Tab>(getTabFromURL);
   const [runsPage, setRunsPage] = useState(1);
 
@@ -345,8 +347,13 @@ export function WorkspaceDetail({ workspaceId }: Props) {
             <Button
               variant="outline"
               className="text-destructive hover:bg-destructive/10"
-              onClick={() => {
-                if (confirm("Are you sure you want to destroy all resources?")) {
+              onClick={async () => {
+                if (
+                  await confirm({
+                    title: "Are you sure you want to destroy all resources?",
+                    confirmLabel: "Destroy",
+                  })
+                ) {
                   createRunMutation.mutate({ operation: "destroy" });
                 }
               }}

@@ -54,7 +54,7 @@ go test ./internal/handler/ ./internal/auth/ \
   ./internal/worker/ ./internal/vcs/ \
   ./internal/server/ ./internal/domain/ \
   ./internal/tfparse/                            # Run tests
-cd web && npx tsc --noEmit && npx vite build     # Frontend compiles
+cd web && npx tsc -b && npx vite build            # Frontend compiles (tsc -b is the real check)
 
 # Reset database (drops everything, re-migrates)
 docker compose down -v && docker compose up -d
@@ -93,7 +93,7 @@ Pipeline is an orchestrator, not an executor. `PipelineStageJobWorker` imports o
 - **Theme**: Neutral dark palette (#0A0A0B base, #3E8E82 teal primary, #CF222E destructive) with Inter (UI) + JetBrains Mono (IDs/code), 13px base, glass effects — defined in `web/src/index.css`
 - **API client**: `web/src/api/client.ts` — openapi-fetch with typed paths from `web/src/api/types.ts`
 - **Components**: `web/src/components/` — organized by domain (workspace/, pipeline/, run/, teams/, settings/, ui/)
-- **Routing**: simple regex-based in `web/src/App.tsx` using `window.location`
+- **Routing**: TanStack Router in `web/src/router.tsx` (auth-gated layout route, typed params)
 - **Notifications**: sonner toasts on all mutations
 - **Terminal**: xterm.js for run log streaming via WebSocket
 

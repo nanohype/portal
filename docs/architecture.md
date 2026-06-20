@@ -36,9 +36,9 @@ React 19 SPA served by Vite in development and nginx in production.
 
 - **API client**: `openapi-fetch` with typed paths from `web/src/api/types.ts`
 - **State management**: TanStack Query for server state, Zustand for local UI state
-- **Routing**: simple regex-based matching in `App.tsx` using `window.location`
+- **Routing**: TanStack Router with an auth-gated layout route in `router.tsx`
 - **Terminal**: xterm.js renders real-time run logs via WebSocket
-- **Styling**: Tailwind CSS 4 with Miami Dolphins dark water theme
+- **Styling**: Tailwind CSS 4, neutral dark palette with teal primary (see web/src/index.css)
 
 ## Data Stores
 

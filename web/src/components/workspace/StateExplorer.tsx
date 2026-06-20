@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
+import { useConfirm } from "@/components/ui/confirm";
 import { ResourceBrowser } from "./ResourceBrowser";
 import { StateDiffViewer } from "./StateDiffViewer";
 import { formatRelativeTime } from "@/lib/utils";
@@ -43,6 +44,7 @@ export function StateExplorer({ workspaceId }: Props) {
   const { user } = useAuth();
   const canDrop = user?.role === "owner" || user?.role === "admin";
   const qc = useQueryClient();
+  const confirm = useConfirm();
 
   const dropMutation = useMutation({
     mutationFn: async (serial: number) => {
@@ -267,11 +269,14 @@ export function StateExplorer({ workspaceId }: Props) {
                 </button>
                 {canDrop && (
                   <button
-                    onClick={() => {
+                    onClick={async () => {
                       if (
-                        window.confirm(
-                          `Drop state version #${sv.serial}? This removes the DB row and S3 objects. Use only when the version is known-broken (e.g. partial-errored, undecryptable). Cannot be undone.`,
-                        )
+                        await confirm({
+                          title: `Drop state version #${sv.serial}?`,
+                          message:
+                            "This removes the DB row and S3 objects. Use only when the version is known-broken (e.g. partial-errored, undecryptable). Cannot be undone.",
+                          confirmLabel: "Drop",
+                        })
                       ) {
                         dropMutation.mutate(sv.serial);
                       }

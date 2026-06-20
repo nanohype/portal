@@ -39,9 +39,14 @@ type Config struct {
 	S3UseSSL    bool   `env:"S3_USE_SSL" envDefault:"false"`
 	S3Region    string `env:"S3_REGION" envDefault:"us-east-1"`
 
-	// GitHub OAuth
+	// GitHub OAuth. AllowedGitHubOrg, when set, restricts login to active members
+	// of that GitHub organization — the callback verifies membership with the
+	// already-requested read:org scope and rejects non-members. Empty (default)
+	// preserves open login: any GitHub account that completes the flow is admitted
+	// (first user → owner, the rest → viewer).
 	GitHubClientID     string `env:"GITHUB_CLIENT_ID"`
 	GitHubClientSecret string `env:"GITHUB_CLIENT_SECRET"`
+	AllowedGitHubOrg   string `env:"ALLOWED_GITHUB_ORG"`
 
 	// JWT
 	JWTSecret     string        `env:"JWT_SECRET" envDefault:"dev-secret-change-in-production"`

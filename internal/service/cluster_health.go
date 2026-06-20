@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -74,9 +75,15 @@ func (s *ClusterHealthService) Sync(ctx context.Context) (int, error) {
 	g.SetLimit(clusterHealthConcurrency)
 	for _, t := range targets {
 		g.Go(func() error {
-			s.reconcileArgoCD(ctx, t)
+			// Bound each cluster's external calls (the hub Application GET and the
+			// EKS DescribeCluster) so a hung hub apiserver or EKS/STS endpoint
+			// can't pin one of the bounded errgroup slots indefinitely and starve
+			// successive ticks. Matches the 30s convention used in discovery.go.
+			cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			defer cancel()
+			s.reconcileArgoCD(cctx, t)
 			if s.aws != nil && t.AuthMode == AuthModeEKSIAM && t.EKSClusterName != "" {
-				s.reconcileEKS(ctx, t)
+				s.reconcileEKS(cctx, t)
 			}
 			return nil
 		})

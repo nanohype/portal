@@ -140,7 +140,12 @@ func (h *AuthHandler) GitHubCallback(w http.ResponseWriter, r *http.Request) {
 	ghCtx, ghCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer ghCancel()
 	client := h.oauthConfig.Client(ghCtx, token)
-	resp, err := client.Get("https://api.github.com/user")
+	userReq, err := http.NewRequestWithContext(ghCtx, http.MethodGet, "https://api.github.com/user", nil)
+	if err != nil {
+		respond.Error(w, http.StatusInternalServerError, "failed to build user request")
+		return
+	}
+	resp, err := client.Do(userReq)
 	if err != nil {
 		slog.Error("failed to fetch github user", "error", err)
 		respond.Error(w, http.StatusInternalServerError, "failed to fetch user info")
@@ -167,6 +172,24 @@ func (h *AuthHandler) GitHubCallback(w http.ResponseWriter, r *http.Request) {
 
 	if ghUser.Name == "" {
 		ghUser.Name = ghUser.Login
+	}
+
+	// Enforce GitHub org membership when configured. Without this, a GitHub
+	// OAuth App admits any GitHub account that completes the flow — the read:org
+	// scope is requested but unused. With ALLOWED_GITHUB_ORG set, only active
+	// members of that org may log in (and thus only a member can become the
+	// bootstrap owner).
+	if h.cfg.AllowedGitHubOrg != "" {
+		member, err := h.isActiveOrgMember(ghCtx, client, h.cfg.AllowedGitHubOrg)
+		if err != nil {
+			slog.Error("failed to verify github org membership", "error", err, "org", h.cfg.AllowedGitHubOrg)
+			respond.Error(w, http.StatusInternalServerError, "failed to verify organization membership")
+			return
+		}
+		if !member {
+			respond.Error(w, http.StatusForbidden, "access is restricted to members of the allowed GitHub organization")
+			return
+		}
 	}
 
 	// Get or create default org (single-org mode for Phase 1)
@@ -301,8 +324,45 @@ func assignRole(userCount int64) string {
 	return "viewer"
 }
 
+// isActiveOrgMember reports whether the authenticated user (carried by client's
+// read:org-scoped token) is an active member of org. It calls
+// GET /user/memberships/orgs/{org}: 200 + state "active" means a confirmed
+// member; 403/404 means not a member; anything else is an error so a transient
+// GitHub failure fails closed (login is denied, not silently granted).
+func (h *AuthHandler) isActiveOrgMember(ctx context.Context, client *http.Client, org string) (bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		fmt.Sprintf("https://api.github.com/user/memberships/orgs/%s", org), nil)
+	if err != nil {
+		return false, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var m struct {
+			State string `json:"state"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&m); err != nil {
+			return false, err
+		}
+		return m.State == "active", nil
+	case http.StatusForbidden, http.StatusNotFound:
+		return false, nil
+	default:
+		return false, fmt.Errorf("github membership check returned status %d", resp.StatusCode)
+	}
+}
+
 func (h *AuthHandler) fetchPrimaryEmail(ctx context.Context, client *http.Client) (string, error) {
-	resp, err := client.Get("https://api.github.com/user/emails")
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.github.com/user/emails", nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
 	}

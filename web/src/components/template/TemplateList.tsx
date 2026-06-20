@@ -7,6 +7,7 @@ import type { Template } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
+import { useConfirm } from "@/components/ui/confirm";
 import { TemplateEditorDialog } from "./TemplateEditorDialog";
 import { LayoutTemplate, Plus, Trash2, Pencil } from "lucide-react";
 
@@ -14,6 +15,7 @@ export function TemplateList() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin" || user?.role === "owner";
   const queryClient = useQueryClient();
+  const confirm = useConfirm();
   const [editing, setEditing] = useState<Template | null>(null);
   const [creating, setCreating] = useState(false);
 
@@ -116,8 +118,13 @@ export function TemplateList() {
                       <Pencil className="w-3 h-3" />
                     </button>
                     <button
-                      onClick={() => {
-                        if (confirm(`Delete template "${t.name}"?`)) {
+                      onClick={async () => {
+                        if (
+                          await confirm({
+                            title: `Delete template "${t.name}"?`,
+                            confirmLabel: "Delete",
+                          })
+                        ) {
                           deleteMutation.mutate(t.id);
                         }
                       }}

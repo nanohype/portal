@@ -80,7 +80,7 @@ tasks:
   db:up:
     desc: Start PostgreSQL (Docker)
     cmds:
-      - docker run -d --name portal-postgres -p 5432:5432 -e POSTGRES_USER=portal -e POSTGRES_PASSWORD=portal -e POSTGRES_DB=portal postgres:16-alpine 2>/dev/null || docker start portal-postgres
+      - docker run -d --name portal-postgres -p 5432:5432 -e POSTGRES_USER=portal -e POSTGRES_PASSWORD=portal -e POSTGRES_DB=portal postgres:17-alpine 2>/dev/null || docker start portal-postgres
 
   db:down:
     desc: Stop PostgreSQL
@@ -112,14 +112,14 @@ tasks:
   redis:up:
     desc: Start Redis (Docker)
     cmds:
-      - docker run -d --name portal-redis -p 6379:6379 redis:7-alpine 2>/dev/null || docker start portal-redis
+      - docker run -d --name portal-redis -p 6379:6379 redis:8-alpine 2>/dev/null || docker start portal-redis
 
   # === MinIO ===
 
   minio:up:
     desc: Start MinIO (Docker)
     cmds:
-      - docker run -d --name portal-minio -p 9000:9000 -p 9001:9001 -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin minio/minio server /data --console-address ":9001" 2>/dev/null || docker start portal-minio
+      - docker run -d --name portal-minio -p 9000:9000 -p 9001:9001 -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e server /data --console-address ":9001" 2>/dev/null || docker start portal-minio
 
   # === Infrastructure ===
 
@@ -220,7 +220,7 @@ tasks:
     desc: Run linters
     cmds:
       - go vet ./...
-      - cd web && npx tsc --noEmit
+      - cd web && npx tsc -b
 
   test:
     desc: Run tests

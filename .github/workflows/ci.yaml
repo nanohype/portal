@@ -28,8 +28,18 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      # Fail the build on unformatted Go so formatting drift can't land on main.
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || { echo "unformatted Go files:"; gofmt -l .; exit 1; }
       - run: go build ./...
       - run: go vet ./...
+      # Fail the build on a known CVE in a Go dependency or the stdlib — the
+      # supply-chain gate that catches what Dependabot would only flag later.
+      # Pinned scanner version; CVE data is still fetched live from vuln.go.dev.
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.3.0
+          govulncheck ./...
       # TEST_DATABASE_URL points the repository integration tests at the service
       # Postgres; without it they skip (so `go test` still works with no DB).
       - run: go test ./...
@@ -41,6 +51,10 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: npm ci
+        working-directory: web
+      # Fail the build on a high/critical CVE in an npm dependency (the class
+      # that produced the vite Dependabot alerts).
+      - run: npm audit --audit-level=high
         working-directory: web
       # tsc -b is the real typecheck — the root tsconfig has files:[] + project
       # references, so `tsc --noEmit` against it checks nothing.

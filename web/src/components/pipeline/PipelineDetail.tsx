@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { Link } from "@/components/ui/link";
 import { Pagination } from "@/components/ui/pagination";
+import { useConfirm } from "@/components/ui/confirm";
 import { navigate } from "@/hooks/useNavigate";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { formatDuration } from "@/lib/utils";
@@ -260,6 +261,7 @@ export function PipelineDetail({ pipelineId }: { pipelineId: string }) {
 
 function PipelineVariablesTab({ pipelineId }: { pipelineId: string }) {
   const queryClient = useQueryClient();
+  const confirm = useConfirm();
   const [showForm, setShowForm] = useState(false);
   const [editTarget, setEditTarget] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -427,7 +429,7 @@ function PipelineVariablesTab({ pipelineId }: { pipelineId: string }) {
                   <button onClick={() => startEdit(v)} className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors cursor-pointer">
                     <Pencil className="w-3.5 h-3.5" />
                   </button>
-                  <button onClick={() => { if (confirm(`Delete ${v.key}?`)) deleteMutation.mutate(v.id); }} className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors cursor-pointer">
+                  <button onClick={async () => { if (await confirm({ title: `Delete ${v.key}?`, confirmLabel: "Delete" })) deleteMutation.mutate(v.id); }} className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors cursor-pointer">
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>

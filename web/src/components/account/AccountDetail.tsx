@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "@/components/ui/link";
+import { useConfirm } from "@/components/ui/confirm";
 import {
   ArrowLeft,
   Cloud,
@@ -26,6 +27,7 @@ export function AccountDetail({ accountId }: { accountId: string }) {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin" || user?.role === "owner";
   const queryClient = useQueryClient();
+  const confirm = useConfirm();
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["account", accountId],
@@ -170,11 +172,13 @@ export function AccountDetail({ accountId }: { accountId: string }) {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => {
+            onClick={async () => {
               if (
-                confirm(
-                  `Delete account "${data.name}"? This cannot be undone.`,
-                )
+                await confirm({
+                  title: `Delete account "${data.name}"?`,
+                  message: "This cannot be undone.",
+                  confirmLabel: "Delete",
+                })
               ) {
                 deleteMutation.mutate();
               }

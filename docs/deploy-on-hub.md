@@ -184,7 +184,6 @@ clusterHealth:    { enabled: true, interval: "60s" }
 ```
 
 ```bash
-helm dependency build deploy/helm/portal
 helm install portal deploy/helm/portal -n portal --create-namespace -f values-hub.yaml
 ```
 

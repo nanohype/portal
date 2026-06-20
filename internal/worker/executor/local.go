@@ -47,7 +47,11 @@ func (e *LocalExecutor) Execute(ctx context.Context, params ExecuteParams) (*Exe
 		params.LogCallback([]byte("Configuration extracted successfully.\r\n\r\n"))
 	} else {
 		params.LogCallback([]byte(fmt.Sprintf("Cloning %s (branch: %s)...\r\n", params.RepoURL, params.RepoBranch)))
-		cloneCmd := exec.CommandContext(ctx, "git", "clone", "--depth", "1", "--branch", params.RepoBranch, params.RepoURL, workDir)
+		// `--branch=` binds the value even if it starts with `-`, and `--` ends
+		// option parsing so a repo URL like `--upload-pack=...` is treated as a
+		// positional, not a git option (argument-injection guard). The args are
+		// already discrete argv (no shell), so there's no shell-injection here.
+		cloneCmd := exec.CommandContext(ctx, "git", "clone", "--depth", "1", "--branch="+params.RepoBranch, "--", params.RepoURL, workDir)
 		cloneOutput, err := cloneCmd.CombinedOutput()
 		if err != nil {
 			params.LogCallback([]byte(fmt.Sprintf("\033[31mGit clone failed: %s\033[0m\r\n", string(cloneOutput))))

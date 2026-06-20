@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { ChipToggle } from "@/components/ui/chip-toggle";
+import { useConfirm } from "@/components/ui/confirm";
 import { formatRelativeTime } from "@/lib/utils";
 import { Trash2 } from "lucide-react";
 import {
@@ -312,6 +313,7 @@ export function TemplateEditorDialog({
 
 function TemplateAccessSection({ templateID }: { templateID: string }) {
   const queryClient = useQueryClient();
+  const confirm = useConfirm();
   const [picker, setPicker] = useState("");
 
   const { data: access } = useQuery({
@@ -397,8 +399,13 @@ function TemplateAccessSection({ templateID }: { templateID: string }) {
                 {formatRelativeTime(a.granted_at)}
               </span>
               <button
-                onClick={() => {
-                  if (confirm(`Revoke access from ${teamName(a.team_id)}?`)) {
+                onClick={async () => {
+                  if (
+                    await confirm({
+                      title: `Revoke access from ${teamName(a.team_id)}?`,
+                      confirmLabel: "Revoke",
+                    })
+                  ) {
                     revoke.mutate(a.team_id);
                   }
                 }}

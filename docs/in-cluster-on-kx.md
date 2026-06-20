@@ -43,7 +43,7 @@ The hub itself, through rung-1 steps 0–5 (kx up: Crossplane v2 + provider-open
 6. **AWS credentials reachable by the worker.** When the vended spoke
    auto-registers as `eks_iam`, the worker mints an EKS token by assuming the
    account's role — that needs a base AWS identity. On kx (no IRSA) inject static
-   creds (see step 5 below). Without them the timeline still reaches `active`, but
+   creds (see step 4 below). Without them the timeline still reaches `active`, but
    the spoke's connection test fails and ArgoCD health still works.
 
 ## 1. Build + load the images into kx
@@ -58,15 +58,7 @@ kind load docker-image portal/server:latest portal/worker:latest \
   portal/web:latest portal/migrate:latest --name kx
 ```
 
-## 2. Resolve chart deps
-
-Now unblocked (portal#35):
-
-```bash
-helm dependency build deploy/helm/portal
-```
-
-## 3. Write `values-kx.yaml`
+## 2. Write `values-kx.yaml`
 
 Keep this file out of git (it holds the deploy key + S3 creds).
 
@@ -101,7 +93,7 @@ clusterHealth:                      # steady-state ArgoCD (+ EKS) health
 serviceAccount:
   roleArn: ""
 
-# AWS creds for the worker (step 5) — referenced by name; the Secret is created
+# AWS creds for the worker (step 4) — referenced by name; the Secret is created
 # below before install so the worker mounts it at start. On a real hub use IRSA
 # (serviceAccount.roleArn) and drop this.
 worker:
@@ -121,12 +113,12 @@ redis:
   url: "redis://redis:6379"
 ```
 
-## 4. Create the worker AWS secret (kx only)
+## 3. Create the worker AWS secret (kx only)
 
 So the worker can mint EKS tokens for the vended spoke, give it a base AWS
 identity — an access key that can `sts:AssumeRole` into the account role (with
 that role mapped in the spoke's access entries). The chart's `worker.extraEnvFrom`
-(set in step 3) references this Secret by name; create it **before** install so
+(set in step 2) references this Secret by name; create it **before** install so
 the worker mounts it at start:
 
 ```bash
@@ -138,17 +130,15 @@ kubectl --context kind-kx create secret generic portal-aws \
 On a real hub use IRSA (`serviceAccount.roleArn`) instead, and drop both the
 Secret and `worker.extraEnvFrom`.
 
-## 5. Install
+## 4. Install
 
 ```bash
 helm install portal deploy/helm/portal -f values-kx.yaml --kube-context kind-kx
 kubectl --context kind-kx get pods -w   # migrate job → server/worker/web Ready
 ```
 
-If postgres/redis ImagePullBackOff, uncomment the legacy image overrides in
-`values-kx.yaml` and `helm upgrade portal deploy/helm/portal -f values-kx.yaml`.
 
-## 6. Open it + log in
+## 5. Open it + log in
 
 ```bash
 kubectl --context kind-kx port-forward svc/portal-web 8080:80   # confirm svc name/port
@@ -156,7 +146,7 @@ kubectl --context kind-kx port-forward svc/portal-web 8080:80   # confirm svc na
 
 Open `localhost:8080`, **Dev Login** (first user becomes `owner`).
 
-## 7. Seed an account
+## 6. Seed an account
 
 The Provision form needs an account to pick. Point the seed at the port-forwarded
 server:
@@ -166,7 +156,7 @@ kubectl --context kind-kx port-forward svc/portal-server 8081:8080 &
 PORTAL_API_URL=http://localhost:8081 task seed   # confirm the seed env var name
 ```
 
-## 8. Vend, and watch it live
+## 7. Vend, and watch it live
 
 In the in-cluster portal: **Clusters → Provision** (account = your mgmt account,
 region `us-west-2`, team `platform`, env `dev`). Then watch — no kubectl:
@@ -180,7 +170,7 @@ region `us-west-2`, team `platform`, env `dev`). Then watch — no kubectl:
 Real EKS spend starts when Crossplane begins the build (~the same ephemeral
 spoke as rung-1; ~20–40 min to active).
 
-## 9. Teardown
+## 8. Teardown
 
 In portal: **Deprovision** the cluster. Watch the timeline go committed →
 **destroying** → **removed** (`deprovisioned`). Then confirm zero-billable:

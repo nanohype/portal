@@ -70,6 +70,7 @@ export function TagEditor({ value, onChange }: TagEditorProps) {
               <span className="text-foreground">{v}</span>
               <button
                 type="button"
+                aria-label={`Remove tag ${k}`}
                 onClick={() => removeTag(k)}
                 className="ml-0.5 p-0.5 rounded hover:bg-destructive/10 text-muted-foreground/50 hover:text-destructive transition-colors cursor-pointer"
               >
@@ -96,6 +97,7 @@ export function TagEditor({ value, onChange }: TagEditorProps) {
         />
         <button
           type="button"
+          aria-label="Add tag"
           onClick={addTag}
           disabled={!newKey.trim()}
           className="p-1 rounded-md border border-border hover:bg-hover text-muted-foreground hover:text-foreground disabled:opacity-30 transition-colors cursor-pointer"

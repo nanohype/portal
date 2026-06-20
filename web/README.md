@@ -1,73 +1,40 @@
-# React + TypeScript + Vite
+# portal — web
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+The React single-page app for portal. Served by the `web` container in
+production; run against the local API with Vite in dev.
 
-Currently, two official plugins are available:
+## Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **Vite 8** + **React 19** + **TypeScript**
+- **Tailwind CSS 4** — neutral dark palette with teal primary; tokens in `src/index.css`
+- **TanStack Query** for server state, **Zustand** for local UI state
+- **TanStack Router** (`src/router.tsx`) — auth-gated layout route, typed params
+- **openapi-fetch** client (`src/api/client.ts`) over the hand-maintained
+  `src/api/types.ts` contract — there is **no codegen**; edit `types.ts` by hand
+  when the API changes
+- **xterm.js** for run-log streaming over WebSocket; **sonner** for toasts
 
-## React Compiler
+## Develop
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run dev          # Vite dev server on :5173 (proxies the API on :8080)
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+From the repo root, `task dev:web` does the same alongside the server + worker.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Verify
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npx tsc -b           # the real typecheck — the root tsconfig uses project references
+npx vite build       # production build
+npm audit --audit-level=high
 ```
+
+## Layout
+
+- `src/components/` — organized by domain (`workspace/`, `pipeline/`, `run/`, `cluster/`, `tenant/`, `teams/`, `settings/`, `ui/`)
+- `src/components/ui/` — the design-system primitives (Dialog, Button, Drawer, …)
+- `src/routes/` — public routes (Login, AuthCallback)
+- `src/stores/` — Zustand stores (auth)
+- `src/lib/` — query client, router ref, utilities

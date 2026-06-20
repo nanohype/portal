@@ -8,10 +8,12 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
+import { useConfirm } from "@/components/ui/confirm";
 import { Pencil, Trash2, Plus, Lock, Eye, EyeOff, Settings } from "lucide-react";
 
 export function OrgSettings() {
   const queryClient = useQueryClient();
+  const confirm = useConfirm();
   const [showForm, setShowForm] = useState(false);
   const [editTarget, setEditTarget] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -212,7 +214,7 @@ export function OrgSettings() {
                   <button onClick={() => startEdit(v)} className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors cursor-pointer">
                     <Pencil className="w-3.5 h-3.5" />
                   </button>
-                  <button onClick={() => { if (confirm(`Delete ${v.key}?`)) deleteMutation.mutate(v.id); }} className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors cursor-pointer">
+                  <button onClick={async () => { if (await confirm({ title: `Delete ${v.key}?`, confirmLabel: "Delete" })) deleteMutation.mutate(v.id); }} className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors cursor-pointer">
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>

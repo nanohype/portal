@@ -249,8 +249,8 @@ func (s *seeder) seed() {
 	for i, a := range accounts {
 		s.ins("accounts", map[string]any{
 			"id": a.id, "org_id": orgID, "name": a.name, "description": descs[a.name],
-			"aws_account_id":  a.awsID,
-			"assume_role_arn": fmt.Sprintf("arn:aws:iam::%s:role/portal-cross-account", a.awsID),
+			"aws_account_id":        a.awsID,
+			"assume_role_arn":       fmt.Sprintf("arn:aws:iam::%s:role/portal-cross-account", a.awsID),
 			"external_id_encrypted": s.enc8(fmt.Sprintf("ext-%s", a.awsID[:6])),
 			"default_region":        a.region,
 			"created_by":            admin,
@@ -327,9 +327,9 @@ func (s *seeder) seed() {
 	// workspaces + runs + state ----------------------------------------------
 	type wspec struct {
 		id, name, env, source, repo, branch, dir, tofu string
-		auto, approval, vcs, locked                     bool
-		lastStatus                                      string // latest run status
-		resources                                       int
+		auto, approval, vcs, locked                    bool
+		lastStatus                                     string // latest run status
+		resources                                      int
 	}
 	wss := []wspec{
 		{id(), "lz-network", "production", "upload", "", "", "live/aws/workload-prod/us-west-2/production/network", "1.11.0", false, false, false, false, "applied", 12},
