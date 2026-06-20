@@ -164,6 +164,13 @@ export function TenantCreateModal({
       const setOverride = (path: string, value: unknown) => {
         if (!allowed(path)) return;
         const segments = path.split(".");
+        // Never let a path segment reach Object.prototype (prototype pollution).
+        if (
+          segments.some(
+            (s) => s === "__proto__" || s === "constructor" || s === "prototype",
+          )
+        )
+          return;
         let cur: Record<string, unknown> = overrides;
         for (let i = 0; i < segments.length - 1; i++) {
           const seg = segments[i];

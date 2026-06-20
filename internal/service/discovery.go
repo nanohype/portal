@@ -345,11 +345,12 @@ func extractDiscoverArchive(data []byte, destDir string) error {
 		if err != nil {
 			return err
 		}
-		cleanName := filepath.Clean(hdr.Name)
-		if strings.HasPrefix(cleanName, "..") {
+		// Zip-slip guard: skip any entry whose resolved path escapes destDir
+		// (filepath.Join cleans, so this catches `../` escapes and absolute names).
+		target := filepath.Join(destDir, hdr.Name)
+		if target != destDir && !strings.HasPrefix(target, destDir+string(os.PathSeparator)) {
 			continue
 		}
-		target := filepath.Join(destDir, cleanName)
 		switch hdr.Typeflag {
 		case tar.TypeDir:
 			os.MkdirAll(target, 0755)

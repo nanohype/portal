@@ -11,6 +11,7 @@ import (
 	"github.com/oklog/ulid/v2"
 	"github.com/riverqueue/river"
 
+	"github.com/nanohype/portal/internal/conv"
 	"github.com/nanohype/portal/internal/repository"
 	"github.com/nanohype/portal/internal/storage"
 	"github.com/nanohype/portal/internal/tfstate"
@@ -266,7 +267,7 @@ func (s *PipelineService) GetRun(ctx context.Context, id, orgID string) (reposit
 }
 
 func (s *PipelineService) ListRuns(ctx context.Context, pipelineID, orgID string, page, perPage int) ([]repository.PipelineRun, int64, error) {
-	offset := int32((page - 1) * perPage)
+	offset := conv.Int32((page - 1) * perPage)
 	runs, err := s.queries.ListPipelineRuns(ctx, repository.ListPipelineRunsParams{
 		PipelineID: pipelineID, OrgID: orgID, Limit: int32(perPage), Offset: offset,
 	})

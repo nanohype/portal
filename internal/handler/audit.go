@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/nanohype/portal/internal/auth"
+	"github.com/nanohype/portal/internal/conv"
 	"github.com/nanohype/portal/internal/handler/respond"
 	"github.com/nanohype/portal/internal/repository"
 )
@@ -29,7 +30,7 @@ func (h *AuditHandler) List(w http.ResponseWriter, r *http.Request) {
 		perPage = 50
 	}
 
-	offset := int32((page - 1) * perPage)
+	offset := conv.Int32((page - 1) * perPage)
 
 	logs, err := h.queries.ListAuditLogs(r.Context(), repository.ListAuditLogsParams{
 		OrgID:  userCtx.OrgID,

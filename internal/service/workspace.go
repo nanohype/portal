@@ -8,6 +8,7 @@ import (
 	"github.com/oklog/ulid/v2"
 
 	"github.com/nanohype/portal/internal/apperr"
+	"github.com/nanohype/portal/internal/conv"
 	"github.com/nanohype/portal/internal/repository"
 )
 
@@ -55,7 +56,7 @@ type UpdateWorkspaceParams struct {
 }
 
 func (s *WorkspaceService) List(ctx context.Context, orgID string, page, perPage int, search, environment string) ([]any, int64, error) {
-	offset := int32((page - 1) * perPage)
+	offset := conv.Int32((page - 1) * perPage)
 
 	workspaces, err := s.queries.ListWorkspacesWithSummary(ctx, repository.ListWorkspacesWithSummaryParams{
 		OrgID:       orgID,

@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/nanohype/portal/internal/apperr"
+	"github.com/nanohype/portal/internal/conv"
 	"github.com/nanohype/portal/internal/repository"
 	"github.com/nanohype/portal/internal/storage"
 	"github.com/nanohype/portal/internal/tfstate"
@@ -34,7 +35,7 @@ func (s *StateService) ListVersions(ctx context.Context, workspaceID, orgID stri
 		WorkspaceID: workspaceID,
 		OrgID:       orgID,
 		Limit:       int32(perPage),
-		Offset:      int32((page - 1) * perPage),
+		Offset:      conv.Int32((page - 1) * perPage),
 	})
 }
 
@@ -113,7 +114,7 @@ func (s *StateService) Diff(ctx context.Context, workspaceID, orgID string, from
 // recoverable noise the caller can audit).
 func (s *StateService) DeleteVersion(ctx context.Context, workspaceID, orgID string, serial int) (sv repository.StateVersion, storageErr, err error) {
 	sv, err = s.queries.DeleteStateVersion(ctx, repository.GetStateVersionBySerialParams{
-		WorkspaceID: workspaceID, OrgID: orgID, Serial: int32(serial),
+		WorkspaceID: workspaceID, OrgID: orgID, Serial: conv.Int32(serial),
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -127,7 +128,7 @@ func (s *StateService) DeleteVersion(ctx context.Context, workspaceID, orgID str
 
 func (s *StateService) bySerial(ctx context.Context, workspaceID, orgID string, serial int, which string) (repository.StateVersion, error) {
 	sv, err := s.queries.GetStateVersionBySerial(ctx, repository.GetStateVersionBySerialParams{
-		WorkspaceID: workspaceID, OrgID: orgID, Serial: int32(serial),
+		WorkspaceID: workspaceID, OrgID: orgID, Serial: conv.Int32(serial),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return sv, apperr.NotFound("state version not found for '" + which + "' serial")

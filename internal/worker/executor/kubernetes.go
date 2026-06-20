@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nanohype/portal/internal/conv"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -204,9 +206,9 @@ func (e *KubernetesExecutor) Execute(ctx context.Context, params ExecuteParams) 
 		added, _ := strconv.Atoi(matches[1])
 		changed, _ := strconv.Atoi(matches[2])
 		deleted, _ := strconv.Atoi(matches[3])
-		result.ResourcesAdded = int32(added)
-		result.ResourcesChanged = int32(changed)
-		result.ResourcesDeleted = int32(deleted)
+		result.ResourcesAdded = conv.Int32(added)
+		result.ResourcesChanged = conv.Int32(changed)
+		result.ResourcesDeleted = conv.Int32(deleted)
 	}
 
 	// For plan: extract JSON plan between markers

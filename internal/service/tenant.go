@@ -14,6 +14,7 @@ import (
 
 	"github.com/nanohype/portal/internal/apperr"
 	"github.com/nanohype/portal/internal/clusterspec"
+	"github.com/nanohype/portal/internal/conv"
 	"github.com/nanohype/portal/internal/repository"
 	"github.com/nanohype/portal/internal/worker"
 )
@@ -46,7 +47,7 @@ type TenantSnapshot struct {
 // scoping); non-nil slice (possibly empty) for non-admin — empty means
 // "user belongs to no teams" → zero rows.
 func (s *TenantService) List(ctx context.Context, orgID, clusterID string, teamIDs []string, page, perPage int) ([]repository.Tenant, int64, error) {
-	offset := int32((page - 1) * perPage)
+	offset := conv.Int32((page - 1) * perPage)
 
 	tenants, err := s.queries.ListTenants(ctx, repository.ListTenantsParams{
 		OrgID:     orgID,

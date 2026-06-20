@@ -15,6 +15,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/nanohype/portal/internal/conv"
 )
 
 // LocalExecutor runs OpenTofu commands on the local machine (development only).
@@ -341,9 +343,9 @@ func (e *LocalExecutor) Execute(ctx context.Context, params ExecuteParams) (*Exe
 		added, _ := strconv.Atoi(matches[1])
 		changed, _ := strconv.Atoi(matches[2])
 		deleted, _ := strconv.Atoi(matches[3])
-		result.ResourcesAdded = int32(added)
-		result.ResourcesChanged = int32(changed)
-		result.ResourcesDeleted = int32(deleted)
+		result.ResourcesAdded = conv.Int32(added)
+		result.ResourcesChanged = conv.Int32(changed)
+		result.ResourcesDeleted = conv.Int32(deleted)
 	}
 
 	// Capture state after apply/destroy
@@ -440,13 +442,14 @@ func extractArchive(data []byte, destDir string) error {
 			return fmt.Errorf("reading tar: %w", err)
 		}
 
-		// Prevent path traversal
-		cleanName := filepath.Clean(hdr.Name)
-		if strings.HasPrefix(cleanName, "..") {
+		// Prevent path traversal (zip-slip): the resolved target must stay
+		// inside destDir. filepath.Join cleans the result, so requiring it to
+		// be destDir or a child of it rejects both `../` escapes and absolute
+		// entry names.
+		target := filepath.Join(destDir, hdr.Name)
+		if target != destDir && !strings.HasPrefix(target, destDir+string(os.PathSeparator)) {
 			return fmt.Errorf("invalid path in archive: %s", hdr.Name)
 		}
-
-		target := filepath.Join(destDir, cleanName)
 		switch hdr.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(target, 0755); err != nil {

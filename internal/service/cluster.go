@@ -10,6 +10,7 @@ import (
 	"github.com/oklog/ulid/v2"
 	"github.com/riverqueue/river"
 
+	"github.com/nanohype/portal/internal/conv"
 	"github.com/nanohype/portal/internal/repository"
 	"github.com/nanohype/portal/internal/secrets"
 	"github.com/nanohype/portal/internal/worker"
@@ -93,7 +94,7 @@ type ClusterCreds struct {
 }
 
 func (s *ClusterService) List(ctx context.Context, orgID, accountID string, page, perPage int) ([]repository.Cluster, int64, error) {
-	offset := int32((page - 1) * perPage)
+	offset := conv.Int32((page - 1) * perPage)
 
 	clusters, err := s.queries.ListClusters(ctx, repository.ListClustersParams{
 		OrgID:     orgID,

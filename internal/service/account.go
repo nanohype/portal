@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/oklog/ulid/v2"
 
+	"github.com/nanohype/portal/internal/conv"
 	"github.com/nanohype/portal/internal/repository"
 	"github.com/nanohype/portal/internal/secrets"
 )
@@ -43,7 +44,7 @@ type UpdateAccountParams struct {
 }
 
 func (s *AccountService) List(ctx context.Context, orgID string, page, perPage int) ([]repository.Account, int64, error) {
-	offset := int32((page - 1) * perPage)
+	offset := conv.Int32((page - 1) * perPage)
 
 	accounts, err := s.queries.ListAccounts(ctx, repository.ListAccountsParams{
 		OrgID:  orgID,

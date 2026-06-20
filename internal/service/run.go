@@ -11,6 +11,7 @@ import (
 	"github.com/oklog/ulid/v2"
 	"github.com/riverqueue/river"
 
+	"github.com/nanohype/portal/internal/conv"
 	"github.com/nanohype/portal/internal/logstream"
 	"github.com/nanohype/portal/internal/repository"
 	"github.com/nanohype/portal/internal/worker"
@@ -42,7 +43,7 @@ type CreateRunParams struct {
 }
 
 func (s *RunService) List(ctx context.Context, workspaceID, orgID string, page, perPage int) ([]any, int64, error) {
-	offset := int32((page - 1) * perPage)
+	offset := conv.Int32((page - 1) * perPage)
 
 	runs, err := s.queries.ListRunsByWorkspace(ctx, repository.ListRunsByWorkspaceParams{
 		WorkspaceID: workspaceID,

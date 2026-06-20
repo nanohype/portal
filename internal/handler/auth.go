@@ -120,13 +120,17 @@ func (h *AuthHandler) GitHubCallback(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusBadRequest, "invalid or missing state parameter")
 		return
 	}
-	// Clear the state cookie
+	// Clear the state cookie. Mirror the security attributes of the cookie set
+	// in GitHubLogin (Secure outside dev, SameSite=Lax) so the clearing cookie
+	// carries the same flags the browser expects.
 	http.SetCookie(w, &http.Cookie{
 		Name:     "oauth_state",
 		Value:    "",
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   h.cfg.Environment != "development",
 	})
 
 	token, err := h.oauthConfig.Exchange(ctx, code)
