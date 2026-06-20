@@ -111,7 +111,6 @@ Source of truth for every value is `deploy/helm/portal/values.yaml`.
 
 ```bash
 cd deploy/helm/portal
-helm dependency build          # pull the postgresql/redis subcharts
 helm install portal . -f values-hub.yaml
 ```
 

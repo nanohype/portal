@@ -513,34 +513,41 @@ func main() {
 		restCfg, err := rest.InClusterConfig()
 		if err != nil {
 			logger.Warn("hub watchers enabled but worker is not running in-cluster; skipping", "error", err)
-		} else if hubDyn, err := dynamic.NewForConfig(restCfg); err != nil {
-			logger.Warn("hub watchers: failed to build in-cluster dynamic client; skipping", "error", err)
 		} else {
-			if cfg.ClusterWatchback {
-				watchSvc := service.NewClusterProvisionWatchService(clusterSvc, queries, hubDyn)
-				go runLoop(ctx, "watchback", cfg.ClusterWatchbackInterval, logger, func() {
-					completed, pending, err := watchSvc.Sync(context.Background())
-					if err != nil {
-						logger.Warn("cluster watch-back", "error", err)
-						return
-					}
-					if completed > 0 || pending > 0 {
-						logger.Info("cluster watch-back tick", "completed", completed, "pending", pending)
-					}
-				})
-			}
-			if cfg.ClusterHealth {
-				healthSvc := service.NewClusterHealthService(clusterSvc, accountSvc, queries, hubDyn, awsProvider, cfg.ArgoCDNamespace)
-				go runLoop(ctx, "cluster-health", cfg.ClusterHealthInterval, logger, func() {
-					checked, err := healthSvc.Sync(context.Background())
-					if err != nil {
-						logger.Warn("cluster health", "error", err)
-						return
-					}
-					if checked > 0 {
-						logger.Info("cluster health tick", "checked", checked)
-					}
-				})
+			// 30s transport-level backstop on the hub dynamic client (matches
+			// k8s.BuildRestConfig) so a hung hub apiserver can't block a watcher
+			// tick past 30s, independent of the per-call context deadline the
+			// reconcilers set.
+			restCfg.Timeout = 30 * time.Second
+			if hubDyn, err := dynamic.NewForConfig(restCfg); err != nil {
+				logger.Warn("hub watchers: failed to build in-cluster dynamic client; skipping", "error", err)
+			} else {
+				if cfg.ClusterWatchback {
+					watchSvc := service.NewClusterProvisionWatchService(clusterSvc, queries, hubDyn)
+					go runLoop(ctx, "watchback", cfg.ClusterWatchbackInterval, logger, func() {
+						completed, pending, err := watchSvc.Sync(context.Background())
+						if err != nil {
+							logger.Warn("cluster watch-back", "error", err)
+							return
+						}
+						if completed > 0 || pending > 0 {
+							logger.Info("cluster watch-back tick", "completed", completed, "pending", pending)
+						}
+					})
+				}
+				if cfg.ClusterHealth {
+					healthSvc := service.NewClusterHealthService(clusterSvc, accountSvc, queries, hubDyn, awsProvider, cfg.ArgoCDNamespace)
+					go runLoop(ctx, "cluster-health", cfg.ClusterHealthInterval, logger, func() {
+						checked, err := healthSvc.Sync(context.Background())
+						if err != nil {
+							logger.Warn("cluster health", "error", err)
+							return
+						}
+						if checked > 0 {
+							logger.Info("cluster health tick", "checked", checked)
+						}
+					})
+				}
 			}
 		}
 	}

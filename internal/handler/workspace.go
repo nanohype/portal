@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/oklog/ulid/v2"
@@ -17,6 +19,88 @@ import (
 	"github.com/nanohype/portal/internal/service"
 	"github.com/nanohype/portal/internal/storage"
 )
+
+// gitRefPattern allows the characters in a normal git branch/tag name and a
+// relative working-directory path: letters, digits, and . _ / - . Everything
+// else (whitespace, shell metacharacters, $() ; | & quotes) is rejected. The
+// repo_branch and working_dir reach the executors' clone/cd commands, so this
+// boundary check is the first line of defense against command/option injection
+// (the executors add quoting + `--` as the second).
+var gitRefPattern = regexp.MustCompile(`^[A-Za-z0-9._/-]+$`)
+
+// validateRepoBranch rejects branch names that could be read as shell or
+// git-option payloads. Empty is allowed — the service fills the default "main".
+func validateRepoBranch(branch string) error {
+	if branch == "" {
+		return nil
+	}
+	if len(branch) > 255 {
+		return fmt.Errorf("repo_branch must be at most 255 characters")
+	}
+	if strings.HasPrefix(branch, "-") {
+		return fmt.Errorf("repo_branch must not start with '-'")
+	}
+	if strings.Contains(branch, "..") {
+		return fmt.Errorf("repo_branch must not contain '..'")
+	}
+	if !gitRefPattern.MatchString(branch) {
+		return fmt.Errorf("repo_branch may only contain letters, digits, and . _ / -")
+	}
+	return nil
+}
+
+// validateWorkingDir rejects working dirs that escape the checkout or carry
+// shell/option payloads. Empty is allowed — the service fills ".".
+func validateWorkingDir(dir string) error {
+	if dir == "" {
+		return nil
+	}
+	if len(dir) > 1024 {
+		return fmt.Errorf("working_dir must be at most 1024 characters")
+	}
+	if strings.HasPrefix(dir, "-") {
+		return fmt.Errorf("working_dir must not start with '-'")
+	}
+	if strings.HasPrefix(dir, "/") {
+		return fmt.Errorf("working_dir must be a relative path")
+	}
+	if strings.Contains(dir, "..") {
+		return fmt.Errorf("working_dir must not contain '..'")
+	}
+	if !gitRefPattern.MatchString(dir) {
+		return fmt.Errorf("working_dir may only contain letters, digits, and . _ / -")
+	}
+	return nil
+}
+
+// validateRepoURL keeps the clone target from being read as a git option and
+// caps its length. The executors also pass it after a `--` separator; this is
+// defense in depth and a clearer error at the boundary. Empty is allowed for
+// upload workspaces.
+func validateRepoURL(url string) error {
+	if url == "" {
+		return nil
+	}
+	if len(url) > 2048 {
+		return fmt.Errorf("repo_url must be at most 2048 characters")
+	}
+	if strings.HasPrefix(url, "-") {
+		return fmt.Errorf("repo_url must not start with '-'")
+	}
+	return nil
+}
+
+// validateRepoFields runs the three repo-field validators and returns the first
+// error, so Create and Update share one call site.
+func validateRepoFields(repoURL, branch, workingDir string) error {
+	if err := validateRepoURL(repoURL); err != nil {
+		return err
+	}
+	if err := validateRepoBranch(branch); err != nil {
+		return err
+	}
+	return validateWorkingDir(workingDir)
+}
 
 type WorkspaceHandler struct {
 	svc      *service.WorkspaceService
@@ -140,8 +224,11 @@ func (h *WorkspaceHandler) Create(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusBadRequest, "repo_url is required for VCS workspaces")
 		return
 	}
-	if len(req.RepoURL) > 2048 {
-		respond.Error(w, http.StatusBadRequest, "repo_url must be at most 2048 characters")
+	// repo_url / repo_branch / working_dir flow into the executor's git clone
+	// and cd — validate them against a safe charset to block command/option
+	// injection at the boundary (any role can create a workspace).
+	if err := validateRepoFields(req.RepoURL, req.RepoBranch, req.WorkingDir); err != nil {
+		respond.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -200,8 +287,8 @@ func (h *WorkspaceHandler) Update(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusBadRequest, "name must be at most 128 characters")
 		return
 	}
-	if len(req.RepoURL) > 2048 {
-		respond.Error(w, http.StatusBadRequest, "repo_url must be at most 2048 characters")
+	if err := validateRepoFields(req.RepoURL, req.RepoBranch, req.WorkingDir); err != nil {
+		respond.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if len(req.Description) > 4096 {

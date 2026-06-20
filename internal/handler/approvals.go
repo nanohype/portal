@@ -12,12 +12,11 @@ import (
 )
 
 type ApprovalHandler struct {
-	svc      *service.ApprovalService
-	auditSvc *service.AuditService
+	svc *service.ApprovalService
 }
 
-func NewApprovalHandler(svc *service.ApprovalService, auditSvc *service.AuditService) *ApprovalHandler {
-	return &ApprovalHandler{svc: svc, auditSvc: auditSvc}
+func NewApprovalHandler(svc *service.ApprovalService) *ApprovalHandler {
+	return &ApprovalHandler{svc: svc}
 }
 
 type ApprovalRequest struct {
@@ -51,18 +50,14 @@ func (h *ApprovalHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	approval, err := h.svc.Create(r.Context(), runID, userCtx.OrgID, userCtx.UserID, req.Status, req.Comment)
+	// IP/UA are threaded into the service so the audit row is written inside the
+	// same transaction as the decision — see ApprovalService.Create.
+	ip, ua := auditContext(r)
+	approval, err := h.svc.Create(r.Context(), runID, userCtx.OrgID, userCtx.UserID, req.Status, req.Comment, ip, ua)
 	if err != nil {
 		respond.FromError(w, r, err)
 		return
 	}
-
-	ip, ua := auditContext(r)
-	h.auditSvc.Log(r.Context(), service.AuditEntry{
-		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
-		Action: "approval.create", EntityType: "approval", EntityID: approval.ID,
-		After: approval, IPAddress: ip, UserAgent: ua,
-	})
 
 	respond.JSON(w, http.StatusCreated, approval)
 }

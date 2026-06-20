@@ -22,11 +22,12 @@ import (
 type ApprovalService struct {
 	queries     *repository.Queries
 	db          *pgxpool.Pool
+	auditSvc    *AuditService
 	riverClient *river.Client[pgx.Tx]
 }
 
-func NewApprovalService(queries *repository.Queries, db *pgxpool.Pool) *ApprovalService {
-	return &ApprovalService{queries: queries, db: db}
+func NewApprovalService(queries *repository.Queries, db *pgxpool.Pool, auditSvc *AuditService) *ApprovalService {
+	return &ApprovalService{queries: queries, db: db, auditSvc: auditSvc}
 }
 
 func (s *ApprovalService) SetRiverClient(client *river.Client[pgx.Tx]) {
@@ -53,7 +54,7 @@ func (s *ApprovalService) List(ctx context.Context, runID, orgID string) ([]repo
 // released (only if this run still holds it) and the next pending run is claimed
 // + enqueued atomically — the same hand-off RunService.Cancel and the worker's
 // finish paths use, so a concurrent reject + cancel can't double-enqueue.
-func (s *ApprovalService) Create(ctx context.Context, runID, orgID, userID, status, comment string) (repository.Approval, error) {
+func (s *ApprovalService) Create(ctx context.Context, runID, orgID, userID, status, comment, ipAddress, userAgent string) (repository.Approval, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return repository.Approval{}, fmt.Errorf("begin approval tx: %w", err)
@@ -100,6 +101,18 @@ func (s *ApprovalService) Create(ctx context.Context, runID, orgID, userID, stat
 		if _, err := qtx.UpdateRunStatus(ctx, repository.UpdateRunStatusParams{ID: runID, Status: "discarded"}); err != nil {
 			return repository.Approval{}, fmt.Errorf("discard run: %w", err)
 		}
+	}
+
+	// Record the decision on the same transaction. An approve/reject is a
+	// compliance-relevant, irreversible decision (it releases or kills a gated
+	// apply), so the audit row must commit or roll back with it — never stand
+	// without its record. A failed audit write aborts the whole decision.
+	if err := s.auditSvc.LogTx(ctx, qtx, AuditEntry{
+		OrgID: orgID, UserID: userID,
+		Action: "approval.create", EntityType: "approval", EntityID: approval.ID,
+		After: approval, IPAddress: ipAddress, UserAgent: userAgent,
+	}); err != nil {
+		return repository.Approval{}, fmt.Errorf("write approval audit: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {

@@ -2,6 +2,10 @@ module github.com/nanohype/portal
 
 go 1.26.0
 
+// Pin the toolchain to a release that carries the std-lib security fixes
+// (GO-2026-5037/5038 + net/textproto) — keeps `govulncheck ./...` green in CI.
+toolchain go1.26.4
+
 require (
 	github.com/aws/aws-sdk-go-v2 v1.42.0
 	github.com/aws/aws-sdk-go-v2/config v1.32.18

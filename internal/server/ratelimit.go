@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"golang.org/x/time/rate"
+
+	"github.com/nanohype/portal/internal/handler/respond"
 )
 
 type ipLimiter struct {
@@ -77,7 +79,7 @@ func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 		limiter := rl.getLimiter(clientIP(r.RemoteAddr))
 		if !limiter.Allow() {
 			w.Header().Set("Retry-After", "1")
-			http.Error(w, `{"error":"Too Many Requests","message":"rate limit exceeded"}`, http.StatusTooManyRequests)
+			respond.Error(w, http.StatusTooManyRequests, "rate limit exceeded")
 			return
 		}
 		next.ServeHTTP(w, r)

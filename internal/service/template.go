@@ -282,14 +282,13 @@ func getPath(m map[string]interface{}, path string) interface{} {
 func setPath(m map[string]interface{}, path string, value interface{}) {
 	parts := strings.Split(path, ".")
 	cur := m
-	for i, p := range parts[:len(parts)-1] {
+	for _, p := range parts[:len(parts)-1] {
 		next, ok := cur[p].(map[string]interface{})
 		if !ok {
 			next = map[string]interface{}{}
 			cur[p] = next
 		}
 		cur = next
-		_ = i
 	}
 	cur[parts[len(parts)-1]] = value
 }
