@@ -99,7 +99,7 @@ func (s *ClusterService) List(ctx context.Context, orgID, accountID string, page
 	clusters, err := s.queries.ListClusters(ctx, repository.ListClustersParams{
 		OrgID:     orgID,
 		AccountID: accountID,
-		Limit:     int32(perPage),
+		Limit:     conv.Int32(perPage),
 		Offset:    offset,
 	})
 	if err != nil {

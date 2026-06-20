@@ -446,6 +446,9 @@ func extractArchive(data []byte, destDir string) error {
 		// inside destDir. filepath.Join cleans the result, so requiring it to
 		// be destDir or a child of it rejects both `../` escapes and absolute
 		// entry names.
+		if !filepath.IsLocal(hdr.Name) {
+			return fmt.Errorf("invalid path in archive: %s", hdr.Name)
+		}
 		target := filepath.Join(destDir, hdr.Name)
 		if target != destDir && !strings.HasPrefix(target, destDir+string(os.PathSeparator)) {
 			return fmt.Errorf("invalid path in archive: %s", hdr.Name)

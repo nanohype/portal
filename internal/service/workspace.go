@@ -60,7 +60,7 @@ func (s *WorkspaceService) List(ctx context.Context, orgID string, page, perPage
 
 	workspaces, err := s.queries.ListWorkspacesWithSummary(ctx, repository.ListWorkspacesWithSummaryParams{
 		OrgID:       orgID,
-		Limit:       int32(perPage),
+		Limit:       conv.Int32(perPage),
 		Offset:      offset,
 		Search:      search,
 		Environment: environment,

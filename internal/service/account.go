@@ -48,7 +48,7 @@ func (s *AccountService) List(ctx context.Context, orgID string, page, perPage i
 
 	accounts, err := s.queries.ListAccounts(ctx, repository.ListAccountsParams{
 		OrgID:  orgID,
-		Limit:  int32(perPage),
+		Limit:  conv.Int32(perPage),
 		Offset: offset,
 	})
 	if err != nil {

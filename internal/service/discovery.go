@@ -347,6 +347,12 @@ func extractDiscoverArchive(data []byte, destDir string) error {
 		}
 		// Zip-slip guard: skip any entry whose resolved path escapes destDir
 		// (filepath.Join cleans, so this catches `../` escapes and absolute names).
+		// filepath.IsLocal rejects absolute names and `../` escapes up front and
+		// is recognized as a zip-slip sanitizer by static analysis; the cleaned
+		// HasPrefix check stays as defense in depth.
+		if !filepath.IsLocal(hdr.Name) {
+			continue
+		}
 		target := filepath.Join(destDir, hdr.Name)
 		if target != destDir && !strings.HasPrefix(target, destDir+string(os.PathSeparator)) {
 			continue

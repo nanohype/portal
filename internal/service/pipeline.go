@@ -269,7 +269,7 @@ func (s *PipelineService) GetRun(ctx context.Context, id, orgID string) (reposit
 func (s *PipelineService) ListRuns(ctx context.Context, pipelineID, orgID string, page, perPage int) ([]repository.PipelineRun, int64, error) {
 	offset := conv.Int32((page - 1) * perPage)
 	runs, err := s.queries.ListPipelineRuns(ctx, repository.ListPipelineRunsParams{
-		PipelineID: pipelineID, OrgID: orgID, Limit: int32(perPage), Offset: offset,
+		PipelineID: pipelineID, OrgID: orgID, Limit: conv.Int32(perPage), Offset: offset,
 	})
 	if err != nil {
 		return nil, 0, err

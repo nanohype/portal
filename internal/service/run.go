@@ -48,7 +48,7 @@ func (s *RunService) List(ctx context.Context, workspaceID, orgID string, page, 
 	runs, err := s.queries.ListRunsByWorkspace(ctx, repository.ListRunsByWorkspaceParams{
 		WorkspaceID: workspaceID,
 		OrgID:       orgID,
-		Limit:       int32(perPage),
+		Limit:       conv.Int32(perPage),
 		Offset:      offset,
 	})
 	if err != nil {

@@ -160,7 +160,12 @@ export function TenantCreateModal({
   // - Scratch mode: send the full values blob.
   const buildBody = () => {
     if (selected && !scratchMode) {
-      const overrides: Record<string, Record<string, unknown>> = {};
+      // Null-prototype accumulator: even if a guard were bypassed, there is no
+      // prototype to pollute (paired with the __proto__/constructor/prototype
+      // segment rejection below).
+      const overrides: Record<string, Record<string, unknown>> = Object.create(
+        null,
+      ) as Record<string, Record<string, unknown>>;
       const setOverride = (path: string, value: unknown) => {
         if (!allowed(path)) return;
         const segments = path.split(".");
@@ -174,7 +179,8 @@ export function TenantCreateModal({
         let cur: Record<string, unknown> = overrides;
         for (let i = 0; i < segments.length - 1; i++) {
           const seg = segments[i];
-          if (!(seg in cur) || typeof cur[seg] !== "object") cur[seg] = {};
+          if (!(seg in cur) || typeof cur[seg] !== "object")
+            cur[seg] = Object.create(null) as Record<string, unknown>;
           cur = cur[seg] as Record<string, unknown>;
         }
         cur[segments[segments.length - 1]] = value;

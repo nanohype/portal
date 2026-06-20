@@ -34,7 +34,7 @@ func (s *StateService) ListVersions(ctx context.Context, workspaceID, orgID stri
 	return s.queries.ListStateVersionsByWorkspace(ctx, repository.ListStateVersionsParams{
 		WorkspaceID: workspaceID,
 		OrgID:       orgID,
-		Limit:       int32(perPage),
+		Limit:       conv.Int32(perPage),
 		Offset:      conv.Int32((page - 1) * perPage),
 	})
 }

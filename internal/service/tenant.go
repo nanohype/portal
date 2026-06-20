@@ -53,7 +53,7 @@ func (s *TenantService) List(ctx context.Context, orgID, clusterID string, teamI
 		OrgID:     orgID,
 		ClusterID: clusterID,
 		TeamIDs:   teamIDs,
-		Limit:     int32(perPage),
+		Limit:     conv.Int32(perPage),
 		Offset:    offset,
 	})
 	if err != nil {

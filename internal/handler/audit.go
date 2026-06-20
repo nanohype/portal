@@ -34,7 +34,7 @@ func (h *AuditHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	logs, err := h.queries.ListAuditLogs(r.Context(), repository.ListAuditLogsParams{
 		OrgID:  userCtx.OrgID,
-		Limit:  int32(perPage),
+		Limit:  conv.Int32(perPage),
 		Offset: offset,
 	})
 	if err != nil {
