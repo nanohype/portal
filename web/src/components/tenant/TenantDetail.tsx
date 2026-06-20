@@ -8,6 +8,7 @@ import type { Team, TenantOperation, TenantTeamAccess } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Link } from "@/components/ui/link";
+import { useConfirm } from "@/components/ui/confirm";
 import { formatRelativeTime } from "@/lib/utils";
 import { StatusBadge } from "@/components/ui/status-badge";
 import {
@@ -30,6 +31,7 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
     user?.role === "admin" ||
     user?.role === "owner";
   const queryClient = useQueryClient();
+  const confirm = useConfirm();
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["tenant", tenantId],
@@ -142,9 +144,14 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => {
+            onClick={async () => {
               if (
-                confirm(`Delete tenant "${data.name}"? This commits a removal to the tenants repo and ArgoCD will prune the resources.`)
+                await confirm({
+                  title: `Delete tenant "${data.name}"?`,
+                  message:
+                    "This commits a removal to the tenants repo and ArgoCD will prune the resources.",
+                  confirmLabel: "Delete",
+                })
               ) {
                 deleteMutation.mutate();
               }
@@ -183,6 +190,7 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
 
 function AccessPanel({ tenantId }: { tenantId: string }) {
   const queryClient = useQueryClient();
+  const confirm = useConfirm();
   const [picker, setPicker] = useState("");
 
   const { data: access } = useQuery({
@@ -264,8 +272,13 @@ function AccessPanel({ tenantId }: { tenantId: string }) {
                 {formatRelativeTime(a.granted_at)}
               </span>
               <button
-                onClick={() => {
-                  if (confirm(`Revoke access from ${teamName(a.team_id)}?`)) {
+                onClick={async () => {
+                  if (
+                    await confirm({
+                      title: `Revoke access from ${teamName(a.team_id)}?`,
+                      confirmLabel: "Revoke",
+                    })
+                  ) {
                     revoke.mutate(a.team_id);
                   }
                 }}

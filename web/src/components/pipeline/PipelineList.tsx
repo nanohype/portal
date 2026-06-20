@@ -9,6 +9,7 @@ import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { SkeletonRows } from "@/components/ui/skeleton";
 import { Link } from "@/components/ui/link";
+import { useConfirm } from "@/components/ui/confirm";
 import {
   Dialog,
   DialogContent,
@@ -21,6 +22,7 @@ import { GitBranch, Plus, Trash2, GripVertical } from "lucide-react";
 export function PipelineList() {
   const [showCreate, setShowCreate] = useState(false);
   const queryClient = useQueryClient();
+  const confirm = useConfirm();
 
   const {
     data: pipelines,
@@ -116,10 +118,15 @@ export function PipelineList() {
                     {new Date(p.created_at).toLocaleDateString()}
                   </span>
                   <button
-                    onClick={(e) => {
+                    onClick={async (e) => {
                       e.preventDefault();
                       e.stopPropagation();
-                      if (confirm("Delete this pipeline?")) {
+                      if (
+                        await confirm({
+                          title: "Delete this pipeline?",
+                          confirmLabel: "Delete",
+                        })
+                      ) {
                         deleteMutation.mutate(p.id);
                       }
                     }}

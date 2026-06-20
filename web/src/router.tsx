@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import {
   createRootRouteWithContext,
   createRoute,
@@ -21,27 +22,35 @@ import { ErrorFallback } from "@/components/ErrorFallback";
 import { Spinner } from "@/components/ui/spinner";
 import { Link } from "@/components/ui/link";
 
+// Public entry pages stay eager — they're the first paint and tiny.
 import { LoginPage } from "@/routes/Login";
 import { AuthCallbackPage } from "@/routes/AuthCallback";
-import { WorkspaceList } from "@/components/workspace/WorkspaceList";
-import { WorkspaceDetail } from "@/components/workspace/WorkspaceDetail";
-import { RunView } from "@/components/run/RunView";
-import { PipelineList } from "@/components/pipeline/PipelineList";
-import { PipelineDetail } from "@/components/pipeline/PipelineDetail";
-import { PipelineRunView } from "@/components/pipeline/PipelineRunView";
-import { AccountList } from "@/components/account/AccountList";
-import { AccountDetail } from "@/components/account/AccountDetail";
-import { ClusterList } from "@/components/cluster/ClusterList";
-import { ClusterDetail } from "@/components/cluster/ClusterDetail";
-import { TenantList } from "@/components/tenant/TenantList";
-import { TenantDetail } from "@/components/tenant/TenantDetail";
-import { TemplateList } from "@/components/template/TemplateList";
-import { CatalogPage } from "@/components/catalog/CatalogPage";
-import { OpsPage } from "@/components/ops/OpsPage";
-import { TeamsPage } from "@/components/teams/TeamsPage";
-import { UsersPage } from "@/components/users/UsersPage";
-import { AuditLogPage } from "@/components/audit/AuditLogPage";
-import { OrgSettings } from "@/components/settings/OrgSettings";
+
+// In-app pages are lazy-loaded so each becomes its own chunk: the initial
+// bundle no longer carries every detail view (xterm.js, cmdk, charts) up front.
+// The Suspense boundary in AppLayoutRoute renders the fallback while a chunk loads.
+const named = <T,>(p: Promise<Record<string, T>>, key: string) =>
+  p.then((m) => ({ default: m[key] }));
+
+const WorkspaceList = lazy(() => named(import("@/components/workspace/WorkspaceList"), "WorkspaceList"));
+const WorkspaceDetail = lazy(() => named(import("@/components/workspace/WorkspaceDetail"), "WorkspaceDetail"));
+const RunView = lazy(() => named(import("@/components/run/RunView"), "RunView"));
+const PipelineList = lazy(() => named(import("@/components/pipeline/PipelineList"), "PipelineList"));
+const PipelineDetail = lazy(() => named(import("@/components/pipeline/PipelineDetail"), "PipelineDetail"));
+const PipelineRunView = lazy(() => named(import("@/components/pipeline/PipelineRunView"), "PipelineRunView"));
+const AccountList = lazy(() => named(import("@/components/account/AccountList"), "AccountList"));
+const AccountDetail = lazy(() => named(import("@/components/account/AccountDetail"), "AccountDetail"));
+const ClusterList = lazy(() => named(import("@/components/cluster/ClusterList"), "ClusterList"));
+const ClusterDetail = lazy(() => named(import("@/components/cluster/ClusterDetail"), "ClusterDetail"));
+const TenantList = lazy(() => named(import("@/components/tenant/TenantList"), "TenantList"));
+const TenantDetail = lazy(() => named(import("@/components/tenant/TenantDetail"), "TenantDetail"));
+const TemplateList = lazy(() => named(import("@/components/template/TemplateList"), "TemplateList"));
+const CatalogPage = lazy(() => named(import("@/components/catalog/CatalogPage"), "CatalogPage"));
+const OpsPage = lazy(() => named(import("@/components/ops/OpsPage"), "OpsPage"));
+const TeamsPage = lazy(() => named(import("@/components/teams/TeamsPage"), "TeamsPage"));
+const UsersPage = lazy(() => named(import("@/components/users/UsersPage"), "UsersPage"));
+const AuditLogPage = lazy(() => named(import("@/components/audit/AuditLogPage"), "AuditLogPage"));
+const OrgSettings = lazy(() => named(import("@/components/settings/OrgSettings"), "OrgSettings"));
 
 interface RouterContext {
   queryClient: QueryClient;
@@ -151,7 +160,16 @@ function AppLayoutRoute() {
           console.error("[ui] render error:", error, info.componentStack)
         }
       >
-        <Outlet />
+        {/* Catches the lazy route chunks while they load. */}
+        <Suspense
+          fallback={
+            <div className="flex items-center justify-center py-20">
+              <Spinner className="w-6 h-6" />
+            </div>
+          }
+        >
+          <Outlet />
+        </Suspense>
       </ErrorBoundary>
     </AppLayout>
   );

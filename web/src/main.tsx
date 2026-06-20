@@ -6,6 +6,7 @@ import { Toaster } from "sonner";
 import { queryClient } from "@/lib/query-client";
 import { router } from "@/router";
 import { useTheme } from "@/stores/theme";
+import { ConfirmProvider } from "@/components/ui/confirm";
 import "./index.css";
 
 // Toasts follow the app theme so richColors render on the right surface.
@@ -17,7 +18,9 @@ function ThemedToaster() {
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
+      <ConfirmProvider>
+        <RouterProvider router={router} />
+      </ConfirmProvider>
       <ThemedToaster />
     </QueryClientProvider>
   </StrictMode>

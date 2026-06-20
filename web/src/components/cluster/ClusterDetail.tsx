@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Link } from "@/components/ui/link";
+import { useConfirm } from "@/components/ui/confirm";
 import { formatRelativeTime } from "@/lib/utils";
 import { StatusBadge } from "@/components/ui/status-badge";
 import {
@@ -30,6 +31,7 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin" || user?.role === "owner";
   const queryClient = useQueryClient();
+  const confirm = useConfirm();
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["cluster", clusterId],
@@ -228,9 +230,13 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => {
+              onClick={async () => {
                 if (
-                  confirm(`Delete cluster "${data.name}"? This cannot be undone.`)
+                  await confirm({
+                    title: `Delete cluster "${data.name}"?`,
+                    message: "This cannot be undone.",
+                    confirmLabel: "Delete",
+                  })
                 ) {
                   deleteMutation.mutate();
                 }
