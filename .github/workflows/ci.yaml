@@ -62,3 +62,41 @@ jobs:
         working-directory: web
       - run: npx vite build
         working-directory: web
+
+  chart:
+    name: Helm chart
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Install kubeconform
+        run: |
+          curl -sSfL https://github.com/yannh/kubeconform/releases/download/v0.7.0/kubeconform-linux-amd64.tar.gz \
+            | sudo tar -xz -C /usr/local/bin kubeconform
+
+      - name: Helm lint
+        run: helm lint deploy/helm/portal
+
+      # The chart deliberately requires database.url (no bundled DB — point it at
+      # a managed Postgres), so render with a dummy URL purely to exercise
+      # templating in CI.
+      - name: Helm template
+        run: |
+          mkdir -p rendered
+          helm template portal deploy/helm/portal \
+            --set 'database.url=postgres://portal:portal@db.example.com:5432/portal?sslmode=require' \
+            > rendered/portal.yaml
+
+      - name: Validate against Kubernetes schemas
+        run: kubeconform -strict -ignore-missing-schemas -summary rendered/portal.yaml
+
+      # Source files are gated elsewhere; this asserts the RENDERED chart too —
+      # a zero account id, placeholder token, or account-less ARN that only
+      # appears after templating.
+      - name: Assert no unfilled sentinels in rendered output
+        uses: nanohype/nanohype/.github/actions/render-assert@main
+        with:
+          manifests: rendered
