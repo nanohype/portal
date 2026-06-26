@@ -51,3 +51,44 @@ func TestCanPerform_UnknownRole(t *testing.T) {
 		t.Error("unknown role should not be able to perform any action")
 	}
 }
+
+func TestActionForOperation(t *testing.T) {
+	cases := map[string]Action{
+		"plan":    ActionCreateRun,
+		"test":    ActionCreateRun,
+		"import":  ActionCreateRun,
+		"apply":   ActionApplyRun,
+		"destroy": ActionDestroyRun,
+	}
+	for op, want := range cases {
+		if got := ActionForOperation(op); got != want {
+			t.Errorf("ActionForOperation(%q) = %q, want %q", op, got, want)
+		}
+	}
+}
+
+// TestRunOperationAuthorization pins the gate the run handler enforces: a viewer
+// can run nothing, an operator can plan/apply but not destroy, admin+ can destroy.
+// This is the regression guard for the broken-access-control fix (a viewer must
+// never be able to POST {operation: "destroy"}).
+func TestRunOperationAuthorization(t *testing.T) {
+	cases := []struct {
+		role, operation string
+		allowed         bool
+	}{
+		{"viewer", "plan", false},
+		{"viewer", "apply", false},
+		{"viewer", "destroy", false},
+		{"operator", "plan", true},
+		{"operator", "apply", true},
+		{"operator", "destroy", false},
+		{"admin", "apply", true},
+		{"admin", "destroy", true},
+		{"owner", "destroy", true},
+	}
+	for _, c := range cases {
+		if got := CanPerform(c.role, ActionForOperation(c.operation)); got != c.allowed {
+			t.Errorf("%s performing %q: got %v, want %v", c.role, c.operation, got, c.allowed)
+		}
+	}
+}

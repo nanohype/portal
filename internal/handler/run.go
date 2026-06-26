@@ -119,6 +119,15 @@ func (h *RunHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Enforce role per operation: the route gates the create_run baseline, but
+	// apply/destroy run real tofu against live cloud state, so they elevate
+	// (apply -> apply_run, destroy -> destroy_run/admin). Without this a viewer
+	// could POST {operation: "destroy"} and tear down infrastructure.
+	if userCtx == nil || !auth.CanPerform(userCtx.Role, auth.ActionForOperation(req.Operation)) {
+		respond.Error(w, http.StatusForbidden, "insufficient role for "+req.Operation+" operation")
+		return
+	}
+
 	// Check if workspace is locked
 	ws, err := h.workspaceSvc.Get(r.Context(), workspaceID, userCtx.OrgID)
 	if err != nil {
