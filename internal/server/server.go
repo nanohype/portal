@@ -406,7 +406,9 @@ func (s *Server) setupRouter() {
 						// Runs
 						r.Route("/runs", func(r chi.Router) {
 							r.Get("/", runHandler.List)
-							r.Post("/", runHandler.Create)
+							// Baseline: only operator+ may create any run; the handler
+							// elevates per operation (destroy requires admin).
+							r.With(auth.RequireAction(auth.ActionCreateRun)).Post("/", runHandler.Create)
 							r.Route("/{runID}", func(r chi.Router) {
 								r.Get("/", runHandler.Get)
 								r.Get("/plan-json", runHandler.GetPlanJSON)

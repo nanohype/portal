@@ -68,6 +68,20 @@ func CanPerform(role string, action Action) bool {
 	return roleLevel(role) >= roleLevel(minRoleForAction(action))
 }
 
+// ActionForOperation maps a run operation to the action it requires. apply and
+// destroy are the destructive operations and carry their own (higher) min-role;
+// plan/test/import are gated at the create_run baseline.
+func ActionForOperation(operation string) Action {
+	switch operation {
+	case "apply":
+		return ActionApplyRun
+	case "destroy":
+		return ActionDestroyRun
+	default: // plan, test, import
+		return ActionCreateRun
+	}
+}
+
 // RequireRole returns middleware that enforces a minimum role.
 func RequireRole(minRole string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
