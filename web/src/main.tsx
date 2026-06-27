@@ -10,6 +10,7 @@ import { ConfirmProvider } from "@/components/ui/confirm";
 import "./index.css";
 
 // Toasts follow the app theme so richColors render on the right surface.
+// eslint-disable-next-line react-refresh/only-export-components -- bootstrap entry (createRoot); local toaster, not an HMR boundary
 function ThemedToaster() {
   const theme = useTheme((s) => s.theme);
   return <Toaster position="bottom-right" richColors closeButton theme={theme} />;

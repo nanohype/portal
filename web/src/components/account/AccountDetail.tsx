@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "@/components/ui/link";
-import { useConfirm } from "@/components/ui/confirm";
+import { useConfirm } from "@/components/ui/confirm-context";
 import {
   ArrowLeft,
   Cloud,
@@ -49,6 +49,7 @@ export function AccountDetail({ accountId }: { accountId: string }) {
 
   useEffect(() => {
     if (!data) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional one-time sync of editable form fields from fetched data
     setName(data.name);
     setDescription(data.description ?? "");
     setAssumeRoleARN(data.assume_role_arn);

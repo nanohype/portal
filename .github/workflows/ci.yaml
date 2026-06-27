@@ -56,6 +56,8 @@ jobs:
       # that produced the vite Dependabot alerts).
       - run: npm audit --audit-level=high
         working-directory: web
+      - run: npm run lint
+        working-directory: web
       # tsc -b is the real typecheck — the root tsconfig has files:[] + project
       # references, so `tsc --noEmit` against it checks nothing.
       - run: npx tsc -b

@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Link } from "@/components/ui/link";
-import { useConfirm } from "@/components/ui/confirm";
+import { useConfirm } from "@/components/ui/confirm-context";
 import { formatRelativeTime } from "@/lib/utils";
 import { StatusBadge } from "@/components/ui/status-badge";
 import {
@@ -83,6 +83,7 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
 
   useEffect(() => {
     if (!data) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional one-time sync of editable form fields from fetched data
     setName(data.name);
     setDescription(data.description ?? "");
     setApiEndpoint(data.api_endpoint);

@@ -4,12 +4,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { tenantOpStatus } from "@/lib/status";
 import { Spinner } from "@/components/ui/spinner";
 import { formatRelativeTime } from "@/lib/utils";
-import type {
-  Cluster,
-  ClusterOperation,
-  OpsFeedItem,
-  TenantOperation,
-} from "@/api/types";
+import type { Cluster, ClusterOperation, OpsFeedItem } from "@/api/types";
 import { Cloud, Layers, Activity } from "lucide-react";
 import { VendTimeline } from "@/components/cluster/VendTimeline";
 import { DeprovisionTimeline } from "@/components/cluster/DeprovisionTimeline";

@@ -9,7 +9,7 @@ import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { SkeletonRows } from "@/components/ui/skeleton";
 import { Link } from "@/components/ui/link";
-import { useConfirm } from "@/components/ui/confirm";
+import { useConfirm } from "@/components/ui/confirm-context";
 import {
   Dialog,
   DialogContent,

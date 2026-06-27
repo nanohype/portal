@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- route-tree wiring: route definitions + the exported router, not an HMR component boundary */
 import { lazy, Suspense } from "react";
 import {
   createRootRouteWithContext,

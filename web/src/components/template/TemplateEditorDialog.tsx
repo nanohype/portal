@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { ChipToggle } from "@/components/ui/chip-toggle";
-import { useConfirm } from "@/components/ui/confirm";
+import { useConfirm } from "@/components/ui/confirm-context";
 import { formatRelativeTime } from "@/lib/utils";
 import { Trash2 } from "lucide-react";
 import {
@@ -74,6 +74,7 @@ export function TemplateEditorDialog({
 
   useEffect(() => {
     if (existing) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional one-time prefill of editable fields from the existing template
       setName(existing.name);
       setDescription(existing.description);
       setPersona(existing.persona);

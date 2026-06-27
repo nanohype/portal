@@ -8,7 +8,7 @@ import type { Team, TenantOperation, TenantTeamAccess } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Link } from "@/components/ui/link";
-import { useConfirm } from "@/components/ui/confirm";
+import { useConfirm } from "@/components/ui/confirm-context";
 import { formatRelativeTime } from "@/lib/utils";
 import { StatusBadge } from "@/components/ui/status-badge";
 import {

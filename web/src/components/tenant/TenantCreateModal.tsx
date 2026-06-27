@@ -128,6 +128,7 @@ export function TenantCreateModal({
     const compliance = (platform.compliance ?? {}) as Record<string, unknown>;
     const budget = (d?.budget ?? {}) as Record<string, unknown>;
     if (typeof platform.persona === "string") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional prefill of editable fields from the picked template's defaults
       setPersona(platform.persona as (typeof PERSONAS)[number]);
     } else {
       setPersona(selected.persona as (typeof PERSONAS)[number]);
@@ -149,6 +150,7 @@ export function TenantCreateModal({
   // pre-selects so they don't have to click.
   useEffect(() => {
     if (!isAdmin && pickableTeams && pickableTeams.length === 1 && !owningTeamID) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional auto-resolve of the single owning team; the user can still override
       setOwningTeamID(pickableTeams[0].id);
     }
   }, [isAdmin, pickableTeams, owningTeamID]);
