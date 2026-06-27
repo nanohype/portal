@@ -25,7 +25,9 @@ import {
   Lock,
   Activity,
   Layers,
+  CloudOff,
 } from "lucide-react";
+import { DeprovisionTimeline } from "./DeprovisionTimeline";
 
 export function ClusterDetail({ clusterId }: { clusterId: string }) {
   const { user } = useAuth();
@@ -132,10 +134,10 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["clusters"] });
-      toast.success("Cluster deleted");
+      toast.success("Removed from portal");
       navigate("/clusters");
     },
-    onError: () => toast.error("Failed to delete cluster"),
+    onError: () => toast.error("Failed to remove cluster from portal"),
   });
 
   const testMutation = useMutation({
@@ -152,6 +154,56 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
       toast.success("Connection test enqueued");
     },
     onError: () => toast.error("Failed to enqueue connection test"),
+  });
+
+  // The cluster's vend order history — gives us the originating provision op
+  // (its `team` is the Cluster CR namespace, needed to deprovision) and any
+  // in-flight teardown to surface as a timeline. Polls while one is moving.
+  const { data: clusterOps } = useQuery({
+    queryKey: ["cluster-ops", data?.environment, data?.name],
+    queryFn: async () => {
+      const { data: ops, error } = await api.GET(
+        "/cluster-orders/{environment}/{name}/operations",
+        {
+          params: { path: { environment: data!.environment, name: data!.name } },
+        },
+      );
+      if (error) throw error;
+      return ops?.data ?? [];
+    },
+    enabled: !!data,
+    refetchInterval: (query) =>
+      (query.state.data ?? []).some(
+        (o) =>
+          o.operation === "deprovision" &&
+          o.status !== "deprovisioned" &&
+          o.status !== "failed",
+      )
+        ? 5000
+        : false,
+  });
+
+  // Deprovision = tear the real cluster down: remove its CR from the clusters
+  // repo, ArgoCD prunes, Crossplane runs tofu destroy. Distinct from the
+  // "Remove from portal" delete, which only drops portal's read-model row.
+  const deprovisionMutation = useMutation({
+    mutationFn: async () => {
+      const team = clusterOps?.find((o) => o.operation === "provision")?.team;
+      if (!data || !team) throw new Error("no provision record for this cluster");
+      const { error } = await api.DELETE("/cluster-orders/{environment}/{name}", {
+        params: {
+          path: { environment: data.environment, name: data.name },
+          query: { team },
+        },
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["cluster-ops"] });
+      queryClient.invalidateQueries({ queryKey: ["clusters"] });
+      toast.success("Cluster teardown enqueued");
+    },
+    onError: () => toast.error("Failed to enqueue cluster teardown"),
   });
 
   if (isLoading) {
@@ -178,6 +230,17 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
     apiEndpoint !== data.api_endpoint ||
     region !== data.region ||
     (editingCreds && (caBundle.trim() !== "" || saToken.trim() !== ""));
+
+  // Only clusters vended through the order desk (i.e. with a provision op, whose
+  // team is the CR namespace) can be deprovisioned; hand-registered ones can't.
+  const provisionOp = clusterOps?.find((o) => o.operation === "provision");
+  const canDeprovision = isAdmin && !!provisionOp;
+  const activeDeprovision = clusterOps?.find(
+    (o) =>
+      o.operation === "deprovision" &&
+      o.status !== "deprovisioned" &&
+      o.status !== "failed",
+  );
 
   return (
     <div className="p-6 w-full max-w-3xl mx-auto flex-1 flex flex-col animate-fade-up">
@@ -227,6 +290,29 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
               Test connection
             </Button>
           )}
+          {canDeprovision && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={async () => {
+                if (
+                  await confirm({
+                    title: `Deprovision "${data.name}"?`,
+                    message:
+                      "Removes the cluster's CR and Crossplane destroys the EKS cluster and everything running on it. This cannot be undone.",
+                    confirmLabel: "Deprovision",
+                  })
+                ) {
+                  deprovisionMutation.mutate();
+                }
+              }}
+              disabled={deprovisionMutation.isPending || !!activeDeprovision}
+              className="text-destructive hover:text-destructive hover:bg-destructive/10 hover:border-destructive/30"
+            >
+              <CloudOff className="w-3 h-3" />
+              Deprovision
+            </Button>
+          )}
           {isAdmin && (
             <Button
               variant="outline"
@@ -234,23 +320,33 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
               onClick={async () => {
                 if (
                   await confirm({
-                    title: `Delete cluster "${data.name}"?`,
-                    message: "This cannot be undone.",
-                    confirmLabel: "Delete",
+                    title: `Remove "${data.name}" from portal?`,
+                    message:
+                      "Drops portal's record of this cluster. The EKS cluster itself keeps running — use Deprovision to tear it down.",
+                    confirmLabel: "Remove",
+                    destructive: false,
                   })
                 ) {
                   deleteMutation.mutate();
                 }
               }}
               disabled={deleteMutation.isPending}
-              className="text-destructive hover:text-destructive hover:bg-destructive/10 hover:border-destructive/30"
             >
               <Trash2 className="w-3 h-3" />
-              Delete
+              Remove from portal
             </Button>
           )}
         </div>
       </div>
+
+      {activeDeprovision && (
+        <div className="bg-destructive/8 border border-destructive/15 rounded-lg p-3 mb-4">
+          <div className="text-[11px] font-semibold text-destructive mb-1.5">
+            Teardown in progress
+          </div>
+          <DeprovisionTimeline op={activeDeprovision} />
+        </div>
+      )}
 
       {data.connection_status === "failed" && data.connection_error && (
         <div className="bg-destructive/8 text-destructive border border-destructive/15 rounded-lg p-3 text-xs mb-4 break-words">

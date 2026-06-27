@@ -3,13 +3,12 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithClient } from "@/test/render";
 import { useAuthStore } from "@/stores/auth";
-import type { User } from "@/api/types";
+import type { ClusterOperation, User } from "@/api/types";
 import { ClusterDetail } from "./ClusterDetail";
 
 // The api client binds globalThis.fetch at import, which makes network-level
-// interception brittle; mock it at the module boundary instead. navigate()
-// reaches the real router ref and confirm() comes from a provider we don't
-// mount — drive both directly.
+// interception brittle; mock it at the module boundary. navigate() reaches the
+// real router ref and confirm() comes from a provider we don't mount here.
 const { apiMock, navigateMock, confirmMock } = vi.hoisted(() => ({
   apiMock: { GET: vi.fn(), POST: vi.fn(), PUT: vi.fn(), DELETE: vi.fn() },
   navigateMock: vi.fn(),
@@ -28,12 +27,27 @@ const CLUSTER = {
   id: "c1",
   name: "prod-eks",
   description: "",
+  environment: "production",
   account_id: "acct-1",
   api_endpoint: "https://eks.example",
   region: "us-west-2",
   connection_status: "connected",
   node_count: 3,
 };
+
+const PROVISION_OP = {
+  id: "op1",
+  name: "prod-eks",
+  environment: "production",
+  team: "platform",
+  operation: "provision",
+  status: "active",
+  vend_phases: {},
+} as unknown as ClusterOperation;
+
+function list<T>(items: T[]) {
+  return { data: { data: items, total: items.length, page: 1, per_page: 50 } };
+}
 
 function setRole(role: string) {
   useAuthStore.setState({
@@ -43,19 +57,34 @@ function setRole(role: string) {
   });
 }
 
+// ops controls what the cluster-orders/operations query returns (the provision
+// op carries the team; absent = a hand-registered cluster).
+function mockApi(ops: ClusterOperation[]) {
+  apiMock.GET.mockImplementation((path: string) => {
+    if (path === "/clusters/{clusterId}")
+      return Promise.resolve({ data: CLUSTER, error: undefined });
+    if (path === "/cluster-orders/{environment}/{name}/operations")
+      return Promise.resolve(list(ops));
+    return Promise.resolve({ error: { message: `unexpected GET ${path}` } });
+  });
+  apiMock.DELETE.mockResolvedValue({ error: undefined });
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
-  apiMock.GET.mockResolvedValue({ data: CLUSTER, error: undefined });
-  apiMock.DELETE.mockResolvedValue({ error: undefined });
+  mockApi([PROVISION_OP]);
 });
 
 describe("ClusterDetail RBAC", () => {
-  it("hides destructive actions and locks the fields for a viewer", async () => {
+  it("hides the lifecycle actions and locks the fields for a viewer", async () => {
     setRole("viewer");
     renderWithClient(<ClusterDetail clusterId="c1" />);
 
     await screen.findByRole("heading", { name: "prod-eks" });
-    expect(screen.queryByRole("button", { name: /delete/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /deprovision/i })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /remove from portal/i }),
+    ).toBeNull();
     expect(
       screen.queryByRole("button", { name: /test connection/i }),
     ).toBeNull();
@@ -67,38 +96,79 @@ describe("ClusterDetail RBAC", () => {
     renderWithClient(<ClusterDetail clusterId="c1" />);
 
     await screen.findByRole("heading", { name: "prod-eks" });
-    expect(screen.getByRole("button", { name: /delete/i })).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /test connection/i }),
+      await screen.findByRole("button", { name: /deprovision/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /remove from portal/i }),
     ).toBeInTheDocument();
     expect(screen.getByDisplayValue("https://eks.example")).toBeEnabled();
   });
+});
 
-  it("deletes (and navigates away) only after confirm resolves true", async () => {
+describe("ClusterDetail deprovision", () => {
+  it("tears down the real cluster only after confirm, passing the team", async () => {
     setRole("admin");
     confirmMock.mockResolvedValue(true);
     renderWithClient(<ClusterDetail clusterId="c1" />);
 
-    await screen.findByRole("heading", { name: "prod-eks" });
-    await userEvent.click(screen.getByRole("button", { name: /delete/i }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: /deprovision/i }),
+    );
 
     expect(confirmMock).toHaveBeenCalledOnce();
     await waitFor(() => expect(apiMock.DELETE).toHaveBeenCalledOnce());
-    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/clusters"));
+    const [path, opts] = apiMock.DELETE.mock.calls[0];
+    expect(path).toBe("/cluster-orders/{environment}/{name}");
+    expect(opts.params.path).toEqual({
+      environment: "production",
+      name: "prod-eks",
+    });
+    expect(opts.params.query).toEqual({ team: "platform" });
+    // Deprovision must NOT navigate away — you stay to watch the teardown.
+    expect(navigateMock).not.toHaveBeenCalled();
   });
 
-  it("does not delete when confirm is dismissed", async () => {
+  it("does not tear down when confirm is dismissed", async () => {
     setRole("admin");
     confirmMock.mockResolvedValue(false);
     renderWithClient(<ClusterDetail clusterId="c1" />);
 
-    await screen.findByRole("heading", { name: "prod-eks" });
-    await userEvent.click(screen.getByRole("button", { name: /delete/i }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: /deprovision/i }),
+    );
 
     expect(confirmMock).toHaveBeenCalledOnce();
-    // Let any (incorrect) mutation flush before asserting it never happened.
     await Promise.resolve();
     expect(apiMock.DELETE).not.toHaveBeenCalled();
-    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it("offers no Deprovision for a hand-registered cluster (no provision op)", async () => {
+    setRole("admin");
+    mockApi([]); // no provision op → no team → can't deprovision
+    renderWithClient(<ClusterDetail clusterId="c1" />);
+
+    await screen.findByRole("heading", { name: "prod-eks" });
+    expect(
+      screen.getByRole("button", { name: /remove from portal/i }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /deprovision/i })).toBeNull();
+  });
+});
+
+describe("ClusterDetail remove-from-portal", () => {
+  it("drops the record (DELETE /clusters) and navigates away after confirm", async () => {
+    setRole("admin");
+    confirmMock.mockResolvedValue(true);
+    renderWithClient(<ClusterDetail clusterId="c1" />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /remove from portal/i }),
+    );
+
+    expect(confirmMock).toHaveBeenCalledOnce();
+    await waitFor(() => expect(apiMock.DELETE).toHaveBeenCalledOnce());
+    expect(apiMock.DELETE.mock.calls[0][0]).toBe("/clusters/{clusterId}");
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/clusters"));
   });
 });
