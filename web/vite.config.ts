@@ -14,9 +14,8 @@ export default defineConfig({
     },
   },
   test: {
-    // node is enough for the pure-logic suite; DOM-dependent component tests
-    // opt into jsdom per file (see src/test).
-    environment: "node",
+    environment: "jsdom",
+    setupFiles: ["./src/test/setup.ts"],
     coverage: {
       provider: "v8",
       reporter: ["text", "lcov"],
