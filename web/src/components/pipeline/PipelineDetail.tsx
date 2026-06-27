@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { Link } from "@/components/ui/link";
 import { Pagination } from "@/components/ui/pagination";
-import { useConfirm } from "@/components/ui/confirm";
+import { useConfirm } from "@/components/ui/confirm-context";
 import { navigate } from "@/hooks/useNavigate";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { formatDuration } from "@/lib/utils";

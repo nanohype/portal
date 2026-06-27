@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
-import { useConfirm } from "@/components/ui/confirm";
+import { useConfirm } from "@/components/ui/confirm-context";
 import { ResourceBrowser } from "./ResourceBrowser";
 import { StateDiffViewer } from "./StateDiffViewer";
 import { formatRelativeTime } from "@/lib/utils";

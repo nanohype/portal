@@ -1,11 +1,4 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback, useRef, useState, type ReactNode } from "react";
 import {
   Dialog,
   DialogContent,
@@ -14,20 +7,11 @@ import {
   DialogDescription,
 } from "./dialog";
 import { Button } from "./button";
-
-export interface ConfirmOptions {
-  title: string;
-  message?: string;
-  confirmLabel?: string;
-  cancelLabel?: string;
-  /** Style the confirm button as destructive (red). Defaults to true — most
-   *  confirms guard a delete/destroy. Pass false for benign confirmations. */
-  destructive?: boolean;
-}
-
-type ConfirmFn = (opts: ConfirmOptions) => Promise<boolean>;
-
-const ConfirmContext = createContext<ConfirmFn | null>(null);
+import {
+  ConfirmContext,
+  type ConfirmFn,
+  type ConfirmOptions,
+} from "./confirm-context";
 
 // ConfirmProvider renders one shared confirm Dialog and hands descendants a
 // promise-based `confirm()` via useConfirm — a themeable, focus-trapped,
@@ -84,14 +68,4 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
       </Dialog>
     </ConfirmContext.Provider>
   );
-}
-
-// useConfirm returns an async confirm(). Awaiting it resolves true on confirm,
-// false on cancel/escape/overlay-click.
-export function useConfirm(): ConfirmFn {
-  const ctx = useContext(ConfirmContext);
-  if (!ctx) {
-    throw new Error("useConfirm must be used within a ConfirmProvider");
-  }
-  return ctx;
 }

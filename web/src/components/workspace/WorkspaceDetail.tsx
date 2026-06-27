@@ -16,7 +16,7 @@ import { OutputsPanel } from "@/components/workspace/OutputsPanel";
 import { AccessPanel } from "@/components/workspace/AccessPanel";
 import { WorkspaceSettings } from "@/components/workspace/WorkspaceSettings";
 import { Pagination } from "@/components/ui/pagination";
-import { useConfirm } from "@/components/ui/confirm";
+import { useConfirm } from "@/components/ui/confirm-context";
 import { formatRelativeTime, formatDuration, getEnvironmentColor } from "@/lib/utils";
 import { navigate } from "@/hooks/useNavigate";
 import { Link } from "@/components/ui/link";

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/api/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -96,11 +96,10 @@ export function ClusterList() {
   });
 
   // Clamp the orders page if the list ever shrinks under it — defensive, so a
-  // page transition can never strand the user on an empty trailing page.
+  // page transition can never strand the user on an empty trailing page. Done
+  // during render (React's adjust-state-on-prop-change pattern), not an effect.
   const maxOpsPage = Math.max(1, Math.ceil((operations?.length ?? 0) / 5));
-  useEffect(() => {
-    if (opsPage > maxOpsPage) setOpsPage(maxOpsPage);
-  }, [maxOpsPage, opsPage]);
+  if (opsPage > maxOpsPage) setOpsPage(maxOpsPage);
 
   const clusters = data?.data ?? [];
   const accountName = (id: string) =>

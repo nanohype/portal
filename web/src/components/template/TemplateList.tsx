@@ -7,7 +7,7 @@ import type { Template } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
-import { useConfirm } from "@/components/ui/confirm";
+import { useConfirm } from "@/components/ui/confirm-context";
 import { TemplateEditorDialog } from "./TemplateEditorDialog";
 import { LayoutTemplate, Plus, Trash2, Pencil } from "lucide-react";
 

@@ -1,5 +1,6 @@
 import type { ClusterOperation } from "@/api/types";
-import { PhaseStepper, timelineFrame, type Step } from "./PhaseStepper";
+import { PhaseStepper } from "./PhaseStepper";
+import { timelineFrame, type Step } from "./timeline-frame";
 
 const STEPS: readonly Step[] = [
   { key: "queued", label: "Queued" },

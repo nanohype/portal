@@ -43,22 +43,29 @@ export function Drawer({
 }: DrawerProps) {
   const [mounted, setMounted] = useState(open);
   const [closing, setClosing] = useState(false);
+  const [prevOpen, setPrevOpen] = useState(open);
   const contentRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
 
-  useEffect(() => {
+  // Derive mount/closing from the open transition during render — React's
+  // "adjusting state when a prop changes" pattern — so the exit animation can
+  // play after `open` flips false, without a cascading effect.
+  if (open !== prevOpen) {
+    setPrevOpen(open);
     if (open) {
       setMounted(true);
       setClosing(false);
     } else if (mounted) {
       setClosing(true);
     }
-  }, [open, mounted]);
+  }
 
   // Read onClose through a ref so the keydown handler stays stable — otherwise
   // the listeners effect re-runs on every parent render.
   const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
 
   const handleEscape = useCallback((e: KeyboardEvent) => {
     if (e.key === "Escape") onCloseRef.current();
