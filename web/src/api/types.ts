@@ -843,6 +843,17 @@ export interface paths {
       };
     };
   };
+  "/cluster-orders/{environment}/{name}": {
+    delete: {
+      parameters: {
+        path: { environment: string; name: string };
+        query: { team: string };
+      };
+      responses: {
+        202: { content: { "application/json": ClusterOperation } };
+      };
+    };
+  };
   "/cluster-orders/{environment}/{name}/operations": {
     get: {
       parameters: { path: { environment: string; name: string } };
