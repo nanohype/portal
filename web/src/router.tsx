@@ -48,6 +48,7 @@ const TenantDetail = lazy(() => named(import("@/components/tenant/TenantDetail")
 const TemplateList = lazy(() => named(import("@/components/template/TemplateList"), "TemplateList"));
 const CatalogPage = lazy(() => named(import("@/components/catalog/CatalogPage"), "CatalogPage"));
 const OpsPage = lazy(() => named(import("@/components/ops/OpsPage"), "OpsPage"));
+const FleetOverview = lazy(() => named(import("@/components/fleet/FleetOverview"), "FleetOverview"));
 const TeamsPage = lazy(() => named(import("@/components/teams/TeamsPage"), "TeamsPage"));
 const UsersPage = lazy(() => named(import("@/components/users/UsersPage"), "UsersPage"));
 const AuditLogPage = lazy(() => named(import("@/components/audit/AuditLogPage"), "AuditLogPage"));
@@ -209,6 +210,7 @@ const accountRoute = r("/accounts/$accountId", () => {
   return <AccountDetail accountId={accountId!} />;
 });
 
+const fleetRoute = r("/fleet", () => <FleetOverview />);
 const opsRoute = r("/ops", () => <OpsPage />);
 const clustersRoute = r("/clusters", () => <ClusterList />);
 const clusterRoute = r("/clusters/$clusterId", () => {
@@ -247,6 +249,7 @@ const routeTree = rootRoute.addChildren([
     pipelineRunRoute,
     accountsRoute,
     accountRoute,
+    fleetRoute,
     opsRoute,
     clustersRoute,
     clusterRoute,

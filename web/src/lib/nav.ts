@@ -2,6 +2,7 @@ import {
   Boxes,
   Workflow,
   Activity,
+  Gauge,
   Building2,
   Server,
   Layers,
@@ -41,6 +42,7 @@ export const navCategories: NavCategory[] = [
   {
     label: "Cloud",
     items: [
+      { label: "Fleet", href: "/fleet", icon: Gauge, adminOnly: true, match: (p) => p.startsWith("/fleet") },
       { label: "Operations", href: "/ops", icon: Activity, adminOnly: true, match: (p) => p.startsWith("/ops") },
       { label: "Accounts", href: "/accounts", icon: Building2, adminOnly: true, match: (p) => p.startsWith("/accounts") },
       { label: "Clusters", href: "/clusters", icon: Server, adminOnly: true, match: (p) => p.startsWith("/clusters") },
