@@ -15,6 +15,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { buildOverrides } from "./build-overrides";
 
 // Maps a form-level state var to the dotted helm-values path it controls.
 // The handler uses this allowlist to decide whether a field is editable for
@@ -162,37 +163,17 @@ export function TenantCreateModal({
   // - Scratch mode: send the full values blob.
   const buildBody = () => {
     if (selected && !scratchMode) {
-      // Null-prototype accumulator: even if a guard were bypassed, there is no
-      // prototype to pollute (paired with the __proto__/constructor/prototype
-      // segment rejection below).
-      const overrides: Record<string, Record<string, unknown>> = Object.create(
-        null,
-      ) as Record<string, Record<string, unknown>>;
-      const setOverride = (path: string, value: unknown) => {
-        if (!allowed(path)) return;
-        const segments = path.split(".");
-        // Never let a path segment reach Object.prototype (prototype pollution).
-        if (
-          segments.some(
-            (s) => s === "__proto__" || s === "constructor" || s === "prototype",
-          )
-        )
-          return;
-        let cur: Record<string, unknown> = overrides;
-        for (let i = 0; i < segments.length - 1; i++) {
-          const seg = segments[i];
-          if (!(seg in cur) || typeof cur[seg] !== "object")
-            cur[seg] = Object.create(null) as Record<string, unknown>;
-          cur = cur[seg] as Record<string, unknown>;
-        }
-        cur[segments[segments.length - 1]] = value;
-      };
-      setOverride(FIELD_PATHS.monthlyUsd, monthlyUsd);
-      setOverride(FIELD_PATHS.persona, persona);
-      setOverride(FIELD_PATHS.displayName, displayName || name);
-      setOverride(FIELD_PATHS.tenant, tenant || name);
-      setOverride(FIELD_PATHS.soc2, soc2);
-      setOverride(FIELD_PATHS.hipaa, hipaa);
+      // Template mode: the template's allowed_overrides is the allowlist (the
+      // same set `allowed()` gates the fields on). buildOverrides drops locked
+      // paths and any prototype-polluting segment.
+      const overrides = buildOverrides(selected.allowed_overrides, [
+        [FIELD_PATHS.monthlyUsd, monthlyUsd],
+        [FIELD_PATHS.persona, persona],
+        [FIELD_PATHS.displayName, displayName || name],
+        [FIELD_PATHS.tenant, tenant || name],
+        [FIELD_PATHS.soc2, soc2],
+        [FIELD_PATHS.hipaa, hipaa],
+      ]);
       return {
         cluster_id: clusterID,
         name,
