@@ -64,6 +64,8 @@ jobs:
         working-directory: web
       - run: npx vite build
         working-directory: web
+      - run: npm test
+        working-directory: web
 
   chart:
     name: Helm chart
