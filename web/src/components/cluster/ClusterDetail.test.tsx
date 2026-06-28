@@ -45,6 +45,18 @@ const PROVISION_OP = {
   vend_phases: {},
 } as unknown as ClusterOperation;
 
+// An in-flight teardown — a deprovision that hasn't reached a terminal status.
+// Its presence is what makes Unwedge relevant (the Workspace can be stuck).
+const ACTIVE_DEPROVISION_OP = {
+  id: "op2",
+  name: "prod-eks",
+  environment: "production",
+  team: "platform",
+  operation: "deprovision",
+  status: "committed",
+  vend_phases: {},
+} as unknown as ClusterOperation;
+
 function list<T>(items: T[]) {
   return { data: { data: items, total: items.length, page: 1, per_page: 50 } };
 }
@@ -153,6 +165,54 @@ describe("ClusterDetail deprovision", () => {
       screen.getByRole("button", { name: /remove from portal/i }),
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /deprovision/i })).toBeNull();
+  });
+});
+
+describe("ClusterDetail unwedge (break-glass)", () => {
+  it("offers Unwedge to an owner mid-teardown and posts with the team after a typed confirm", async () => {
+    setRole("owner");
+    mockApi([PROVISION_OP, ACTIVE_DEPROVISION_OP]);
+    apiMock.POST.mockResolvedValue({ error: undefined });
+    confirmMock.mockResolvedValue(true);
+    renderWithClient(<ClusterDetail clusterId="c1" />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /unwedge/i }),
+    );
+
+    // Guarded by a type-the-cluster-name confirm so a misclick can't trigger it.
+    expect(confirmMock).toHaveBeenCalledOnce();
+    expect(confirmMock.mock.calls[0][0]).toMatchObject({
+      requireText: "prod-eks",
+    });
+
+    await waitFor(() => expect(apiMock.POST).toHaveBeenCalledOnce());
+    const [path, opts] = apiMock.POST.mock.calls[0];
+    expect(path).toBe("/cluster-orders/{environment}/{name}/unwedge");
+    expect(opts.params.path).toEqual({
+      environment: "production",
+      name: "prod-eks",
+    });
+    expect(opts.params.query).toEqual({ team: "platform" });
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it("hides Unwedge from an admin — it's owner-only — even mid-teardown", async () => {
+    setRole("admin");
+    mockApi([PROVISION_OP, ACTIVE_DEPROVISION_OP]);
+    renderWithClient(<ClusterDetail clusterId="c1" />);
+
+    await screen.findByRole("heading", { name: "prod-eks" });
+    expect(screen.queryByRole("button", { name: /unwedge/i })).toBeNull();
+  });
+
+  it("hides Unwedge when no teardown is in flight", async () => {
+    setRole("owner");
+    mockApi([PROVISION_OP]); // provision only → nothing to unwedge
+    renderWithClient(<ClusterDetail clusterId="c1" />);
+
+    await screen.findByRole("heading", { name: "prod-eks" });
+    expect(screen.queryByRole("button", { name: /unwedge/i })).toBeNull();
   });
 });
 

@@ -26,12 +26,15 @@ import {
   Activity,
   Layers,
   CloudOff,
+  Wrench,
 } from "lucide-react";
 import { DeprovisionTimeline } from "./DeprovisionTimeline";
+import { UnwedgeTimeline } from "./UnwedgeTimeline";
 
 export function ClusterDetail({ clusterId }: { clusterId: string }) {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin" || user?.role === "owner";
+  const isOwner = user?.role === "owner";
   const queryClient = useQueryClient();
   const confirm = useConfirm();
 
@@ -175,7 +178,7 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
     refetchInterval: (query) =>
       (query.state.data ?? []).some(
         (o) =>
-          o.operation === "deprovision" &&
+          (o.operation === "deprovision" || o.operation === "unwedge") &&
           o.status !== "deprovisioned" &&
           o.status !== "failed",
       )
@@ -204,6 +207,33 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
       toast.success("Cluster teardown enqueued");
     },
     onError: () => toast.error("Failed to enqueue cluster teardown"),
+  });
+
+  // Unwedge = break-glass for a teardown stuck on a provider-opentofu Workspace
+  // that won't delete (crossplane external-create-pending). Deletes the spoke's
+  // tagged AWS resources directly through the fleet-unwedge role, then releases
+  // the Workspace. Owner-only; the backend refuses unless the Workspace is
+  // genuinely wedged + already condemned.
+  const unwedgeMutation = useMutation({
+    mutationFn: async () => {
+      const team = clusterOps?.find((o) => o.operation === "provision")?.team;
+      if (!data || !team) throw new Error("no provision record for this cluster");
+      const { error } = await api.POST(
+        "/cluster-orders/{environment}/{name}/unwedge",
+        {
+          params: {
+            path: { environment: data.environment, name: data.name },
+            query: { team },
+          },
+        },
+      );
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["cluster-ops"] });
+      toast.success("Unwedge enqueued");
+    },
+    onError: () => toast.error("Failed to enqueue unwedge"),
   });
 
   if (isLoading) {
@@ -241,6 +271,15 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
       o.status !== "deprovisioned" &&
       o.status !== "failed",
   );
+  const activeUnwedge = clusterOps?.find(
+    (o) =>
+      o.operation === "unwedge" &&
+      o.status !== "deprovisioned" &&
+      o.status !== "failed",
+  );
+  // Unwedge is only relevant while a teardown is in flight (its Workspace can be
+  // stuck). Owner-only, and needs the provision op to resolve the CR namespace.
+  const canUnwedge = isOwner && !!provisionOp && !!activeDeprovision;
 
   return (
     <div className="p-6 w-full max-w-3xl mx-auto flex-1 flex flex-col animate-fade-up">
@@ -313,6 +352,30 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
               Deprovision
             </Button>
           )}
+          {canUnwedge && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={async () => {
+                if (
+                  await confirm({
+                    title: `Unwedge "${data.name}"?`,
+                    message:
+                      "Break-glass: the teardown is stuck on a Workspace that won't delete. This deletes the spoke's tagged AWS resources directly through the fleet-unwedge role, then releases the Workspace so Crossplane can finish. Use only when a deprovision is wedged.",
+                    confirmLabel: "Unwedge",
+                    requireText: data.name,
+                  })
+                ) {
+                  unwedgeMutation.mutate();
+                }
+              }}
+              disabled={unwedgeMutation.isPending || !!activeUnwedge}
+              className="text-destructive hover:text-destructive hover:bg-destructive/10 hover:border-destructive/30"
+            >
+              <Wrench className="w-3 h-3" />
+              Unwedge
+            </Button>
+          )}
           {isAdmin && (
             <Button
               variant="outline"
@@ -345,6 +408,15 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
             Teardown in progress
           </div>
           <DeprovisionTimeline op={activeDeprovision} />
+        </div>
+      )}
+
+      {activeUnwedge && (
+        <div className="bg-destructive/8 border border-destructive/15 rounded-lg p-3 mb-4">
+          <div className="text-[11px] font-semibold text-destructive mb-1.5">
+            Break-glass unwedge in progress
+          </div>
+          <UnwedgeTimeline op={activeUnwedge} />
         </div>
       )}
 
