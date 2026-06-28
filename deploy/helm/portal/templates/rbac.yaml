@@ -1,9 +1,9 @@
-{{- if or .Values.argocdSync.enabled .Values.clusterWatchback.enabled .Values.clusterHealth.enabled }}
+{{- if or .Values.argocdSync.enabled .Values.clusterWatchback.enabled .Values.clusterHealth.enabled .Values.unwedge.enabled }}
 # RBAC for the worker's in-cluster reads. Created when argocdSync, clusterWatchback,
-# OR clusterHealth is enabled. The worker watches Platform/Tenant CRs and (for the
-# provision watch-back) the eks-fleet Cluster XRs cluster-wide; with argocdSync it
-# reads ArgoCD's cluster Secrets, and with clusterHealth the per-cluster ArgoCD
-# Applications — both scoped to argocdSync.namespace.
+# clusterHealth, OR unwedge is enabled. The worker watches Platform/Tenant CRs and
+# (for the provision watch-back) the eks-fleet Cluster XRs cluster-wide; with
+# argocdSync it reads ArgoCD's cluster Secrets, and with clusterHealth the
+# per-cluster ArgoCD Applications — both scoped to argocdSync.namespace.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -29,11 +29,15 @@ rules:
   - apiGroups: ["fleet.nanohype.dev"]
     resources: ["clusters"]
     verbs: ["get", "list", "watch"]
-  # ...and the provider-opentofu Workspaces those XRs drive, so the vend timeline
-  # can surface the tofu build phase + error from .status.conditions[].
+  {{- end }}
+  {{- if or .Values.clusterWatchback.enabled .Values.unwedge.enabled }}
+  # The provider-opentofu Workspaces the cluster XRs drive. The watch-back reads
+  # .status.conditions[] for the vend timeline; the break-glass unwedge worker
+  # additionally patches metadata.finalizers to release a Workspace stuck on
+  # external-create-pending, once it has cleared the spoke's AWS resources.
   - apiGroups: ["opentofu.m.upbound.io"]
     resources: ["workspaces"]
-    verbs: ["get", "list", "watch"]
+    verbs: ["get", "list", "watch"{{- if .Values.unwedge.enabled }}, "patch"{{- end }}]
   {{- end }}
   - apiGroups: [""]
     resources: ["nodes", "namespaces"]

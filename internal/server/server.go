@@ -287,6 +287,9 @@ func (s *Server) setupRouter() {
 					r.Route("/{environment}/{name}", func(r chi.Router) {
 						r.Get("/operations", clusterOrderHandler.Operations)
 						r.With(auth.RequireRole("admin")).Delete("/", clusterOrderHandler.Deprovision)
+						// Break-glass: deletes real cloud resources outside the GitOps
+						// teardown, so owner-only — one tier above deprovision.
+						r.With(auth.RequireRole("owner")).Post("/unwedge", clusterOrderHandler.Unwedge)
 					})
 				})
 

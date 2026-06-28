@@ -93,6 +93,42 @@ func (h *ClusterOrderHandler) Deprovision(w http.ResponseWriter, r *http.Request
 	respond.JSON(w, http.StatusAccepted, op)
 }
 
+// Unwedge enqueues a cluster_operation of kind=unwedge — the break-glass for a
+// spoke whose teardown is stuck on crossplane's external-create-pending. The
+// worker tears the spoke's tagged AWS resources down directly (through the
+// workload account's fleet-unwedge role) and drops the Workspace finalizers so
+// the condemned object garbage-collects. Owner-gated at the router (it deletes
+// real cloud resources, bypassing the normal GitOps teardown), and a no-op unless
+// the Workspace is genuinely wedged + already marked for deletion — the worker
+// verifies that before touching anything. name+environment come from the path;
+// the team (the Workspace namespace) from ?team=.
+func (h *ClusterOrderHandler) Unwedge(w http.ResponseWriter, r *http.Request) {
+	userCtx := auth.GetUser(r.Context())
+	environment := chi.URLParam(r, "environment")
+	name := chi.URLParam(r, "name")
+	team := strings.TrimSpace(r.URL.Query().Get("team"))
+	if team == "" {
+		respond.Error(w, http.StatusBadRequest, "team query parameter is required")
+		return
+	}
+
+	op, err := h.svc.EnqueueUnwedge(r.Context(), userCtx.OrgID, name, environment, team, userCtx.UserID)
+	if err != nil {
+		// Surfaces apperr.Conflict (no provision on record → can't locate the
+		// account) as 409; anything else as 500.
+		respond.FromError(w, r, err)
+		return
+	}
+
+	ip, ua := auditContext(r)
+	h.auditSvc.Log(r.Context(), service.AuditEntry{
+		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
+		Action: "cluster.unwedge_requested", EntityType: "cluster_operation", EntityID: op.ID,
+		After: op, IPAddress: ip, UserAgent: ua,
+	})
+	respond.JSON(w, http.StatusAccepted, op)
+}
+
 // Operations returns the vend log for one cluster (by environment+name),
 // newest first.
 func (h *ClusterOrderHandler) Operations(w http.ResponseWriter, r *http.Request) {

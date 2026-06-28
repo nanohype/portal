@@ -12,6 +12,7 @@ import (
 	"github.com/oklog/ulid/v2"
 	"github.com/riverqueue/river"
 
+	"github.com/nanohype/portal/internal/apperr"
 	"github.com/nanohype/portal/internal/clusterspec"
 	"github.com/nanohype/portal/internal/repository"
 	"github.com/nanohype/portal/internal/worker"
@@ -51,6 +52,80 @@ func (s *ClusterOrderService) EnqueueDeprovision(ctx context.Context, orgID, nam
 	return s.enqueue(ctx, orgID, "deprovision", createdBy, clusterspec.Input{
 		Name: name, Environment: environment, Team: team,
 	})
+}
+
+// EnqueueUnwedge records intent to break-glass tear down a wedged spoke and
+// schedules the unwedge worker. Unlike provision/deprovision (which write git),
+// this drives a direct AWS teardown, so it needs the workload account + region —
+// which live only on the original provision op's spec (a wedged spoke never
+// finished provisioning, so it never became a registered cluster). We copy that
+// spec onto the unwedge op so the worker has the target without a cluster record.
+func (s *ClusterOrderService) EnqueueUnwedge(ctx context.Context, orgID, name, environment, team, createdBy string) (repository.ClusterOperation, error) {
+	if s.riverClient == nil {
+		return repository.ClusterOperation{}, fmt.Errorf("river client not configured")
+	}
+
+	spec, err := s.provisionSpec(ctx, orgID, name, environment)
+	if err != nil {
+		return repository.ClusterOperation{}, err
+	}
+	raw, err := json.Marshal(spec)
+	if err != nil {
+		return repository.ClusterOperation{}, fmt.Errorf("marshal spec: %w", err)
+	}
+
+	op, err := s.queries.CreateClusterOperation(ctx, repository.CreateClusterOperationParams{
+		ID:          ulid.Make().String(),
+		OrgID:       orgID,
+		Name:        name,
+		Environment: spec.EffectiveEnvironment(),
+		Team:        team,
+		Operation:   "unwedge",
+		SpecJSON:    raw,
+		CreatedBy:   createdBy,
+	})
+	if err != nil {
+		return repository.ClusterOperation{}, fmt.Errorf("create operation: %w", err)
+	}
+	if _, err := s.riverClient.Insert(ctx, worker.ClusterUnwedgeJobArgs{
+		OperationID: op.ID, OrgID: op.OrgID,
+	}, nil); err != nil {
+		return op, fmt.Errorf("enqueue job: %w", err)
+	}
+	return op, nil
+}
+
+// provisionSpec recovers the most recent provision op's spec for a cluster — the
+// source of the workload account + region the unwedge teardown assumes into.
+func (s *ClusterOrderService) provisionSpec(ctx context.Context, orgID, name, environment string) (clusterspec.Input, error) {
+	ops, err := s.queries.ListClusterOperations(ctx, repository.ListClusterOperationsParams{
+		OrgID: orgID, Name: name, Environment: environment,
+	})
+	if err != nil {
+		return clusterspec.Input{}, fmt.Errorf("list operations: %w", err)
+	}
+	return pickProvisionSpec(ops, environment, name)
+}
+
+// pickProvisionSpec finds the most recent provision op's spec in a newest-first
+// operation list — the only record of a wedged spoke's workload account + region.
+// Pure so the selection (skip non-provision, require account/region) is tested
+// without a database.
+func pickProvisionSpec(ops []repository.ClusterOperation, environment, name string) (clusterspec.Input, error) {
+	for _, op := range ops {
+		if op.Operation != "provision" {
+			continue
+		}
+		var spec clusterspec.Input
+		if err := json.Unmarshal(op.SpecJSON, &spec); err != nil {
+			return clusterspec.Input{}, fmt.Errorf("unmarshal provision spec: %w", err)
+		}
+		if spec.Account == "" || spec.Region == "" {
+			return clusterspec.Input{}, apperr.Conflict(fmt.Sprintf("provision op %s has no account/region on record", op.ID))
+		}
+		return spec, nil
+	}
+	return clusterspec.Input{}, apperr.Conflict(fmt.Sprintf("no provision on record for %s/%s; cannot determine the workload account to unwedge", environment, name))
 }
 
 func (s *ClusterOrderService) enqueue(ctx context.Context, orgID, kind, createdBy string, input clusterspec.Input) (repository.ClusterOperation, error) {
@@ -108,6 +183,13 @@ func (s *ClusterOrderService) CompleteOperation(ctx context.Context, id, orgID, 
 		slog.WarnContext(ctx, "vend phase projection failed", "op", id, "phase", status, "error", err)
 	}
 	return nil
+}
+
+// RecordPhase advances an operation's vend_phases timeline mid-run. The unwedge
+// worker uses it to project teardown progress (verified → tearing-down →
+// torn-down) onto the row the UI polls.
+func (s *ClusterOrderService) RecordPhase(ctx context.Context, id, orgID, phase, detail string) error {
+	return s.setVendPhase(ctx, id, orgID, phase, detail)
 }
 
 // setVendPhase merges one checkpoint into the operation's vend_phases map. It's
