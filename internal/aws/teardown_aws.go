@@ -7,8 +7,17 @@ import (
 	"strings"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/autoscaling"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/eks"
+	"github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
+	"github.com/aws/aws-sdk-go-v2/service/eventbridge"
+	"github.com/aws/aws-sdk-go-v2/service/iam"
+	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi"
 	tagtypes "github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi/types"
+	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/aws/smithy-go"
 )
 
@@ -19,11 +28,20 @@ type taggingAPI interface {
 }
 
 // clusterTeardown implements the TeardownAPI for one wedged cluster in one
-// workload account, using credentials assumed into the fleet-unwedge role. The
-// per-type Delete dispatch is added alongside the service clients; Discover (the
-// entry point) lands first.
+// workload account, using credentials assumed into the fleet-unwedge role.
+// Discover (tagging) and the per-type Delete dispatch (the service clients) hang
+// off this one value; see teardown_delete.go for the constructor + Delete.
 type clusterTeardown struct {
 	tagging taggingAPI
+	ec2     *ec2.Client
+	eks     *eks.Client
+	iam     *iam.Client
+	logs    *cloudwatchlogs.Client
+	kms     *kms.Client
+	sqs     *sqs.Client
+	events  *eventbridge.Client
+	elb     *elasticloadbalancingv2.Client
+	asg     *autoscaling.Client
 }
 
 // Discover finds every resource carrying BOTH ProvisionedBy=eks-fleet AND

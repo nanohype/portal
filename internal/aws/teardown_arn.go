@@ -156,7 +156,8 @@ func isKnownEC2Type(t string) bool {
 	switch t {
 	case "vpc", "subnet", "security-group", "route-table", "natgateway",
 		"internet-gateway", "egress-only-internet-gateway", "elastic-ip",
-		"vpc-endpoint", "launch-template", "network-acl", "network-interface":
+		"vpc-endpoint", "launch-template", "network-acl", "network-interface",
+		"vpc-flow-log":
 		return true
 	default:
 		return false
