@@ -122,7 +122,9 @@ type TeardownOption func(*teardownConfig)
 
 // WithPassDelay sets the wait between retry passes (async deletes need time to
 // settle before their dependents free up).
-func WithPassDelay(d time.Duration) TeardownOption { return func(c *teardownConfig) { c.passDelay = d } }
+func WithPassDelay(d time.Duration) TeardownOption {
+	return func(c *teardownConfig) { c.passDelay = d }
+}
 
 // WithMaxPasses caps the retry passes.
 func WithMaxPasses(n int) TeardownOption { return func(c *teardownConfig) { c.maxPasses = n } }
