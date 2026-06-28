@@ -198,6 +198,18 @@ clusterHealth:
   enabled: false
   interval: "120s"
 
+# -- Break-glass unwedge (in-cluster, on the hub). The worker is always
+# registered, but only does anything when an owner triggers an unwedge op on a
+# spoke whose provider-opentofu Workspace is stuck on external-create-pending: it
+# tears the spoke's tagged AWS resources down through the workload account's
+# fleet-unwedge role, then patches the Workspace finalizers so the condemned
+# object garbage-collects. Enabling it grants the worker patch RBAC on
+# opentofu.m.upbound.io/workspaces (on top of the read the watch-back already
+# needs). The AWS side is gated independently by the fleet-unwedge IAM role's
+# trust + permissions boundary, so this RBAC alone tears nothing down.
+unwedge:
+  enabled: false
+
 # -- Distributed tracing (OpenTelemetry → the in-cluster Grafana Agent's OTLP
 # receiver, with Tempo behind it). Off by default; metrics (/metrics) are
 # unaffected. service.name is set in code (portal-server / portal-worker), so

@@ -328,6 +328,24 @@ func main() {
 		logger.Info("tenant write path disabled (GITOPS_TENANTS_REPO_URL / EKS_AGENT_PLATFORM_CHARTS_REPO_URL / GITOPS_SSH_KEY_PATH not set)")
 	}
 
+	// Hub dynamic client — one in-cluster client shared by the cluster watchers
+	// and the break-glass unwedge worker. nil off the hub (dev / not in-cluster);
+	// each consumer handles that by staying inert or failing with a clear
+	// "requires the hub" error rather than crashing the worker.
+	var hubDyn dynamic.Interface
+	if restCfg, err := rest.InClusterConfig(); err != nil {
+		logger.Info("not running in-cluster; hub-side features (cluster watchers, unwedge) disabled", "error", err)
+	} else {
+		// 30s transport-level backstop (matches k8s.BuildRestConfig) so a hung hub
+		// apiserver can't block a watcher tick or an unwedge patch past 30s.
+		restCfg.Timeout = 30 * time.Second
+		if d, err := dynamic.NewForConfig(restCfg); err != nil {
+			logger.Warn("failed to build in-cluster hub dynamic client; hub-side features disabled", "error", err)
+		} else {
+			hubDyn = d
+		}
+	}
+
 	// Cluster vend path: templates the eks-fleet Cluster CR (no chart — the CR is
 	// small + flat) and commits it to the clusters repo for the hub's ArgoCD to
 	// reconcile. Optional: if GITOPS_CLUSTERS_REPO_URL / GITOPS_SSH_KEY_PATH aren't
@@ -368,6 +386,25 @@ func main() {
 		river.AddWorker(workers, stub)
 		logger.Info("cluster vend path disabled (GITOPS_CLUSTERS_REPO_URL / GITOPS_SSH_KEY_PATH not set)")
 	}
+
+	// Break-glass unwedge worker: tears a stuck spoke's tagged AWS resources down
+	// through the workload account's fleet-unwedge role, then releases the
+	// Workspace finalizers so crossplane can finish the delete. Always registered;
+	// inert off the hub (hubDyn nil), where it fails the job with a clear error.
+	unwedgeWorker := worker.NewClusterUnwedgeJobWorker(worker.ClusterUnwedgeDeps{
+		LoadOp: func(ctx context.Context, id, orgID string) (repository.ClusterOperation, error) {
+			return clusterOrderSvc.GetOperation(ctx, id, orgID)
+		},
+		CompleteOp: func(ctx context.Context, id, orgID, status, sha, errMsg string) error {
+			return clusterOrderSvc.CompleteOperation(ctx, id, orgID, status, sha, errMsg)
+		},
+		RecordPhase: func(ctx context.Context, id, orgID, phase, detail string) error {
+			return clusterOrderSvc.RecordPhase(ctx, id, orgID, phase, detail)
+		},
+		Provider: awsProvider,
+	})
+	unwedgeWorker.SetHubClient(hubDyn)
+	river.AddWorker(workers, unwedgeWorker)
 
 	// Create River client. The worker middleware runs each job under the trace
 	// its enqueuer stamped into Metadata; the insert middleware re-stamps when a
@@ -510,44 +547,34 @@ func main() {
 	//   - health: steady-state per-cluster ArgoCD Application sync/health + (for
 	//     eks_iam clusters) EKS control-plane status, projected onto the row.
 	if cfg.ClusterWatchback || cfg.ClusterHealth {
-		restCfg, err := rest.InClusterConfig()
-		if err != nil {
-			logger.Warn("hub watchers enabled but worker is not running in-cluster; skipping", "error", err)
+		if hubDyn == nil {
+			logger.Warn("hub watchers enabled but no in-cluster hub client; skipping")
 		} else {
-			// 30s transport-level backstop on the hub dynamic client (matches
-			// k8s.BuildRestConfig) so a hung hub apiserver can't block a watcher
-			// tick past 30s, independent of the per-call context deadline the
-			// reconcilers set.
-			restCfg.Timeout = 30 * time.Second
-			if hubDyn, err := dynamic.NewForConfig(restCfg); err != nil {
-				logger.Warn("hub watchers: failed to build in-cluster dynamic client; skipping", "error", err)
-			} else {
-				if cfg.ClusterWatchback {
-					watchSvc := service.NewClusterProvisionWatchService(clusterSvc, queries, hubDyn)
-					go runLoop(ctx, "watchback", cfg.ClusterWatchbackInterval, logger, func() {
-						completed, pending, err := watchSvc.Sync(context.Background())
-						if err != nil {
-							logger.Warn("cluster watch-back", "error", err)
-							return
-						}
-						if completed > 0 || pending > 0 {
-							logger.Info("cluster watch-back tick", "completed", completed, "pending", pending)
-						}
-					})
-				}
-				if cfg.ClusterHealth {
-					healthSvc := service.NewClusterHealthService(clusterSvc, accountSvc, queries, hubDyn, awsProvider, cfg.ArgoCDNamespace)
-					go runLoop(ctx, "cluster-health", cfg.ClusterHealthInterval, logger, func() {
-						checked, err := healthSvc.Sync(context.Background())
-						if err != nil {
-							logger.Warn("cluster health", "error", err)
-							return
-						}
-						if checked > 0 {
-							logger.Info("cluster health tick", "checked", checked)
-						}
-					})
-				}
+			if cfg.ClusterWatchback {
+				watchSvc := service.NewClusterProvisionWatchService(clusterSvc, queries, hubDyn)
+				go runLoop(ctx, "watchback", cfg.ClusterWatchbackInterval, logger, func() {
+					completed, pending, err := watchSvc.Sync(context.Background())
+					if err != nil {
+						logger.Warn("cluster watch-back", "error", err)
+						return
+					}
+					if completed > 0 || pending > 0 {
+						logger.Info("cluster watch-back tick", "completed", completed, "pending", pending)
+					}
+				})
+			}
+			if cfg.ClusterHealth {
+				healthSvc := service.NewClusterHealthService(clusterSvc, accountSvc, queries, hubDyn, awsProvider, cfg.ArgoCDNamespace)
+				go runLoop(ctx, "cluster-health", cfg.ClusterHealthInterval, logger, func() {
+					checked, err := healthSvc.Sync(context.Background())
+					if err != nil {
+						logger.Warn("cluster health", "error", err)
+						return
+					}
+					if checked > 0 {
+						logger.Info("cluster health tick", "checked", checked)
+					}
+				})
 			}
 		}
 	}

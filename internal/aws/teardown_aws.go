@@ -44,6 +44,20 @@ type clusterTeardown struct {
 	asg     *autoscaling.Client
 }
 
+// AssumeTeardown assumes a workload account's fleet-unwedge role and returns a
+// teardown bound to it, ready to hand to Teardown. Keeping the assume-role +
+// client construction here means the caller (the unwedge worker) depends only on
+// the TeardownAPI, never on the concrete SDK clients or config — and the returned
+// teardown can only ever touch ProvisionedBy=eks-fleet resources, because that's
+// all the assumed role's permissions boundary allows.
+func (p *Provider) AssumeTeardown(ctx context.Context, roleARN, externalID, region string) (TeardownAPI, error) {
+	cfg, err := p.AssumeRoleConfig(ctx, roleARN, externalID, region)
+	if err != nil {
+		return nil, fmt.Errorf("assume unwedge role: %w", err)
+	}
+	return newClusterTeardown(cfg), nil
+}
+
 // Discover finds every resource carrying BOTH ProvisionedBy=eks-fleet AND
 // Cluster=<clusterTag> via the Resource Groups Tagging API — the two-tag AND is
 // what scopes a teardown to exactly this spoke. ARNs the teardown doesn't handle
