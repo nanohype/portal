@@ -8,6 +8,10 @@ export interface ConfirmOptions {
   /** Style the confirm button as destructive (red). Defaults to true — most
    *  confirms guard a delete/destroy. Pass false for benign confirmations. */
   destructive?: boolean;
+  /** Require the user to type this exact string before confirm enables. For
+   *  break-glass actions (e.g. unwedge) where a misclick must be impossible —
+   *  pass the resource name so deleting it can't be muscle-memory. */
+  requireText?: string;
 }
 
 export type ConfirmFn = (opts: ConfirmOptions) => Promise<boolean>;

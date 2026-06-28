@@ -520,7 +520,7 @@ export interface ClusterOrderInput {
   endpoint_public_access?: boolean;
 }
 
-export type ClusterOperationKind = "provision" | "deprovision";
+export type ClusterOperationKind = "provision" | "deprovision" | "unwedge";
 export type ClusterOperationStatus =
   | "pending"
   | "committed"
@@ -859,6 +859,17 @@ export interface paths {
       parameters: { path: { environment: string; name: string } };
       responses: {
         200: { content: { "application/json": ListResponse<ClusterOperation> } };
+      };
+    };
+  };
+  "/cluster-orders/{environment}/{name}/unwedge": {
+    post: {
+      parameters: {
+        path: { environment: string; name: string };
+        query: { team: string };
+      };
+      responses: {
+        202: { content: { "application/json": ClusterOperation } };
       };
     };
   };
