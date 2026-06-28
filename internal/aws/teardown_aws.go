@@ -108,8 +108,8 @@ func isNotFoundCode(code string) bool {
 		"NoSuchEntityException",                   // IAM (typed)
 		"AWS.SimpleQueueService.NonExistentQueue", // SQS
 		"QueueDoesNotExist",                       // SQS (typed)
-		"LoadBalancerNotFound", // ELBv2
-		"TargetGroupNotFound":   // ELBv2
+		"LoadBalancerNotFound",                    // ELBv2
+		"TargetGroupNotFound":                     // ELBv2
 		return true
 	}
 	return strings.HasSuffix(code, ".NotFound") // EC2: InvalidVpcID.NotFound, InvalidGroup.NotFound, ...
