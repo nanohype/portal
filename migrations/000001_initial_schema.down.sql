@@ -1,10 +1,13 @@
 DROP TABLE IF EXISTS template_team_access;
 DROP TABLE IF EXISTS tenant_team_access;
-DROP TABLE IF EXISTS templates;
 DROP TABLE IF EXISTS tenant_operations;
 DROP TYPE IF EXISTS tenant_op_status;
 DROP TYPE IF EXISTS tenant_op_kind;
+DROP TABLE IF EXISTS templates;
 DROP TABLE IF EXISTS tenants;
+DROP TABLE IF EXISTS cluster_operations;
+DROP TYPE IF EXISTS cluster_op_status;
+DROP TYPE IF EXISTS cluster_op_kind;
 DROP TABLE IF EXISTS clusters;
 DROP TYPE IF EXISTS cluster_connection_status;
 DROP TABLE IF EXISTS accounts;

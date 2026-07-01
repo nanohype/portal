@@ -117,7 +117,8 @@ CREATE INDEX idx_runs_status ON runs(status);
 CREATE INDEX idx_runs_workspace_status ON runs(workspace_id, status);
 CREATE INDEX idx_runs_workspace_commit ON runs(workspace_id, commit_sha) WHERE commit_sha != '';
 
--- Add foreign key for current_run_id now that runs exists
+-- workspaces.current_run_id and runs.workspace_id reference each other, so the
+-- workspaces-side FK lands after both tables exist.
 ALTER TABLE workspaces ADD CONSTRAINT fk_workspaces_current_run FOREIGN KEY (current_run_id) REFERENCES runs(id);
 
 -- State versions
@@ -357,8 +358,7 @@ CREATE INDEX idx_pipeline_variables_pipeline_id ON pipeline_variables(pipeline_i
 
 -- AWS accounts. Stores the assume-role configuration portal needs to operate
 -- against each managed AWS account. Foundation for the multi-cluster portal:
--- Cluster (and later Tenant) will FK into this table. Data-layer only in
--- this slice — we store credentials but do not yet call AWS APIs with them.
+-- Cluster FKs into this table.
 CREATE TABLE accounts (
     id                    TEXT PRIMARY KEY,
     org_id                TEXT NOT NULL REFERENCES organizations(id),
@@ -422,6 +422,25 @@ CREATE TABLE clusters (
     connection_error    TEXT NOT NULL DEFAULT '',
     node_count          INT NOT NULL DEFAULT 0,
     k8s_version         TEXT NOT NULL DEFAULT '',
+    -- Per-cluster health projections written by the in-cluster hub health watcher
+    -- (same shape as connection_status / node_count / k8s_version — denormalized
+    -- live facts captured periodically, read straight back by the cluster surface).
+    --
+    -- argocd_*: the per-cluster ArgoCD Application's sync + health, read from the hub
+    --   Application named cluster-<environment>-<name> (Synced/OutOfSync, Healthy/
+    --   Progressing/Degraded). Empty when no such Application exists (a hand-registered
+    --   cluster, or one whose CR was pruned).
+    -- control_plane_status / platform_version: from eks:DescribeCluster via the
+    --   account's assume-role (ACTIVE/UPDATING/DEGRADED, eks.N). The AWS-side control
+    --   plane lifecycle is distinct from kube-API reachability — a cluster can be
+    --   UPDATING while the API still answers. Empty when EKS describe isn't available
+    --   (no IAM permission, non-EKS, or not yet observed).
+    -- last_health_observed_at: when the health watcher last ran a check for this row.
+    argocd_sync_status      TEXT NOT NULL DEFAULT '',
+    argocd_health_status    TEXT NOT NULL DEFAULT '',
+    control_plane_status    TEXT NOT NULL DEFAULT '',
+    platform_version        TEXT NOT NULL DEFAULT '',
+    last_health_observed_at TIMESTAMPTZ,
     created_by          TEXT NOT NULL REFERENCES users(id),
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -437,8 +456,27 @@ CREATE INDEX idx_clusters_account_id ON clusters(account_id);
 -- the EKS cluster. Unlike tenant_operations this has no FK to clusters — the
 -- cluster doesn't exist yet during a provision; `cluster_id` is filled in only when
 -- the watch-back auto-registers the vended cluster (status -> 'active').
-CREATE TYPE cluster_op_kind AS ENUM ('provision', 'deprovision');
-CREATE TYPE cluster_op_status AS ENUM ('pending', 'committed', 'failed', 'active');
+--
+-- Operation kinds:
+--   'provision' / 'deprovision' — the routine lifecycle. A deprovision commits
+--     (its Cluster CR is removed from the GitOps repo), then ArgoCD prunes and
+--     Crossplane runs tofu destroy — a 20–40 min teardown the in-cluster
+--     watch-back observes by watching the Cluster XR disappear from the hub.
+--   'unwedge' — break-glass teardown for a spoke whose provider-opentofu
+--     Workspace is stuck on crossplane's external-create-pending: a create call
+--     went in flight and never reported back, so crossplane will neither finish
+--     creating nor delete (it can't tell whether the external resources exist).
+--     The operator-triggered unwedge op tears the spoke's tagged AWS resources
+--     down directly — assumed into the workload account's fleet-unwedge role —
+--     then drops the Workspace finalizers so the condemned object garbage-
+--     collects. It's its own op kind so the timeline + audit read as break-glass,
+--     not a routine deprovision.
+CREATE TYPE cluster_op_kind AS ENUM ('provision', 'deprovision', 'unwedge');
+
+-- 'deprovisioned' is the deprovision terminal: teardown done. (The in-flight
+-- 'deprovisioning' state lives in vend_phases, not here — the status enum stays
+-- coarse, the phase map carries the substrate detail.)
+CREATE TYPE cluster_op_status AS ENUM ('pending', 'committed', 'failed', 'active', 'deprovisioned');
 
 CREATE TABLE cluster_operations (
     id              TEXT PRIMARY KEY,
@@ -451,6 +489,16 @@ CREATE TABLE cluster_operations (
     git_commit_sha  TEXT NOT NULL DEFAULT '',
     error           TEXT NOT NULL DEFAULT '',
     spec_json       JSONB NOT NULL DEFAULT '{}'::jsonb,
+    -- Vend phase timeline: a regressible map keyed by phase, e.g.
+    --   { "committed":     {"at": "...", "detail": ""},
+    --     "tofu_running":  {"at": "...", "detail": "applying ..."},
+    --     "active":        {"at": "...", "detail": ""} }
+    -- Portal projects the substrate's vend journey here. The substrate is the source
+    -- of truth, so a phase can move backward — a jsonb merge (`||`) overwrites a key,
+    -- which is exactly the regressible-projection behaviour we want. Portal-side
+    -- phases (committed/failed) are written by the order service; substrate phases
+    -- (tofu_running/active) are written later by the in-cluster watcher.
+    vend_phases     JSONB NOT NULL DEFAULT '{}'::jsonb,
     cluster_id      TEXT REFERENCES clusters(id) ON DELETE SET NULL,
     created_by      TEXT NOT NULL REFERENCES users(id),
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -462,9 +510,9 @@ CREATE INDEX idx_cluster_operations_name_env ON cluster_operations(name, environ
 CREATE INDEX idx_cluster_operations_status ON cluster_operations(status);
 
 -- Tenants: eks-agent-platform Tenant CRDs (platform.nanohype.dev/v1alpha1) discovered by the
--- per-cluster watcher. Read-only inventory at this stage — portal populates
--- and prunes these rows from what the K8s API actually shows; users can't
--- create/edit tenants from portal yet (that's phase 2c, via git).
+-- per-cluster watcher. Read-only inventory — portal populates and prunes these
+-- rows from what the K8s API actually shows; tenant writes go through git
+-- (tenant_operations), never directly to this table.
 --
 -- Schema choice: we denormalize `name` and `phase` for fast filtering, then
 -- blob the full .spec and .status as JSONB so we survive CRD schema evolution
@@ -487,6 +535,35 @@ CREATE TABLE tenants (
 CREATE INDEX idx_tenants_org_id ON tenants(org_id);
 CREATE INDEX idx_tenants_cluster_id ON tenants(cluster_id);
 
+-- Templates: admin-curated tenant flavors. A template carries the default
+-- helm values for a tenant ("marketing-team gets persona=marketing, budget
+-- $5K, anthropic+nova models, soc2 required") plus an allowlist of dotted
+-- paths within those values that an operator can override at create time.
+-- Caps (max_budget_usd, allowed_model_families, required_compliance) are
+-- enforced server-side so a hostile or fat-fingered operator can't escape
+-- the admin-defined envelope.
+--
+-- Templates are admin-managed; operators read + instantiate them, scoped by
+-- template_team_access.
+CREATE TABLE templates (
+    id                      TEXT PRIMARY KEY,
+    org_id                  TEXT NOT NULL REFERENCES organizations(id),
+    name                    TEXT NOT NULL,
+    description             TEXT NOT NULL DEFAULT '',
+    persona                 TEXT NOT NULL,
+    default_values          JSONB NOT NULL DEFAULT '{}'::jsonb,
+    allowed_overrides       JSONB NOT NULL DEFAULT '[]'::jsonb,
+    max_budget_usd          INT NOT NULL DEFAULT 0, -- 0 = no cap
+    allowed_model_families  JSONB NOT NULL DEFAULT '[]'::jsonb,
+    required_compliance     JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_by              TEXT NOT NULL REFERENCES users(id),
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(org_id, name)
+);
+
+CREATE INDEX idx_templates_org_id ON templates(org_id);
+
 -- Tenant operations: append-only log of every write portal has made to the
 -- tenants GitOps repo on behalf of a user. The operation row is created
 -- pending → enqueues the TenantApplyJob → worker writes the commit and
@@ -508,6 +585,10 @@ CREATE TABLE tenant_operations (
     git_commit_sha  TEXT NOT NULL DEFAULT '',
     error           TEXT NOT NULL DEFAULT '',
     values_json     JSONB NOT NULL DEFAULT '{}'::jsonb,
+    -- The template that produced this operation (when one was used). SET NULL
+    -- on delete so deleting a template doesn't invalidate the historical
+    -- operation log.
+    template_id     TEXT REFERENCES templates(id) ON DELETE SET NULL,
     created_by      TEXT NOT NULL REFERENCES users(id),
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     completed_at    TIMESTAMPTZ
@@ -516,41 +597,6 @@ CREATE TABLE tenant_operations (
 CREATE INDEX idx_tenant_operations_cluster_tenant ON tenant_operations(cluster_id, tenant_name);
 CREATE INDEX idx_tenant_operations_org_id ON tenant_operations(org_id);
 CREATE INDEX idx_tenant_operations_status ON tenant_operations(status);
-
--- Templates: admin-curated tenant flavors. A template carries the default
--- helm values for a tenant ("marketing-team gets persona=marketing, budget
--- $5K, anthropic+nova models, soc2 required") plus an allowlist of dotted
--- paths within those values that an operator can override at create time.
--- Caps (max_budget_usd, allowed_model_families, required_compliance) are
--- enforced server-side so a hostile or fat-fingered operator can't escape
--- the admin-defined envelope.
---
--- Templates are admin-managed; operators read + instantiate them. Team-
--- scoped access (which team can use which template) is phase 3b.
-CREATE TABLE templates (
-    id                      TEXT PRIMARY KEY,
-    org_id                  TEXT NOT NULL REFERENCES organizations(id),
-    name                    TEXT NOT NULL,
-    description             TEXT NOT NULL DEFAULT '',
-    persona                 TEXT NOT NULL,
-    default_values          JSONB NOT NULL DEFAULT '{}'::jsonb,
-    allowed_overrides       JSONB NOT NULL DEFAULT '[]'::jsonb,
-    max_budget_usd          INT NOT NULL DEFAULT 0, -- 0 = no cap
-    allowed_model_families  JSONB NOT NULL DEFAULT '[]'::jsonb,
-    required_compliance     JSONB NOT NULL DEFAULT '[]'::jsonb,
-    created_by              TEXT NOT NULL REFERENCES users(id),
-    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(org_id, name)
-);
-
-CREATE INDEX idx_templates_org_id ON templates(org_id);
-
--- Link tenant_operations to the template that produced them (when one was
--- used). SET NULL on delete so deleting a template doesn't invalidate the
--- historical operation log.
-ALTER TABLE tenant_operations
-    ADD COLUMN template_id TEXT REFERENCES templates(id) ON DELETE SET NULL;
 
 -- Tenant team access. Records which teams own (and can see) a tenant.
 -- Keyed on (cluster_id, tenant_name) rather than tenants.id because portal
