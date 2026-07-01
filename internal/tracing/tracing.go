@@ -22,7 +22,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
-	"github.com/nanohype/portal/internal/domain"
+	"github.com/nanohype/portal/internal/config"
 )
 
 // Init installs the global W3C trace-context propagator and a TracerProvider.
@@ -30,7 +30,7 @@ import (
 // propagator still flows context, but nothing is exported) so dev / no-collector
 // boots clean. serviceName is "portal-server" or "portal-worker". The caller
 // owns Shutdown.
-func Init(ctx context.Context, serviceName, version string, cfg *domain.Config) (*sdktrace.TracerProvider, error) {
+func Init(ctx context.Context, serviceName, version string, cfg *config.Config) (*sdktrace.TracerProvider, error) {
 	// Always install the propagator so trace context crosses process and job
 	// boundaries even when this process isn't exporting.
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(

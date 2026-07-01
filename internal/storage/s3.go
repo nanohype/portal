@@ -6,16 +6,27 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 
-	"github.com/nanohype/portal/internal/domain"
+	"github.com/nanohype/portal/internal/config"
 )
+
+// requestTimeout bounds every S3 round-trip, body transfer included (all
+// objects here are read fully into memory, so the client timeout covers the
+// whole operation). Callers pass a context too, but in the worker that
+// context is the multi-hour job deadline — without a per-request bound a
+// wedged connection would hold a run open for the entire job budget. Two
+// minutes clears the largest state files and config archives with room to
+// spare.
+const requestTimeout = 2 * time.Minute
 
 // S3Storage persists OpenTofu state, run logs, plan JSON, config archives, and
 // module bundles in an S3-compatible object store, via the AWS SDK (the same SDK
@@ -27,18 +38,21 @@ type S3Storage struct {
 	bucket string
 }
 
-func NewS3Storage(cfg *domain.Config) (*S3Storage, error) {
-	loadOpts := []func(*config.LoadOptions) error{config.WithRegion(cfg.S3Region)}
+func NewS3Storage(cfg *config.Config) (*S3Storage, error) {
+	loadOpts := []func(*awsconfig.LoadOptions) error{
+		awsconfig.WithRegion(cfg.S3Region),
+		awsconfig.WithHTTPClient(&http.Client{Timeout: requestTimeout}),
+	}
 	if cfg.S3AccessKey != "" && cfg.S3SecretKey != "" {
 		// Explicit static keys — dev, or any non-IRSA S3-compatible store.
-		loadOpts = append(loadOpts, config.WithCredentialsProvider(
+		loadOpts = append(loadOpts, awsconfig.WithCredentialsProvider(
 			credentials.NewStaticCredentialsProvider(cfg.S3AccessKey, cfg.S3SecretKey, ""),
 		))
 	}
 	// With no static keys the SDK's default chain supplies credentials — env,
 	// then EKS IRSA web-identity / EC2 / ECS. That's the production hub path: the
 	// worker's IRSA role grants S3 access and no long-lived key sits at rest.
-	awsCfg, err := config.LoadDefaultConfig(context.Background(), loadOpts...)
+	awsCfg, err := awsconfig.LoadDefaultConfig(context.Background(), loadOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("load aws config for s3: %w", err)
 	}

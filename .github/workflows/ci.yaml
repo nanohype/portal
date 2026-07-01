@@ -58,6 +58,14 @@ jobs:
         working-directory: web
       - run: npm run lint
         working-directory: web
+      # The API contract is generated: api/openapi.yaml is the source of truth
+      # and web/src/api/types.ts must match it. Regenerate + diff fails the
+      # build on drift (same pattern as nanohype's verify:catalog).
+      - name: API contract drift
+        run: |
+          npm run generate:api
+          git diff --exit-code -- src/api/types.ts
+        working-directory: web
       # tsc -b is the real typecheck — the root tsconfig has files:[] + project
       # references, so `tsc --noEmit` against it checks nothing.
       - run: npx tsc -b

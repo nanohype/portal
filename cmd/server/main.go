@@ -17,7 +17,7 @@ import (
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 	"github.com/riverqueue/river/rivertype"
 
-	"github.com/nanohype/portal/internal/domain"
+	"github.com/nanohype/portal/internal/config"
 	"github.com/nanohype/portal/internal/server"
 	"github.com/nanohype/portal/internal/tracing"
 )
@@ -27,7 +27,7 @@ import (
 var version = "dev"
 
 func main() {
-	cfg := &domain.Config{}
+	cfg := &config.Config{}
 	if err := env.Parse(cfg); err != nil {
 		slog.Error("failed to parse config", "error", err)
 		os.Exit(1)

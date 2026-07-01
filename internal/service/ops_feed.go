@@ -27,10 +27,10 @@ func NewOpsFeedService(queries *repository.Queries) *OpsFeedService {
 // completed_at when the op has finished, else created_at — so a just-finished op
 // floats to the top alongside fresh orders.
 type OpsFeedItem struct {
-	Kind    string                       `json:"kind"` // "cluster" | "tenant"
-	At      time.Time                    `json:"at"`
-	Cluster *repository.ClusterOperation `json:"cluster,omitempty"`
-	Tenant  *repository.TenantOperation  `json:"tenant,omitempty"`
+	Kind    string // "cluster" | "tenant"
+	At      time.Time
+	Cluster *repository.ClusterOperation
+	Tenant  *repository.TenantOperation
 }
 
 // feedCap bounds the merged feed. Each source query already caps at 50; the

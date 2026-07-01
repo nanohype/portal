@@ -241,14 +241,14 @@ func (q *Queries) SetClusterConnectionStatus(ctx context.Context, arg SetCluster
 // + the account whose role grants eks:DescribeCluster). No credentials: the health
 // read talks to the hub + AWS, never the spoke.
 type ClusterHealthTarget struct {
-	ID             string `json:"id"`
-	OrgID          string `json:"org_id"`
-	AccountID      string `json:"account_id"`
-	Name           string `json:"name"`
-	Environment    string `json:"environment"`
-	Region         string `json:"region"`
-	AuthMode       string `json:"auth_mode"`
-	EKSClusterName string `json:"eks_cluster_name"`
+	ID             string
+	OrgID          string
+	AccountID      string
+	Name           string
+	Environment    string
+	Region         string
+	AuthMode       string
+	EKSClusterName string
 }
 
 // ListClusterHealthTargets returns every registered cluster across all orgs — the

@@ -1,6 +1,6 @@
 # Configuration
 
-All configuration is via environment variables. In development every variable has a working default except `ENVIRONMENT` (set it to `development`) and the GitHub OAuth credentials. The source of truth is `internal/domain/config.go` — this doc tracks it.
+All configuration is via environment variables. In development every variable has a working default except `ENVIRONMENT` (set it to `development`) and the GitHub OAuth credentials. The source of truth is `internal/config/config.go` — this doc tracks it.
 
 ## Local Dev
 
@@ -80,7 +80,7 @@ Config is wired through the `objectStore` Helm block (and surfaces as the `S3_*`
 |----------|---------|-------------|
 | `WORKER_CONCURRENCY` | `10` | Max concurrent tofu/terragrunt runs (the default River queue) |
 | `WORKER_RECONCILE_CONCURRENCY` | `8` | Max concurrent per-cluster watch/reconcile jobs (the `reconcile` queue, separate from runs so they don't starve each other) |
-| `WORKER_HEALTH_ADDR` | `:8081` | Address for the worker's `/healthz` (pings the DB) and `/metrics` endpoints |
+| `WORKER_HEALTH_ADDR` | `:8081` | Address for the worker's `/healthz` (liveness), `/readyz` (pings the DB), and `/metrics` endpoints |
 
 ## Observability
 

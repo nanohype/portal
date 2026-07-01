@@ -14,7 +14,7 @@ import (
 func TestWorkspaceVariableCopy(t *testing.T) {
 	requireDB(t)
 	ctx := context.Background()
-	svc := service.NewWorkspaceService(testQueries, testPool)
+	svc := service.NewWorkspaceService(testQueries, testPool, nil)
 	orgID, userID := seedOrg(t, ctx, "wvcopy")
 
 	t.Run("CopyAll clones every variable", func(t *testing.T) {

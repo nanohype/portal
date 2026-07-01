@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 import { navigate } from "@/hooks/useNavigate";
 import { Link } from "@/components/ui/link";
 import { ArrowLeft, Clock, Timer, GitCommit, XCircle, RotateCcw } from "lucide-react";
-import type { RunStatus, TofuPlanJSON } from "@/api/types";
+import type { RunStatus, TofuPlanJSON } from "@/api/models";
 
 interface Props {
   workspaceId: string;

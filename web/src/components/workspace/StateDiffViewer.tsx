@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { StateDiff, ResourceDiff } from "@/api/types";
+import type { StateDiff, ResourceDiff } from "@/api/models";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 

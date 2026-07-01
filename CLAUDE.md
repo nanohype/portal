@@ -4,34 +4,38 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is this project?
 
-Portal is a self-hosted operations portal for the nanohype stack. It started
-as an OpenTofu lifecycle management UI (Terraform Cloud / Spacelift
-alternative) and grew into a unified portal that also manages AWS accounts,
-EKS clusters, and eks-agent-platform tenants. Go backend (API server + job worker) and
-React frontend.
+Portal is the self-hosted operations portal for the nanohype stack: one UI,
+one API, one audit trail over the cloud substrate. Go backend (API server +
+River job worker) and React frontend.
 
-Capability layers (each can be used independently):
+One domain model, four surfaces:
 
-1. **OpenTofu lifecycle.** Workspaces, pipelines, runs, plan diff, state
-   versions, variable inheritance (org/pipeline/workspace, deep-merge for
-   tags), VCS webhooks, terragrunt auto-detection.
-2. **AWS account surface.** Account entities with stored assume-role creds.
-   Foundation for cross-account operations.
-3. **EKS cluster surface.** Cluster entities with slim creds (api endpoint
-   + CA + service-account token, encrypted). Async connection-test job.
-4. **eks-agent-platform tenant surface (read).** Periodic per-cluster watcher walks the
-   `platform.nanohype.dev/v1alpha1` Tenant CRDs and reconciles a DB inventory.
-5. **eks-agent-platform tenant surface (write).** UI form → helm-renders the eks-agent-platform
-   `charts/tenant` chart → commits to a tenants GitOps repo → ArgoCD
-   reconciles. Operations are tracked in a tenant_operations log.
-6. **Curated templates.** Admins define default tenant values + caps;
-   operators instantiate from them. Server-side enforcement of budget
-   caps + model-family intersection + required-compliance flags.
-7. **Team-scoped self-service.** tenant_team_access and
-   template_team_access pivot tables. Non-admins see only their teams'
-   entities; admins see everything and manage the grants.
-8. **Unified catalog.** Frontend-only aggregation page that surfaces
-   every entity a user can see in one searchable + filterable grid.
+- **Infrastructure execution.** OpenTofu/Terragrunt workspaces, pipelines
+  (sequential runs with output passing between stages), runs, plan diff,
+  state versions, variable inheritance (org → pipeline → workspace,
+  deep-merge for tags), VCS webhooks, terragrunt auto-detection.
+- **Fleet.** AWS accounts (stored assume-role creds — the base for
+  cross-account operations) and EKS clusters (slim encrypted creds, async
+  connection tests). Clusters vend and deprovision through a clusters
+  GitOps repo (eks-fleet `Cluster` CRs); in-cluster hub watchers project
+  the vend timeline, the org-wide ops feed, and per-cluster ArgoCD/EKS
+  health onto DB rows.
+- **Tenant management.** A per-cluster watcher walks the
+  `platform.nanohype.dev/v1alpha1` Tenant CRDs and reconciles a DB
+  inventory. The write path helm-renders the eks-agent-platform
+  `charts/tenant` chart, commits to a tenants GitOps repo for ArgoCD, and
+  logs each operation in tenant_operations. Curated templates carry
+  admin-defined default values + caps with server-side enforcement (budget
+  caps, model-family intersection, required-compliance flags).
+- **Access control.** Teams with RBAC (owner > admin > operator > viewer).
+  tenant_team_access, template_team_access, and workspace_team_access scope
+  what non-admins see; admins see everything and manage the grants. A
+  unified catalog page aggregates every entity a user can see into one
+  searchable + filterable grid.
+
+Write paths render manifests and commit to GitOps repos for ArgoCD to
+reconcile; read paths are in-cluster watchers that project live substrate
+state onto DB rows. The UI reads the projection — the cluster always wins.
 
 ## Quick Reference
 
@@ -50,10 +54,7 @@ task seed                     # AWS org vars + 4 landing-zone workspaces + eks-g
 
 # Verify changes
 go build ./...                                   # Backend compiles
-go test ./internal/handler/ ./internal/auth/ \
-  ./internal/worker/ ./internal/vcs/ \
-  ./internal/server/ ./internal/domain/ \
-  ./internal/tfparse/                            # Run tests
+go test ./...                                    # Run tests (repository integration tests skip without TEST_DATABASE_URL)
 cd web && npx tsc -b && npx vite build            # Frontend compiles (tsc -b is the real check)
 
 # Reset database (drops everything, re-migrates)
@@ -67,11 +68,13 @@ Three processes: **server** (HTTP API), **worker** (runs tofu commands), **web**
 ### Backend (Go 1.26)
 
 - **Router**: chi (`internal/server/server.go` — all routes defined here)
-- **Handlers**: `internal/handler/` — one file per domain (auth, workspace, run, pipeline, pipeline_variables, org_variables, variables, teams, state, user, audit, webhook, approvals, health)
-- **Services**: `internal/service/` — business logic layer (workspace, run, pipeline, audit)
-- **Repository**: `internal/repository/` — hand-written pgx queries in `*.sql.go` (sqlc-style: typed Params structs + `scanX` helpers, but NOT generated — edit them directly; there is no sqlc/codegen step)
-- **Worker**: `internal/worker/jobs.go` — River job worker with pipeline callback; `pipeline_jobs.go` for pipeline stage jobs
-- **Auth**: GitHub OAuth → JWT, RBAC with roles owner > admin > operator > viewer
+- **Handlers**: `internal/handler/` — one file per domain (auth, workspace, run, pipeline, pipeline_variables, org_variables, variables, teams, user, account, cluster, cluster_order, tenant, template, ops, state, audit, webhook, approvals, health). Handlers are transport-only: parse, call a service, map to a `*Response` DTO, respond
+- **Services**: `internal/service/` — the business logic layer, one per domain (workspace, run, pipeline, state, approval, audit, user, team, account, cluster, cluster_order, cluster_health, cluster_provision_watch, tenant, template, discovery, ops_feed, argocd_sync). Every domain goes handler → service → repository
+- **Config**: `internal/config/` — env-var config with dev defaults; `internal/domain/` stays pure (stdlib-only)
+- **Repository**: `internal/repository/` — hand-written pgx queries in `*.sql.go` (sqlc-style: typed Params structs + `scanX` helpers, but NOT generated — edit them directly; there is no sqlc/codegen step). Row structs carry no json tags — serialization happens once, at the handler layer
+- **Worker**: `internal/worker/jobs.go` — River job worker with pipeline callback; `pipeline_jobs.go` for pipeline stage jobs; `cluster_*.go` + `tenant_apply.go` for the fleet/tenant jobs
+- **Auth**: GitHub OAuth → JWT, RBAC with roles owner > admin > operator > viewer. JWTs never ride in URLs or script-readable state: the login handoff sets a short-lived HttpOnly `auth_token` cookie scoped to `POST /api/v1/auth/handoff`, which the SPA callback exchanges once for the JWT (the response expires the cookie — delete-on-read); WebSockets authenticate via the `["bearer", <jwt>]` subprotocol (`Sec-WebSocket-Protocol`)
+- **Probes**: `/healthz` (process-only liveness) + `/readyz` (DB-checking readiness) on both server (:8080) and worker (:8081); `GET /api/v1/health` is the app-level health surface the UI reads (per-service status + dev-login flag)
 - **Response helpers**: `internal/handler/respond/respond.go` — use `respond.JSON()`, `respond.Error()`, `respond.NoContent()`
 
 ### Worker Variable Merge
@@ -89,9 +92,9 @@ Pipeline is an orchestrator, not an executor. `PipelineStageJobWorker` imports o
 
 ### Frontend (React)
 
-- **Stack**: Vite 7, React 19, TypeScript, Tailwind CSS 4, TanStack Query, Zustand
+- **Stack**: Vite 8, React 19, TypeScript, Tailwind CSS 4, TanStack Query, Zustand
 - **Theme**: Neutral dark palette (#0A0A0B base, #3E8E82 teal primary, #CF222E destructive) with Inter (UI) + JetBrains Mono (IDs/code), 13px base, glass effects — defined in `web/src/index.css`
-- **API client**: `web/src/api/client.ts` — openapi-fetch with typed paths from `web/src/api/types.ts`
+- **API client**: `web/src/api/client.ts` — openapi-fetch with typed paths from `web/src/api/types.ts`, generated from `api/openapi.yaml` (components import domain types via `web/src/api/models.ts`)
 - **Components**: `web/src/components/` — organized by domain (workspace/, pipeline/, run/, teams/, settings/, ui/)
 - **Routing**: TanStack Router in `web/src/router.tsx` (auth-gated layout route, typed params)
 - **Notifications**: sonner toasts on all mutations
@@ -108,6 +111,7 @@ Pipeline is an orchestrator, not an executor. `PipelineStageJobWorker` imports o
 - **Encryption**: sensitive variables encrypted with AES-256 via `secrets.Encryptor`, decrypted in worker at run time
 - **Tests**: pure functions extracted for testability; test files alongside source
 - **Import cycle avoidance**: `worker` → `service` is one-directional. Pipeline stage worker uses `RunCreatorFunc` and `OutputImporter` function types instead of importing service directly.
+
 ### Terragrunt support
 
 Terragrunt is a co-equal first-class wrapper alongside plain tofu. The worker
@@ -178,24 +182,24 @@ a "wrapper" flag.
 
 ### Adding a new API endpoint
 
-1. Add handler method in `internal/handler/<domain>.go`
+1. Add handler method + its `*Response` type in `internal/handler/<domain>.go` (handlers are the wire boundary — repository rows never serialize directly)
 2. Wire route in `internal/server/server.go` (inside the `r.Route("/api/v1", ...)` block)
-3. Add the TypeScript types + `paths` entry in `web/src/api/types.ts` (the hand-maintained API contract — there is no codegen step)
+3. Describe the path + schemas in `api/openapi.yaml`, then `cd web && npm run generate:api` to regenerate `src/api/types.ts` (CI fails on drift)
 
 ### Adding a new frontend page/component
 
 1. Add component in `web/src/components/`
-2. Add route in `web/src/App.tsx` (regex pattern matching)
+2. Add a lazy route in `web/src/router.tsx` (TanStack Router — typed params, auth-gated layout route)
 3. Use `useQuery`/`useMutation` from TanStack Query for data fetching
 4. Use `toast.success()`/`toast.error()` from sonner for feedback
 
 ### Adding a database migration
 
-All schema is consolidated in `migrations/000001_initial_schema.up.sql`. For dev, modify the file directly and `docker compose down -v && docker compose up -d` to reset. For production, create a new numbered migration pair.
+The schema is a single pair: `migrations/000001_initial_schema.{up,down}.sql`. For dev, modify it directly and `docker compose down -v && docker compose up -d` to reset. For production, create a new numbered migration pair — `cmd/migrate` walks the directory.
 
 ## Environment
 
-- All config via env vars with dev defaults (see `internal/domain/config.go`)
+- All config via env vars with dev defaults (see `internal/config/config.go`)
 - `ENVIRONMENT=development` relaxes validation (allows default JWT/encryption keys, enables dev login)
 - Server: `:8080`, Worker health: `:8081`, Vite: `:5173`
 

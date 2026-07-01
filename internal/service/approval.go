@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -32,6 +33,19 @@ func NewApprovalService(queries *repository.Queries, db *pgxpool.Pool, auditSvc 
 
 func (s *ApprovalService) SetRiverClient(client *river.Client[pgx.Tx]) {
 	s.riverClient = client
+}
+
+// approvalAuditRecord is the snake_case projection of an approval row stored
+// in the audit trail. The decision commits inside this service's transaction,
+// so the audit shape lives here rather than at the HTTP boundary.
+type approvalAuditRecord struct {
+	ID        string    `json:"id"`
+	RunID     string    `json:"run_id"`
+	OrgID     string    `json:"org_id"`
+	UserID    string    `json:"user_id"`
+	Status    string    `json:"status"`
+	Comment   string    `json:"comment"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // List returns a run's approvals, scoped to the caller's org. A run the org
@@ -110,7 +124,16 @@ func (s *ApprovalService) Create(ctx context.Context, runID, orgID, userID, stat
 	if err := s.auditSvc.LogTx(ctx, qtx, AuditEntry{
 		OrgID: orgID, UserID: userID,
 		Action: "approval.create", EntityType: "approval", EntityID: approval.ID,
-		After: approval, IPAddress: ipAddress, UserAgent: userAgent,
+		After: approvalAuditRecord{
+			ID:        approval.ID,
+			RunID:     approval.RunID,
+			OrgID:     approval.OrgID,
+			UserID:    approval.UserID,
+			Status:    approval.Status,
+			Comment:   approval.Comment,
+			CreatedAt: approval.CreatedAt,
+		},
+		IPAddress: ipAddress, UserAgent: userAgent,
 	}); err != nil {
 		return repository.Approval{}, fmt.Errorf("write approval audit: %w", err)
 	}

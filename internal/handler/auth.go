@@ -11,30 +11,27 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/oklog/ulid/v2"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/github"
 
 	"github.com/nanohype/portal/internal/auth"
-	"github.com/nanohype/portal/internal/domain"
+	"github.com/nanohype/portal/internal/config"
 	"github.com/nanohype/portal/internal/handler/respond"
-	"github.com/nanohype/portal/internal/repository"
+	"github.com/nanohype/portal/internal/service"
 )
 
 type AuthHandler struct {
-	cfg         *domain.Config
-	queries     *repository.Queries
-	db          *pgxpool.Pool
+	cfg         *config.Config
+	userSvc     *service.UserService
 	jwt         *auth.JWTAuth
 	oauthConfig *oauth2.Config
 }
 
-func NewAuthHandler(cfg *domain.Config, queries *repository.Queries, db *pgxpool.Pool, jwt *auth.JWTAuth) *AuthHandler {
+func NewAuthHandler(cfg *config.Config, userSvc *service.UserService, jwt *auth.JWTAuth) *AuthHandler {
 	return &AuthHandler{
 		cfg:     cfg,
-		queries: queries,
-		db:      db,
+		userSvc: userSvc,
 		jwt:     jwt,
 		oauthConfig: &oauth2.Config{
 			ClientID:     cfg.GitHubClientID,
@@ -196,36 +193,17 @@ func (h *AuthHandler) GitHubCallback(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Get or create default org (single-org mode for Phase 1)
-	org, err := h.ensureDefaultOrg(ctx)
-	if err != nil {
-		slog.Error("failed to ensure default org", "error", err)
-		respond.Error(w, http.StatusInternalServerError, "failed to setup organization")
-		return
-	}
-
-	// Determine role: first user in org gets owner, subsequent get viewer
-	userCount, err := h.queries.CountUsersByOrg(ctx, org.ID)
-	if err != nil {
-		slog.Error("failed to count users", "error", err)
-		respond.Error(w, http.StatusInternalServerError, "failed to setup user")
-		return
-	}
-	role := assignRole(userCount)
-
-	// Upsert user
-	user, err := h.queries.UpsertUserByGitHubID(ctx, repository.UpsertUserByGitHubIDParams{
-		ID:        ulid.Make().String(),
-		OrgID:     org.ID,
+	// Provision the verified identity (default org bootstrap, role assignment,
+	// upsert keyed on the GitHub account).
+	user, err := h.userSvc.Provision(ctx, service.ProvisionUserParams{
 		Email:     ghUser.Email,
 		Name:      ghUser.Name,
 		AvatarURL: ghUser.AvatarURL,
-		GithubID:  &ghUser.ID,
-		Role:      role,
+		GitHubID:  &ghUser.ID,
 	})
 	if err != nil {
-		slog.Error("failed to upsert user", "error", err)
-		respond.Error(w, http.StatusInternalServerError, "failed to create user")
+		slog.Error("failed to provision user", "error", err)
+		respond.Error(w, http.StatusInternalServerError, "failed to setup user")
 		return
 	}
 
@@ -236,9 +214,70 @@ func (h *AuthHandler) GitHubCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Redirect to frontend with token
-	redirectURL := fmt.Sprintf("%s/auth/callback?token=%s", h.cfg.WebURL, jwtToken)
-	http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
+	h.redirectWithToken(w, r, jwtToken)
+}
+
+// The login handoff cookie: HttpOnly (never script-readable), scoped to the
+// handoff endpoint (path-scoped cookies only ride to that route), and
+// short-lived — the SPA callback exchanges it exactly once via POST
+// /auth/handoff.
+const (
+	handoffCookieName = "auth_token"
+	handoffCookiePath = "/api/v1/auth/handoff"
+)
+
+// redirectWithToken hands the freshly minted JWT to the SPA via a short-lived
+// HttpOnly cookie scoped to the handoff endpoint, then redirects to the SPA
+// callback page. The token never appears in a URL (browser history, proxy
+// logs, Referer headers) or anywhere script-readable (document.cookie): the
+// callback page POSTs to /auth/handoff, which returns the token once and
+// expires the cookie in the same response.
+func (h *AuthHandler) redirectWithToken(w http.ResponseWriter, r *http.Request, token string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     handoffCookieName,
+		Value:    token,
+		Path:     handoffCookiePath,
+		MaxAge:   60,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   h.cfg.Environment != "development",
+	})
+	http.Redirect(w, r, h.cfg.WebURL+"/auth/callback", http.StatusTemporaryRedirect)
+}
+
+type HandoffResponse struct {
+	Token string `json:"token"`
+}
+
+// Handoff completes the login handoff: it exchanges the HttpOnly cookie set by
+// redirectWithToken for the JWT as a JSON body, exactly once. The cookie is
+// expired in the same response (delete-on-read), so a replayed POST finds
+// nothing and gets 401. POST keeps the exchange non-cacheable, and
+// SameSite=Lax means the browser won't attach the cookie to a cross-site POST.
+func (h *AuthHandler) Handoff(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie(handoffCookieName)
+	if err != nil {
+		respond.Error(w, http.StatusUnauthorized, "no handoff token")
+		return
+	}
+	if _, err := h.jwt.ValidateToken(cookie.Value); err != nil {
+		respond.Error(w, http.StatusUnauthorized, "invalid handoff token")
+		return
+	}
+
+	// Delete-on-read: expire the cookie in the same response so the exchange
+	// works exactly once. Mirror the attributes redirectWithToken set so the
+	// clearing cookie matches what the browser stored.
+	http.SetCookie(w, &http.Cookie{
+		Name:     handoffCookieName,
+		Value:    "",
+		Path:     handoffCookiePath,
+		MaxAge:   -1,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   h.cfg.Environment != "development",
+	})
+	respond.JSON(w, http.StatusOK, HandoffResponse{Token: cookie.Value})
 }
 
 func (h *AuthHandler) DevLogin(w http.ResponseWriter, r *http.Request) {
@@ -247,31 +286,12 @@ func (h *AuthHandler) DevLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := r.Context()
-
-	org, err := h.ensureDefaultOrg(ctx)
-	if err != nil {
-		respond.Error(w, http.StatusInternalServerError, "failed to setup organization")
-		return
-	}
-
-	userCount, err := h.queries.CountUsersByOrg(ctx, org.ID)
-	if err != nil {
-		respond.Error(w, http.StatusInternalServerError, "failed to setup user")
-		return
-	}
-	role := assignRole(userCount)
-
-	user, err := h.queries.UpsertUserByEmail(ctx, repository.UpsertUserByEmailParams{
-		ID:        ulid.Make().String(),
-		OrgID:     org.ID,
-		Email:     "dev@portal.local",
-		Name:      "Dev User",
-		AvatarURL: "",
-		Role:      role,
+	user, err := h.userSvc.Provision(r.Context(), service.ProvisionUserParams{
+		Email: "dev@portal.local",
+		Name:  "Dev User",
 	})
 	if err != nil {
-		respond.Error(w, http.StatusInternalServerError, "failed to create dev user")
+		respond.Error(w, http.StatusInternalServerError, "failed to setup user")
 		return
 	}
 
@@ -281,8 +301,7 @@ func (h *AuthHandler) DevLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	redirectURL := fmt.Sprintf("%s/auth/callback?token=%s", h.cfg.WebURL, token)
-	http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
+	h.redirectWithToken(w, r, token)
 }
 
 func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
@@ -292,40 +311,19 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.queries.GetUser(r.Context(), userCtx.UserID)
+	user, err := h.userSvc.Get(r.Context(), userCtx.UserID)
 	if err != nil {
-		respond.Error(w, http.StatusNotFound, "user not found")
+		respond.FromError(w, r, err)
 		return
 	}
 
-	respond.JSON(w, http.StatusOK, user)
-}
-
-func (h *AuthHandler) ensureDefaultOrg(ctx context.Context) (repository.Organization, error) {
-	org, err := h.queries.GetDefaultOrganization(ctx)
-	if err == nil {
-		return org, nil
-	}
-
-	return h.queries.CreateOrganization(ctx, repository.CreateOrganizationParams{
-		ID:   ulid.Make().String(),
-		Name: "Default Organization",
-		Slug: "default",
-	})
+	respond.JSON(w, http.StatusOK, userResponse(user))
 }
 
 type githubEmail struct {
 	Email    string `json:"email"`
 	Primary  bool   `json:"primary"`
 	Verified bool   `json:"verified"`
-}
-
-// assignRole returns "owner" for the first user in an org, "viewer" otherwise.
-func assignRole(userCount int64) string {
-	if userCount == 0 {
-		return "owner"
-	}
-	return "viewer"
 }
 
 // isActiveOrgMember reports whether the authenticated user (carried by client's

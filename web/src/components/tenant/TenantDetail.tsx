@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { api } from "@/api/client";
 import { useAuth } from "@/hooks/useAuth";
 import { navigate } from "@/hooks/useNavigate";
-import type { Team, TenantOperation, TenantTeamAccess } from "@/api/types";
+import type { Team, TenantOperation, TenantTeamAccess } from "@/api/models";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Link } from "@/components/ui/link";

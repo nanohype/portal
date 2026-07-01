@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
-import type { TofuPlanJSON, TofuResourceChange } from "@/api/types";
+import type { TofuPlanJSON, TofuResourceChange } from "@/api/models";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
 interface Props {

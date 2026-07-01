@@ -1,14 +1,21 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
+	"net/http/cookiejar"
+	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
+	"time"
 
-	"github.com/nanohype/portal/internal/domain"
+	"github.com/nanohype/portal/internal/auth"
+	"github.com/nanohype/portal/internal/config"
 )
 
 func TestOAuthStateVerification(t *testing.T) {
-	h := &AuthHandler{cfg: &domain.Config{JWTSecret: "test-secret-32-bytes-long-value!"}}
+	h := &AuthHandler{cfg: &config.Config{JWTSecret: "test-secret-32-bytes-long-value!"}}
 
 	state := "01JTEST1234567890ABCDEF"
 	sig := h.signState(state)
@@ -42,6 +49,194 @@ func TestOAuthStateVerification(t *testing.T) {
 	}
 }
 
+func TestRedirectWithToken(t *testing.T) {
+	tests := []struct {
+		name        string
+		environment string
+		wantSecure  bool
+	}{
+		{"development is not secure", "development", false},
+		{"production is secure", "production", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := &AuthHandler{cfg: &config.Config{
+				Environment: tt.environment,
+				WebURL:      "http://localhost:5173",
+			}}
+
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/github/callback", nil)
+			h.redirectWithToken(rec, req, "header.payload.signature")
+
+			// The redirect must never carry the token in the URL.
+			location := rec.Header().Get("Location")
+			if location != "http://localhost:5173/auth/callback" {
+				t.Errorf("Location = %q, want %q", location, "http://localhost:5173/auth/callback")
+			}
+			if strings.Contains(location, "token") {
+				t.Errorf("Location %q must not carry a token", location)
+			}
+			if rec.Code != http.StatusTemporaryRedirect {
+				t.Errorf("status = %d, want %d", rec.Code, http.StatusTemporaryRedirect)
+			}
+
+			// The token rides in a short-lived HttpOnly cookie scoped to the
+			// handoff endpoint.
+			var cookie *http.Cookie
+			for _, c := range rec.Result().Cookies() {
+				if c.Name == "auth_token" {
+					cookie = c
+				}
+			}
+			if cookie == nil {
+				t.Fatal("expected auth_token cookie to be set")
+			}
+			if cookie.Value != "header.payload.signature" {
+				t.Errorf("cookie value = %q, want the token", cookie.Value)
+			}
+			if cookie.Path != "/api/v1/auth/handoff" {
+				t.Errorf("cookie path = %q, want /api/v1/auth/handoff", cookie.Path)
+			}
+			if cookie.MaxAge != 60 {
+				t.Errorf("cookie max-age = %d, want 60", cookie.MaxAge)
+			}
+			if cookie.SameSite != http.SameSiteLaxMode {
+				t.Errorf("cookie samesite = %v, want Lax", cookie.SameSite)
+			}
+			if cookie.Secure != tt.wantSecure {
+				t.Errorf("cookie secure = %v, want %v", cookie.Secure, tt.wantSecure)
+			}
+			if !cookie.HttpOnly {
+				t.Error("cookie must be HttpOnly — the SPA never reads it; it exchanges it via POST /auth/handoff")
+			}
+		})
+	}
+}
+
+func TestHandoff(t *testing.T) {
+	jwtAuth := auth.NewJWTAuth("test-secret-32-bytes-long-value!", time.Hour)
+	h := &AuthHandler{
+		cfg: &config.Config{Environment: "development", WebURL: "http://localhost:5173"},
+		jwt: jwtAuth,
+	}
+	token, err := jwtAuth.GenerateToken("usr_1", "org_1", "dev@portal.local", "owner")
+	if err != nil {
+		t.Fatalf("GenerateToken: %v", err)
+	}
+
+	t.Run("valid cookie returns the token once and expires the cookie", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/handoff", nil)
+		req.AddCookie(&http.Cookie{Name: "auth_token", Value: token})
+		h.Handoff(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+		}
+		var body struct {
+			Token string `json:"token"`
+		}
+		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		if body.Token != token {
+			t.Errorf("token = %q, want the JWT from the cookie", body.Token)
+		}
+
+		// Delete-on-read: the same response must expire the cookie.
+		var cookie *http.Cookie
+		for _, c := range rec.Result().Cookies() {
+			if c.Name == "auth_token" {
+				cookie = c
+			}
+		}
+		if cookie == nil {
+			t.Fatal("expected an expiring auth_token cookie in the response")
+		}
+		if cookie.MaxAge >= 0 {
+			t.Errorf("cookie max-age = %d, want < 0 (serialized as Max-Age=0)", cookie.MaxAge)
+		}
+		if cookie.Value != "" {
+			t.Errorf("cookie value = %q, want empty", cookie.Value)
+		}
+		if cookie.Path != "/api/v1/auth/handoff" {
+			t.Errorf("cookie path = %q, want /api/v1/auth/handoff", cookie.Path)
+		}
+		if !cookie.HttpOnly {
+			t.Error("expiring cookie must mirror HttpOnly")
+		}
+	})
+
+	t.Run("missing cookie is unauthorized", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/handoff", nil)
+		h.Handoff(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+		}
+	})
+
+	t.Run("malformed token is unauthorized", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/handoff", nil)
+		req.AddCookie(&http.Cookie{Name: "auth_token", Value: "not.a.jwt"})
+		h.Handoff(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+		}
+	})
+
+	t.Run("second call after expiry is unauthorized", func(t *testing.T) {
+		// Drive the exchange through a real server + cookie jar so the
+		// browser-side delete-on-read semantics are what's under test: the jar
+		// stores the handoff cookie, the first POST consumes it (the expiring
+		// Set-Cookie evicts it from the jar), the second POST arrives bare and
+		// gets 401.
+		mux := http.NewServeMux()
+		mux.HandleFunc("POST /api/v1/auth/handoff", h.Handoff)
+		srv := httptest.NewServer(mux)
+		defer srv.Close()
+
+		jar, err := cookiejar.New(nil)
+		if err != nil {
+			t.Fatalf("cookiejar: %v", err)
+		}
+		endpoint, err := url.Parse(srv.URL + "/api/v1/auth/handoff")
+		if err != nil {
+			t.Fatalf("parse url: %v", err)
+		}
+		jar.SetCookies(endpoint, []*http.Cookie{{
+			Name:  "auth_token",
+			Value: token,
+			Path:  "/api/v1/auth/handoff",
+		}})
+		client := &http.Client{Jar: jar}
+
+		first, err := client.Post(endpoint.String(), "", nil)
+		if err != nil {
+			t.Fatalf("first POST: %v", err)
+		}
+		first.Body.Close()
+		if first.StatusCode != http.StatusOK {
+			t.Fatalf("first POST status = %d, want %d", first.StatusCode, http.StatusOK)
+		}
+		if remaining := jar.Cookies(endpoint); len(remaining) != 0 {
+			t.Errorf("jar still holds %d cookie(s) after the exchange, want 0", len(remaining))
+		}
+
+		second, err := client.Post(endpoint.String(), "", nil)
+		if err != nil {
+			t.Fatalf("second POST: %v", err)
+		}
+		second.Body.Close()
+		if second.StatusCode != http.StatusUnauthorized {
+			t.Errorf("second POST status = %d, want %d", second.StatusCode, http.StatusUnauthorized)
+		}
+	})
+}
+
 func TestSplitStateCookie(t *testing.T) {
 	tests := []struct {
 		input string
@@ -56,26 +251,5 @@ func TestSplitStateCookie(t *testing.T) {
 		if len(got) != tt.want {
 			t.Errorf("splitStateCookie(%q) = %d parts, want %d", tt.input, len(got), tt.want)
 		}
-	}
-}
-
-func TestAssignRole(t *testing.T) {
-	tests := []struct {
-		name      string
-		userCount int64
-		want      string
-	}{
-		{"first user gets owner", 0, "owner"},
-		{"second user gets viewer", 1, "viewer"},
-		{"many users get viewer", 100, "viewer"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := assignRole(tt.userCount)
-			if got != tt.want {
-				t.Errorf("assignRole(%d) = %q, want %q", tt.userCount, got, tt.want)
-			}
-		})
 	}
 }

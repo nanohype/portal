@@ -216,6 +216,12 @@ tasks:
 
   # === Quality ===
 
+  generate:api:
+    desc: Regenerate web/src/api/types.ts from api/openapi.yaml
+    dir: web
+    cmds:
+      - npm run generate:api
+
   lint:
     desc: Run linters
     cmds:

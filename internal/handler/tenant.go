@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -34,6 +35,96 @@ func NewTenantHandler(svc *service.TenantService, templateSvc *service.TemplateS
 // isAdmin centralizes the "see everything" check. owner ≥ admin. Operators
 // and viewers fall through to the team-scoped path.
 func isAdmin(role string) bool { return role == "admin" || role == "owner" }
+
+// TenantResponse projects repository.Tenant for API + audit consumption.
+// Spec and Status pass through the watcher-observed CR JSON untouched.
+type TenantResponse struct {
+	ID             string          `json:"id"`
+	OrgID          string          `json:"org_id"`
+	ClusterID      string          `json:"cluster_id"`
+	Name           string          `json:"name"`
+	Phase          string          `json:"phase"`
+	Spec           json.RawMessage `json:"spec"`
+	Status         json.RawMessage `json:"status"`
+	LastObservedAt time.Time       `json:"last_observed_at"`
+	CreatedAt      time.Time       `json:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at"`
+}
+
+func tenantResponse(t repository.Tenant) TenantResponse {
+	return TenantResponse{
+		ID:             t.ID,
+		OrgID:          t.OrgID,
+		ClusterID:      t.ClusterID,
+		Name:           t.Name,
+		Phase:          t.Phase,
+		Spec:           t.Spec,
+		Status:         t.Status,
+		LastObservedAt: t.LastObservedAt,
+		CreatedAt:      t.CreatedAt,
+		UpdatedAt:      t.UpdatedAt,
+	}
+}
+
+// TenantOperationResponse projects repository.TenantOperation for API + audit
+// consumption.
+type TenantOperationResponse struct {
+	ID           string          `json:"id"`
+	OrgID        string          `json:"org_id"`
+	ClusterID    string          `json:"cluster_id"`
+	TenantName   string          `json:"tenant_name"`
+	Operation    string          `json:"operation"`
+	Status       string          `json:"status"`
+	GitCommitSHA string          `json:"git_commit_sha"`
+	Error        string          `json:"error"`
+	ValuesJSON   json.RawMessage `json:"values_json"`
+	TemplateID   *string         `json:"template_id"`
+	CreatedBy    string          `json:"created_by"`
+	CreatedAt    time.Time       `json:"created_at"`
+	CompletedAt  *time.Time      `json:"completed_at"`
+}
+
+func tenantOperationResponse(op repository.TenantOperation) TenantOperationResponse {
+	return TenantOperationResponse{
+		ID:           op.ID,
+		OrgID:        op.OrgID,
+		ClusterID:    op.ClusterID,
+		TenantName:   op.TenantName,
+		Operation:    op.Operation,
+		Status:       op.Status,
+		GitCommitSHA: op.GitCommitSHA,
+		Error:        op.Error,
+		ValuesJSON:   op.ValuesJSON,
+		TemplateID:   op.TemplateID,
+		CreatedBy:    op.CreatedBy,
+		CreatedAt:    op.CreatedAt,
+		CompletedAt:  op.CompletedAt,
+	}
+}
+
+// TenantTeamAccessResponse projects repository.TenantTeamAccess for API +
+// audit consumption.
+type TenantTeamAccessResponse struct {
+	ID         string    `json:"id"`
+	OrgID      string    `json:"org_id"`
+	ClusterID  string    `json:"cluster_id"`
+	TenantName string    `json:"tenant_name"`
+	TeamID     string    `json:"team_id"`
+	GrantedBy  string    `json:"granted_by"`
+	GrantedAt  time.Time `json:"granted_at"`
+}
+
+func tenantTeamAccessResponse(a repository.TenantTeamAccess) TenantTeamAccessResponse {
+	return TenantTeamAccessResponse{
+		ID:         a.ID,
+		OrgID:      a.OrgID,
+		ClusterID:  a.ClusterID,
+		TenantName: a.TenantName,
+		TeamID:     a.TeamID,
+		GrantedBy:  a.GrantedBy,
+		GrantedAt:  a.GrantedAt,
+	}
+}
 
 type CreateTenantRequest struct {
 	ClusterID    string                 `json:"cluster_id"`
@@ -76,8 +167,12 @@ func (h *TenantHandler) List(w http.ResponseWriter, r *http.Request) {
 		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to list tenants")
 		return
 	}
-	respond.JSON(w, http.StatusOK, respond.ListResponse[any]{
-		Data:    toAny(tenants),
+	data := make([]TenantResponse, len(tenants))
+	for i, t := range tenants {
+		data[i] = tenantResponse(t)
+	}
+	respond.JSON(w, http.StatusOK, respond.ListResponse[TenantResponse]{
+		Data:    data,
 		Total:   total,
 		Page:    page,
 		PerPage: perPage,
@@ -91,7 +186,7 @@ func (h *TenantHandler) Get(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusNotFound, "tenant not found")
 		return
 	}
-	respond.JSON(w, http.StatusOK, tenant)
+	respond.JSON(w, http.StatusOK, tenantResponse(tenant))
 }
 
 // fetchTenantForCaller centralizes the authz gate for single-tenant
@@ -213,10 +308,10 @@ func (h *TenantHandler) Create(w http.ResponseWriter, r *http.Request) {
 	h.auditSvc.Log(r.Context(), service.AuditEntry{
 		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
 		Action: "tenant.create_requested", EntityType: "tenant_operation", EntityID: op.ID,
-		After: op, IPAddress: ip, UserAgent: ua,
+		After: tenantOperationResponse(op), IPAddress: ip, UserAgent: ua,
 	})
 
-	respond.JSON(w, http.StatusAccepted, op)
+	respond.JSON(w, http.StatusAccepted, tenantOperationResponse(op))
 }
 
 // Delete enqueues a tenant_operation of kind=delete. The tenants table row
@@ -247,10 +342,10 @@ func (h *TenantHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	h.auditSvc.Log(r.Context(), service.AuditEntry{
 		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
 		Action: "tenant.delete_requested", EntityType: "tenant_operation", EntityID: op.ID,
-		Before: tenant, After: op, IPAddress: ip, UserAgent: ua,
+		Before: tenantResponse(tenant), After: tenantOperationResponse(op), IPAddress: ip, UserAgent: ua,
 	})
 
-	respond.JSON(w, http.StatusAccepted, op)
+	respond.JSON(w, http.StatusAccepted, tenantOperationResponse(op))
 }
 
 // ListAccess returns the team-access grants on a tenant.
@@ -268,7 +363,11 @@ func (h *TenantHandler) ListAccess(w http.ResponseWriter, r *http.Request) {
 		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to list access")
 		return
 	}
-	respond.List(w, access)
+	data := make([]TenantTeamAccessResponse, len(access))
+	for i, a := range access {
+		data[i] = tenantTeamAccessResponse(a)
+	}
+	respond.List(w, data)
 }
 
 type GrantTenantAccessRequest struct {
@@ -305,9 +404,9 @@ func (h *TenantHandler) GrantAccess(w http.ResponseWriter, r *http.Request) {
 	h.auditSvc.Log(r.Context(), service.AuditEntry{
 		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
 		Action: "tenant.access_granted", EntityType: "tenant", EntityID: tenantID,
-		After: grant, IPAddress: ip, UserAgent: ua,
+		After: tenantTeamAccessResponse(grant), IPAddress: ip, UserAgent: ua,
 	})
-	respond.JSON(w, http.StatusCreated, grant)
+	respond.JSON(w, http.StatusCreated, tenantTeamAccessResponse(grant))
 }
 
 func (h *TenantHandler) RevokeAccess(w http.ResponseWriter, r *http.Request) {
@@ -351,13 +450,9 @@ func (h *TenantHandler) Operations(w http.ResponseWriter, r *http.Request) {
 		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to list tenant operations")
 		return
 	}
-	respond.List(w, ops)
-}
-
-func toAny[T any](xs []T) []any {
-	out := make([]any, len(xs))
-	for i, x := range xs {
-		out[i] = x
+	data := make([]TenantOperationResponse, len(ops))
+	for i, op := range ops {
+		data[i] = tenantOperationResponse(op)
 	}
-	return out
+	respond.List(w, data)
 }

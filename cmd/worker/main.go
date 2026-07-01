@@ -25,7 +25,7 @@ import (
 	"sync"
 
 	tofuaws "github.com/nanohype/portal/internal/aws"
-	"github.com/nanohype/portal/internal/domain"
+	"github.com/nanohype/portal/internal/config"
 	tofugit "github.com/nanohype/portal/internal/git"
 	tofuhelm "github.com/nanohype/portal/internal/helm"
 	"github.com/nanohype/portal/internal/k8s"
@@ -45,7 +45,7 @@ import (
 var version = "dev"
 
 func main() {
-	cfg := &domain.Config{}
+	cfg := &config.Config{}
 	if err := env.Parse(cfg); err != nil {
 		slog.Error("failed to parse config", "error", err)
 		os.Exit(1)
@@ -157,8 +157,9 @@ func main() {
 		logger.Info("using local executor")
 	}
 
-	// Set up RunService for pipeline stage worker
+	// Set up RunService + WorkspaceService for the pipeline stage worker
 	runSvc := service.NewRunService(queries, dbPool, streamer)
+	workspaceSvc := service.NewWorkspaceService(queries, dbPool, store)
 
 	// Set up River workers
 	workers := river.NewWorkers()
@@ -175,7 +176,17 @@ func main() {
 			AutoApplyOverride: autoApplyOverride,
 		})
 	}
-	pipelineStageWorker := worker.NewPipelineStageJobWorker(queries, createRunFn, service.ImportOutputsBetweenWorkspaces, store)
+	importOutputsFn := func(ctx context.Context, sourceWorkspaceID, targetWorkspaceID, orgID string) error {
+		_, err := workspaceSvc.ImportOutputs(ctx, service.ImportOutputsParams{
+			SourceWorkspaceID: sourceWorkspaceID,
+			TargetWorkspaceID: targetWorkspaceID,
+			OrgID:             orgID,
+			SkipSensitive:     true,
+			DescriptionSource: "pipeline stage",
+		})
+		return err
+	}
+	pipelineStageWorker := worker.NewPipelineStageJobWorker(queries, createRunFn, importOutputsFn)
 	river.AddWorker(workers, pipelineStageWorker)
 
 	// Cluster connection-test worker (proves stored cluster credentials work).
@@ -445,15 +456,21 @@ func main() {
 	clusterSvc.SetRiverClient(riverClient) // so the ArgoCD sync can enqueue connection-tests
 	clusterOrderSvc.SetRiverClient(riverClient)
 
-	// Health + metrics endpoint. /healthz pings the DB — the most common silent
-	// death is a lost connection, on which the probe should fail so K8s restarts
-	// the pod. /metrics is scraped pod-direct by the Grafana Agent.
+	// Health + metrics endpoint. /healthz is process-only liveness — a Postgres
+	// outage must not restart-storm a healthy worker. /readyz pings the DB (the
+	// worker's one hard dependency; Redis and S3 degrade gracefully), so the
+	// most common silent death — a lost connection — surfaces as not-ready.
+	// /metrics is scraped pod-direct by the Grafana Agent.
 	go func() {
 		reg := metrics.Register()
 		metrics.RegisterPool(reg, dbPool)
 		mux := http.NewServeMux()
 		mux.Handle("/metrics", metrics.Handler(reg))
 		mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("ok"))
+		})
+		mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
 			pingCtx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 			defer cancel()
 			if err := dbPool.Ping(pingCtx); err != nil {

@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/oklog/ulid/v2"
@@ -113,6 +114,73 @@ func NewWorkspaceHandler(svc *service.WorkspaceService, auditSvc *service.AuditS
 	return &WorkspaceHandler{svc: svc, auditSvc: auditSvc, storage: store, queries: queries}
 }
 
+// WorkspaceResponse projects repository.Workspace for API + audit consumption.
+type WorkspaceResponse struct {
+	ID                     string    `json:"id"`
+	OrgID                  string    `json:"org_id"`
+	Name                   string    `json:"name"`
+	Description            string    `json:"description"`
+	RepoURL                string    `json:"repo_url"`
+	RepoBranch             string    `json:"repo_branch"`
+	WorkingDir             string    `json:"working_dir"`
+	TofuVersion            string    `json:"tofu_version"`
+	Environment            string    `json:"environment"`
+	AutoApply              bool      `json:"auto_apply"`
+	RequiresApproval       bool      `json:"requires_approval"`
+	VcsTriggerEnabled      bool      `json:"vcs_trigger_enabled"`
+	Locked                 bool      `json:"locked"`
+	LockedBy               *string   `json:"locked_by"`
+	CurrentRunID           *string   `json:"current_run_id"`
+	CreatedBy              string    `json:"created_by"`
+	Source                 string    `json:"source"`
+	CurrentConfigVersionID string    `json:"current_config_version_id,omitempty"`
+	CreatedAt              time.Time `json:"created_at"`
+	UpdatedAt              time.Time `json:"updated_at"`
+}
+
+// WorkspaceSummaryResponse is the list-view projection: the workspace plus its
+// last-run rollup.
+type WorkspaceSummaryResponse struct {
+	WorkspaceResponse
+	LastRunStatus *string    `json:"last_run_status"`
+	LastRunAt     *time.Time `json:"last_run_at"`
+	ResourceCount int32      `json:"resource_count"`
+}
+
+func workspaceResponse(ws repository.Workspace) WorkspaceResponse {
+	return WorkspaceResponse{
+		ID:                     ws.ID,
+		OrgID:                  ws.OrgID,
+		Name:                   ws.Name,
+		Description:            ws.Description,
+		RepoURL:                ws.RepoURL,
+		RepoBranch:             ws.RepoBranch,
+		WorkingDir:             ws.WorkingDir,
+		TofuVersion:            ws.TofuVersion,
+		Environment:            ws.Environment,
+		AutoApply:              ws.AutoApply,
+		RequiresApproval:       ws.RequiresApproval,
+		VcsTriggerEnabled:      ws.VcsTriggerEnabled,
+		Locked:                 ws.Locked,
+		LockedBy:               ws.LockedBy,
+		CurrentRunID:           ws.CurrentRunID,
+		CreatedBy:              ws.CreatedBy,
+		Source:                 ws.Source,
+		CurrentConfigVersionID: ws.CurrentConfigVersionID,
+		CreatedAt:              ws.CreatedAt,
+		UpdatedAt:              ws.UpdatedAt,
+	}
+}
+
+func workspaceSummaryResponse(ws repository.WorkspaceSummary) WorkspaceSummaryResponse {
+	return WorkspaceSummaryResponse{
+		WorkspaceResponse: workspaceResponse(ws.Workspace),
+		LastRunStatus:     ws.LastRunStatus,
+		LastRunAt:         ws.LastRunAt,
+		ResourceCount:     ws.ResourceCount,
+	}
+}
+
 type CreateWorkspaceRequest struct {
 	Name              string `json:"name"`
 	Description       string `json:"description"`
@@ -166,8 +234,13 @@ func (h *WorkspaceHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respond.JSON(w, http.StatusOK, respond.ListResponse[any]{
-		Data:    workspaces,
+	data := make([]WorkspaceSummaryResponse, len(workspaces))
+	for i, ws := range workspaces {
+		data[i] = workspaceSummaryResponse(ws)
+	}
+
+	respond.JSON(w, http.StatusOK, respond.ListResponse[WorkspaceSummaryResponse]{
+		Data:    data,
 		Total:   total,
 		Page:    page,
 		PerPage: perPage,
@@ -184,7 +257,7 @@ func (h *WorkspaceHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respond.JSON(w, http.StatusOK, workspace)
+	respond.JSON(w, http.StatusOK, workspaceResponse(workspace))
 }
 
 func (h *WorkspaceHandler) Create(w http.ResponseWriter, r *http.Request) {
@@ -267,10 +340,10 @@ func (h *WorkspaceHandler) Create(w http.ResponseWriter, r *http.Request) {
 	h.auditSvc.Log(r.Context(), service.AuditEntry{
 		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
 		Action: "workspace.create", EntityType: "workspace", EntityID: workspace.ID,
-		After: workspace, IPAddress: ip, UserAgent: ua,
+		After: workspaceResponse(workspace), IPAddress: ip, UserAgent: ua,
 	})
 
-	respond.JSON(w, http.StatusCreated, workspace)
+	respond.JSON(w, http.StatusCreated, workspaceResponse(workspace))
 }
 
 func (h *WorkspaceHandler) Update(w http.ResponseWriter, r *http.Request) {
@@ -324,10 +397,10 @@ func (h *WorkspaceHandler) Update(w http.ResponseWriter, r *http.Request) {
 	h.auditSvc.Log(r.Context(), service.AuditEntry{
 		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
 		Action: "workspace.update", EntityType: "workspace", EntityID: workspaceID,
-		After: workspace, IPAddress: ip, UserAgent: ua,
+		After: workspaceResponse(workspace), IPAddress: ip, UserAgent: ua,
 	})
 
-	respond.JSON(w, http.StatusOK, workspace)
+	respond.JSON(w, http.StatusOK, workspaceResponse(workspace))
 }
 
 func (h *WorkspaceHandler) Lock(w http.ResponseWriter, r *http.Request) {
@@ -344,10 +417,10 @@ func (h *WorkspaceHandler) Lock(w http.ResponseWriter, r *http.Request) {
 	h.auditSvc.Log(r.Context(), service.AuditEntry{
 		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
 		Action: "workspace.lock", EntityType: "workspace", EntityID: workspaceID,
-		After: workspace, IPAddress: ip, UserAgent: ua,
+		After: workspaceResponse(workspace), IPAddress: ip, UserAgent: ua,
 	})
 
-	respond.JSON(w, http.StatusOK, workspace)
+	respond.JSON(w, http.StatusOK, workspaceResponse(workspace))
 }
 
 func (h *WorkspaceHandler) Unlock(w http.ResponseWriter, r *http.Request) {
@@ -364,10 +437,10 @@ func (h *WorkspaceHandler) Unlock(w http.ResponseWriter, r *http.Request) {
 	h.auditSvc.Log(r.Context(), service.AuditEntry{
 		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
 		Action: "workspace.unlock", EntityType: "workspace", EntityID: workspaceID,
-		After: workspace, IPAddress: ip, UserAgent: ua,
+		After: workspaceResponse(workspace), IPAddress: ip, UserAgent: ua,
 	})
 
-	respond.JSON(w, http.StatusOK, workspace)
+	respond.JSON(w, http.StatusOK, workspaceResponse(workspace))
 }
 
 func (h *WorkspaceHandler) Upload(w http.ResponseWriter, r *http.Request) {
@@ -441,7 +514,7 @@ func (h *WorkspaceHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		IPAddress: ip, UserAgent: ua,
 	})
 
-	respond.JSON(w, http.StatusOK, updated)
+	respond.JSON(w, http.StatusOK, workspaceResponse(updated))
 }
 
 func (h *WorkspaceHandler) Delete(w http.ResponseWriter, r *http.Request) {
@@ -542,8 +615,8 @@ func (h *WorkspaceHandler) Clone(w http.ResponseWriter, r *http.Request) {
 		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
 		Action: "workspace.clone", EntityType: "workspace", EntityID: workspace.ID,
 		Before: map[string]string{"source_workspace_id": sourceID},
-		After:  workspace, IPAddress: ip, UserAgent: ua,
+		After:  workspaceResponse(workspace), IPAddress: ip, UserAgent: ua,
 	})
 
-	respond.JSON(w, http.StatusCreated, workspace)
+	respond.JSON(w, http.StatusCreated, workspaceResponse(workspace))
 }

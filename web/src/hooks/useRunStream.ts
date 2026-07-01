@@ -26,11 +26,16 @@ export function useRunStream({
     if (!enabled || !runId) return;
 
     const token = localStorage.getItem("portal_token");
+    if (!token) return;
+
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const host = window.location.host;
-    const url = `${protocol}//${host}/api/v1/workspaces/${workspaceId}/runs/${runId}/logs/ws?token=${token}`;
+    const url = `${protocol}//${host}/api/v1/workspaces/${workspaceId}/runs/${runId}/logs/ws`;
 
-    const ws = new WebSocket(url);
+    // The browser WebSocket API can't set an Authorization header, so the JWT
+    // rides in the Sec-WebSocket-Protocol list; the server validates it and
+    // selects "bearer" as the subprotocol.
+    const ws = new WebSocket(url, ["bearer", token]);
     wsRef.current = ws;
 
     ws.onopen = () => {

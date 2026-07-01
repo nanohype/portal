@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/oklog/ulid/v2"
@@ -24,6 +25,34 @@ func NewOrgVariableHandler(queries *repository.Queries, encryptor *secrets.Encry
 	return &OrgVariableHandler{queries: queries, encryptor: encryptor, auditSvc: auditSvc}
 }
 
+// OrgVariableResponse projects repository.OrgVariable for API + audit
+// consumption; sensitive values are redacted to *** before mapping.
+type OrgVariableResponse struct {
+	ID          string    `json:"id"`
+	OrgID       string    `json:"org_id"`
+	Key         string    `json:"key"`
+	Value       string    `json:"value"`
+	Sensitive   bool      `json:"sensitive"`
+	Category    string    `json:"category"`
+	Description string    `json:"description"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+func orgVariableResponse(v repository.OrgVariable) OrgVariableResponse {
+	return OrgVariableResponse{
+		ID:          v.ID,
+		OrgID:       v.OrgID,
+		Key:         v.Key,
+		Value:       v.Value,
+		Sensitive:   v.Sensitive,
+		Category:    v.Category,
+		Description: v.Description,
+		CreatedAt:   v.CreatedAt,
+		UpdatedAt:   v.UpdatedAt,
+	}
+}
+
 func (h *OrgVariableHandler) List(w http.ResponseWriter, r *http.Request) {
 	userCtx := auth.GetUser(r.Context())
 
@@ -33,13 +62,15 @@ func (h *OrgVariableHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for i := range vars {
-		if vars[i].Sensitive {
-			vars[i].Value = "***"
+	data := make([]OrgVariableResponse, len(vars))
+	for i, v := range vars {
+		if v.Sensitive {
+			v.Value = "***"
 		}
+		data[i] = orgVariableResponse(v)
 	}
 
-	respond.List(w, vars)
+	respond.List(w, data)
 }
 
 func (h *OrgVariableHandler) Create(w http.ResponseWriter, r *http.Request) {
@@ -101,14 +132,14 @@ func (h *OrgVariableHandler) Create(w http.ResponseWriter, r *http.Request) {
 	h.auditSvc.Log(r.Context(), service.AuditEntry{
 		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
 		Action: "org_variable.create", EntityType: "org_variable", EntityID: v.ID,
-		After: auditVar, IPAddress: ip, UserAgent: ua,
+		After: orgVariableResponse(auditVar), IPAddress: ip, UserAgent: ua,
 	})
 
 	if v.Sensitive {
 		v.Value = "***"
 	}
 
-	respond.JSON(w, http.StatusCreated, v)
+	respond.JSON(w, http.StatusCreated, orgVariableResponse(v))
 }
 
 func (h *OrgVariableHandler) Update(w http.ResponseWriter, r *http.Request) {
@@ -168,14 +199,15 @@ func (h *OrgVariableHandler) Update(w http.ResponseWriter, r *http.Request) {
 	h.auditSvc.Log(r.Context(), service.AuditEntry{
 		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
 		Action: "org_variable.update", EntityType: "org_variable", EntityID: varID,
-		Before: auditBefore, After: auditAfter, IPAddress: ip, UserAgent: ua,
+		Before: orgVariableResponse(auditBefore), After: orgVariableResponse(auditAfter),
+		IPAddress: ip, UserAgent: ua,
 	})
 
 	if v.Sensitive {
 		v.Value = "***"
 	}
 
-	respond.JSON(w, http.StatusOK, v)
+	respond.JSON(w, http.StatusOK, orgVariableResponse(v))
 }
 
 func (h *OrgVariableHandler) Delete(w http.ResponseWriter, r *http.Request) {

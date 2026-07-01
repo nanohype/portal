@@ -3,7 +3,7 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithClient } from "@/test/render";
 import { useAuthStore } from "@/stores/auth";
-import type { ClusterOperation, User } from "@/api/types";
+import type { ClusterOperation, User } from "@/api/models";
 import { ClusterDetail } from "./ClusterDetail";
 
 // The api client binds globalThis.fetch at import, which makes network-level

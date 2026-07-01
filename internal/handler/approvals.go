@@ -3,11 +3,13 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/nanohype/portal/internal/auth"
 	"github.com/nanohype/portal/internal/handler/respond"
+	"github.com/nanohype/portal/internal/repository"
 	"github.com/nanohype/portal/internal/service"
 )
 
@@ -17,6 +19,35 @@ type ApprovalHandler struct {
 
 func NewApprovalHandler(svc *service.ApprovalService) *ApprovalHandler {
 	return &ApprovalHandler{svc: svc}
+}
+
+// ApprovalResponse projects repository.Approval for API consumption. UserName
+// and AvatarURL are join-time enrichments; they are omitted when the row was
+// not loaded with the user join.
+type ApprovalResponse struct {
+	ID        string    `json:"id"`
+	RunID     string    `json:"run_id"`
+	OrgID     string    `json:"org_id"`
+	UserID    string    `json:"user_id"`
+	Status    string    `json:"status"`
+	Comment   string    `json:"comment"`
+	CreatedAt time.Time `json:"created_at"`
+	UserName  string    `json:"user_name,omitempty"`
+	AvatarURL string    `json:"avatar_url,omitempty"`
+}
+
+func approvalResponse(a repository.Approval) ApprovalResponse {
+	return ApprovalResponse{
+		ID:        a.ID,
+		RunID:     a.RunID,
+		OrgID:     a.OrgID,
+		UserID:    a.UserID,
+		Status:    a.Status,
+		Comment:   a.Comment,
+		CreatedAt: a.CreatedAt,
+		UserName:  a.UserName,
+		AvatarURL: a.AvatarURL,
+	}
 }
 
 type ApprovalRequest struct {
@@ -33,7 +64,11 @@ func (h *ApprovalHandler) List(w http.ResponseWriter, r *http.Request) {
 		respond.FromError(w, r, err)
 		return
 	}
-	respond.List(w, approvals)
+	data := make([]ApprovalResponse, len(approvals))
+	for i, a := range approvals {
+		data[i] = approvalResponse(a)
+	}
+	respond.List(w, data)
 }
 
 func (h *ApprovalHandler) Create(w http.ResponseWriter, r *http.Request) {
@@ -59,5 +94,5 @@ func (h *ApprovalHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respond.JSON(w, http.StatusCreated, approval)
+	respond.JSON(w, http.StatusCreated, approvalResponse(approval))
 }

@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/api/client";
-import type { StateResource } from "@/api/types";
+import type { StateResource } from "@/api/models";
 import { Spinner } from "@/components/ui/spinner";
 import { ChevronDown, ChevronRight, Search } from "lucide-react";
 

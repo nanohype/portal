@@ -4,7 +4,7 @@ import type {
   PipelineRunStatus,
   PipelineStageStatus,
   RunStatus,
-} from "@/api/types";
+} from "@/api/models";
 import {
   Ban,
   CheckCircle2,

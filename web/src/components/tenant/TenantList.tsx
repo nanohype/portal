@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/api/client";
 import { useAuth } from "@/hooks/useAuth";
-import type { Cluster, Tenant } from "@/api/types";
+import type { Cluster, Tenant } from "@/api/models";
 import { Button } from "@/components/ui/button";
 import { SkeletonRows } from "@/components/ui/skeleton";
 import { Link } from "@/components/ui/link";

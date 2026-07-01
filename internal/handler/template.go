@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -32,6 +33,64 @@ func NewTemplateHandler(svc *service.TemplateService, accessSvc *service.TeamAcc
 // don't strictly need to be RFC-1123 names but the convention keeps the
 // surface predictable across entities.
 var templateNameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+
+// TemplateResponse projects repository.Template for API + audit consumption.
+// The JSON-column fields pass through as stored.
+type TemplateResponse struct {
+	ID                   string          `json:"id"`
+	OrgID                string          `json:"org_id"`
+	Name                 string          `json:"name"`
+	Description          string          `json:"description"`
+	Persona              string          `json:"persona"`
+	DefaultValues        json.RawMessage `json:"default_values"`
+	AllowedOverrides     json.RawMessage `json:"allowed_overrides"`
+	MaxBudgetUSD         int32           `json:"max_budget_usd"`
+	AllowedModelFamilies json.RawMessage `json:"allowed_model_families"`
+	RequiredCompliance   json.RawMessage `json:"required_compliance"`
+	CreatedBy            string          `json:"created_by"`
+	CreatedAt            time.Time       `json:"created_at"`
+	UpdatedAt            time.Time       `json:"updated_at"`
+}
+
+func templateResponse(t repository.Template) TemplateResponse {
+	return TemplateResponse{
+		ID:                   t.ID,
+		OrgID:                t.OrgID,
+		Name:                 t.Name,
+		Description:          t.Description,
+		Persona:              t.Persona,
+		DefaultValues:        t.DefaultValues,
+		AllowedOverrides:     t.AllowedOverrides,
+		MaxBudgetUSD:         t.MaxBudgetUSD,
+		AllowedModelFamilies: t.AllowedModelFamilies,
+		RequiredCompliance:   t.RequiredCompliance,
+		CreatedBy:            t.CreatedBy,
+		CreatedAt:            t.CreatedAt,
+		UpdatedAt:            t.UpdatedAt,
+	}
+}
+
+// TemplateTeamAccessResponse projects repository.TemplateTeamAccess for API +
+// audit consumption.
+type TemplateTeamAccessResponse struct {
+	ID         string    `json:"id"`
+	OrgID      string    `json:"org_id"`
+	TemplateID string    `json:"template_id"`
+	TeamID     string    `json:"team_id"`
+	GrantedBy  string    `json:"granted_by"`
+	GrantedAt  time.Time `json:"granted_at"`
+}
+
+func templateTeamAccessResponse(a repository.TemplateTeamAccess) TemplateTeamAccessResponse {
+	return TemplateTeamAccessResponse{
+		ID:         a.ID,
+		OrgID:      a.OrgID,
+		TemplateID: a.TemplateID,
+		TeamID:     a.TeamID,
+		GrantedBy:  a.GrantedBy,
+		GrantedAt:  a.GrantedAt,
+	}
+}
 
 type CreateTemplateRequest struct {
 	Name                 string                 `json:"name"`
@@ -78,7 +137,11 @@ func (h *TemplateHandler) List(w http.ResponseWriter, r *http.Request) {
 		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to list templates")
 		return
 	}
-	respond.List(w, templates)
+	data := make([]TemplateResponse, len(templates))
+	for i, t := range templates {
+		data[i] = templateResponse(t)
+	}
+	respond.List(w, data)
 }
 
 func (h *TemplateHandler) Get(w http.ResponseWriter, r *http.Request) {
@@ -88,7 +151,7 @@ func (h *TemplateHandler) Get(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusNotFound, "template not found")
 		return
 	}
-	respond.JSON(w, http.StatusOK, t)
+	respond.JSON(w, http.StatusOK, templateResponse(t))
 }
 
 // fetchTemplateForCaller mirrors TenantHandler.fetchTenantForCaller:
@@ -169,10 +232,10 @@ func (h *TemplateHandler) Create(w http.ResponseWriter, r *http.Request) {
 	h.auditSvc.Log(r.Context(), service.AuditEntry{
 		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
 		Action: "template.create", EntityType: "template", EntityID: t.ID,
-		After: t, IPAddress: ip, UserAgent: ua,
+		After: templateResponse(t), IPAddress: ip, UserAgent: ua,
 	})
 
-	respond.JSON(w, http.StatusCreated, t)
+	respond.JSON(w, http.StatusCreated, templateResponse(t))
 }
 
 func (h *TemplateHandler) Update(w http.ResponseWriter, r *http.Request) {
@@ -229,10 +292,10 @@ func (h *TemplateHandler) Update(w http.ResponseWriter, r *http.Request) {
 	h.auditSvc.Log(r.Context(), service.AuditEntry{
 		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
 		Action: "template.update", EntityType: "template", EntityID: id,
-		Before: existing, After: updated, IPAddress: ip, UserAgent: ua,
+		Before: templateResponse(existing), After: templateResponse(updated), IPAddress: ip, UserAgent: ua,
 	})
 
-	respond.JSON(w, http.StatusOK, updated)
+	respond.JSON(w, http.StatusOK, templateResponse(updated))
 }
 
 // ListAccess returns the team-access grants on a template.
@@ -249,7 +312,11 @@ func (h *TemplateHandler) ListAccess(w http.ResponseWriter, r *http.Request) {
 		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to list access")
 		return
 	}
-	respond.List(w, access)
+	data := make([]TemplateTeamAccessResponse, len(access))
+	for i, a := range access {
+		data[i] = templateTeamAccessResponse(a)
+	}
+	respond.List(w, data)
 }
 
 type GrantTemplateAccessRequest struct {
@@ -285,9 +352,9 @@ func (h *TemplateHandler) GrantAccess(w http.ResponseWriter, r *http.Request) {
 	h.auditSvc.Log(r.Context(), service.AuditEntry{
 		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
 		Action: "template.access_granted", EntityType: "template", EntityID: id,
-		After: grant, IPAddress: ip, UserAgent: ua,
+		After: templateTeamAccessResponse(grant), IPAddress: ip, UserAgent: ua,
 	})
-	respond.JSON(w, http.StatusCreated, grant)
+	respond.JSON(w, http.StatusCreated, templateTeamAccessResponse(grant))
 }
 
 func (h *TemplateHandler) RevokeAccess(w http.ResponseWriter, r *http.Request) {
@@ -332,7 +399,7 @@ func (h *TemplateHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	h.auditSvc.Log(r.Context(), service.AuditEntry{
 		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
 		Action: "template.delete", EntityType: "template", EntityID: id,
-		Before: existing, IPAddress: ip, UserAgent: ua,
+		Before: templateResponse(existing), IPAddress: ip, UserAgent: ua,
 	})
 
 	respond.NoContent(w)

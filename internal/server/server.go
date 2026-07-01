@@ -12,7 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/nanohype/portal/internal/auth"
-	"github.com/nanohype/portal/internal/domain"
+	"github.com/nanohype/portal/internal/config"
 	"github.com/nanohype/portal/internal/handler"
 	"github.com/nanohype/portal/internal/logstream"
 	"github.com/nanohype/portal/internal/metrics"
@@ -24,7 +24,7 @@ import (
 )
 
 type Server struct {
-	cfg             *domain.Config
+	cfg             *config.Config
 	router          chi.Router
 	db              *pgxpool.Pool
 	logger          *slog.Logger
@@ -38,7 +38,7 @@ type Server struct {
 	clusterOrderSvc *service.ClusterOrderService
 }
 
-func New(cfg *domain.Config, db *pgxpool.Pool, logger *slog.Logger) *Server {
+func New(cfg *config.Config, db *pgxpool.Pool, logger *slog.Logger) *Server {
 	s := &Server{
 		cfg:    cfg,
 		db:     db,
@@ -155,8 +155,9 @@ func (s *Server) setupRouter() {
 	auditSvc := service.NewAuditService(queries)
 	s.runSvc = service.NewRunService(queries, s.db, streamer)
 
-	authHandler := handler.NewAuthHandler(s.cfg, queries, s.db, jwtAuth)
-	workspaceSvc := service.NewWorkspaceService(queries, s.db)
+	userSvc := service.NewUserService(queries)
+	authHandler := handler.NewAuthHandler(s.cfg, userSvc, jwtAuth)
+	workspaceSvc := service.NewWorkspaceService(queries, s.db, store)
 	workspaceHandler := handler.NewWorkspaceHandler(workspaceSvc, auditSvc, store, queries)
 	accountSvc := service.NewAccountService(queries, s.db, encryptor)
 	accountHandler := handler.NewAccountHandler(accountSvc, auditSvc)
@@ -176,20 +177,27 @@ func (s *Server) setupRouter() {
 	}
 	runHandler := handler.NewRunHandler(s.runSvc, workspaceSvc, streamer, auditSvc, wsOrigins, store)
 	discoverySvc := service.NewDiscoveryService(queries, store)
-	variableHandler := handler.NewVariableHandler(queries, encryptor, auditSvc, workspaceSvc, discoverySvc, store)
-	teamHandler := handler.NewTeamHandler(queries, auditSvc)
+	variableHandler := handler.NewVariableHandler(queries, encryptor, auditSvc, workspaceSvc, discoverySvc)
+	teamSvc := service.NewTeamService(queries)
+	teamHandler := handler.NewTeamHandler(teamSvc, auditSvc)
 	stateSvc := service.NewStateService(queries, store)
 	stateHandler := handler.NewStateHandler(stateSvc, auditSvc)
 	s.approvalSvc = service.NewApprovalService(queries, s.db, auditSvc)
 	s.approvalHandler = handler.NewApprovalHandler(s.approvalSvc)
 	auditHandler := handler.NewAuditHandler(queries)
 	healthHandler := handler.NewHealthHandler(s.db, s.cfg.Environment)
-	userHandler := handler.NewUserHandler(queries, auditSvc)
+	userHandler := handler.NewUserHandler(userSvc, auditSvc)
 	orgVarHandler := handler.NewOrgVariableHandler(queries, encryptor, auditSvc)
 	pipelineVarHandler := handler.NewPipelineVariableHandler(queries, encryptor, auditSvc)
-	s.pipelineSvc = service.NewPipelineService(queries, s.db, s.runSvc, store)
+	s.pipelineSvc = service.NewPipelineService(queries, s.db, s.runSvc)
 	pipelineHandler := handler.NewPipelineHandler(s.pipelineSvc, auditSvc)
 	webhookHandler := handler.NewWebhookHandler(queries, s.runSvc, auditSvc, s.cfg.WebhookSecret)
+
+	// Probes. /healthz is process-only liveness; /readyz gates traffic on
+	// Postgres. /api/v1/health (below) is the app-level health surface the UI
+	// reads.
+	r.Get("/healthz", healthHandler.Live)
+	r.Get("/readyz", healthHandler.Ready)
 
 	// API routes
 	r.Route("/api/v1", func(r chi.Router) {
@@ -206,9 +214,12 @@ func (s *Server) setupRouter() {
 
 			r.Get("/health", healthHandler.Check)
 
-			// Auth routes
+			// Auth routes. /auth/handoff sits outside the authenticated group
+			// on purpose: the caller has no bearer token yet — the endpoint IS
+			// how the SPA obtains it (one-time HttpOnly-cookie exchange).
 			r.Get("/auth/github", authHandler.GitHubLogin)
 			r.Get("/auth/github/callback", authHandler.GitHubCallback)
+			r.Post("/auth/handoff", authHandler.Handoff)
 			if s.cfg.Environment == "development" {
 				r.Get("/auth/dev", authHandler.DevLogin)
 			}

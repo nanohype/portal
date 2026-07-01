@@ -42,7 +42,7 @@ type CreateRunParams struct {
 	AutoApplyOverride *bool
 }
 
-func (s *RunService) List(ctx context.Context, workspaceID, orgID string, page, perPage int) ([]any, int64, error) {
+func (s *RunService) List(ctx context.Context, workspaceID, orgID string, page, perPage int) ([]repository.Run, int64, error) {
 	offset := conv.Int32((page - 1) * perPage)
 
 	runs, err := s.queries.ListRunsByWorkspace(ctx, repository.ListRunsByWorkspaceParams{
@@ -63,12 +63,7 @@ func (s *RunService) List(ctx context.Context, workspaceID, orgID string, page, 
 		return nil, 0, err
 	}
 
-	result := make([]any, len(runs))
-	for i, r := range runs {
-		result[i] = r
-	}
-
-	return result, count, nil
+	return runs, count, nil
 }
 
 func (s *RunService) Get(ctx context.Context, id, orgID string) (repository.Run, error) {

@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/oklog/ulid/v2"
@@ -24,6 +25,36 @@ func NewPipelineVariableHandler(queries *repository.Queries, encryptor *secrets.
 	return &PipelineVariableHandler{queries: queries, encryptor: encryptor, auditSvc: auditSvc}
 }
 
+// PipelineVariableResponse projects repository.PipelineVariable for API +
+// audit consumption; sensitive values are redacted to *** before mapping.
+type PipelineVariableResponse struct {
+	ID          string    `json:"id"`
+	PipelineID  string    `json:"pipeline_id"`
+	OrgID       string    `json:"org_id"`
+	Key         string    `json:"key"`
+	Value       string    `json:"value"`
+	Sensitive   bool      `json:"sensitive"`
+	Category    string    `json:"category"`
+	Description string    `json:"description"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+func pipelineVariableResponse(v repository.PipelineVariable) PipelineVariableResponse {
+	return PipelineVariableResponse{
+		ID:          v.ID,
+		PipelineID:  v.PipelineID,
+		OrgID:       v.OrgID,
+		Key:         v.Key,
+		Value:       v.Value,
+		Sensitive:   v.Sensitive,
+		Category:    v.Category,
+		Description: v.Description,
+		CreatedAt:   v.CreatedAt,
+		UpdatedAt:   v.UpdatedAt,
+	}
+}
+
 func (h *PipelineVariableHandler) List(w http.ResponseWriter, r *http.Request) {
 	userCtx := auth.GetUser(r.Context())
 	pipelineID := chi.URLParam(r, "pipelineID")
@@ -36,13 +67,15 @@ func (h *PipelineVariableHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for i := range vars {
-		if vars[i].Sensitive {
-			vars[i].Value = "***"
+	data := make([]PipelineVariableResponse, len(vars))
+	for i, v := range vars {
+		if v.Sensitive {
+			v.Value = "***"
 		}
+		data[i] = pipelineVariableResponse(v)
 	}
 
-	respond.List(w, vars)
+	respond.List(w, data)
 }
 
 func (h *PipelineVariableHandler) Create(w http.ResponseWriter, r *http.Request) {
@@ -106,14 +139,14 @@ func (h *PipelineVariableHandler) Create(w http.ResponseWriter, r *http.Request)
 	h.auditSvc.Log(r.Context(), service.AuditEntry{
 		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
 		Action: "pipeline_variable.create", EntityType: "pipeline_variable", EntityID: v.ID,
-		After: auditVar, IPAddress: ip, UserAgent: ua,
+		After: pipelineVariableResponse(auditVar), IPAddress: ip, UserAgent: ua,
 	})
 
 	if v.Sensitive {
 		v.Value = "***"
 	}
 
-	respond.JSON(w, http.StatusCreated, v)
+	respond.JSON(w, http.StatusCreated, pipelineVariableResponse(v))
 }
 
 func (h *PipelineVariableHandler) Update(w http.ResponseWriter, r *http.Request) {
@@ -173,14 +206,15 @@ func (h *PipelineVariableHandler) Update(w http.ResponseWriter, r *http.Request)
 	h.auditSvc.Log(r.Context(), service.AuditEntry{
 		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
 		Action: "pipeline_variable.update", EntityType: "pipeline_variable", EntityID: varID,
-		Before: auditBefore, After: auditAfter, IPAddress: ip, UserAgent: ua,
+		Before: pipelineVariableResponse(auditBefore), After: pipelineVariableResponse(auditAfter),
+		IPAddress: ip, UserAgent: ua,
 	})
 
 	if v.Sensitive {
 		v.Value = "***"
 	}
 
-	respond.JSON(w, http.StatusOK, v)
+	respond.JSON(w, http.StatusOK, pipelineVariableResponse(v))
 }
 
 func (h *PipelineVariableHandler) Delete(w http.ResponseWriter, r *http.Request) {

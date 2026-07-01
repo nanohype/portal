@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -13,24 +14,61 @@ import (
 )
 
 type UserHandler struct {
-	queries  *repository.Queries
+	svc      *service.UserService
 	auditSvc *service.AuditService
 }
 
-func NewUserHandler(queries *repository.Queries, auditSvc *service.AuditService) *UserHandler {
-	return &UserHandler{queries: queries, auditSvc: auditSvc}
+func NewUserHandler(svc *service.UserService, auditSvc *service.AuditService) *UserHandler {
+	return &UserHandler{svc: svc, auditSvc: auditSvc}
+}
+
+// UserResponse projects repository.User for API + audit consumption.
+type UserResponse struct {
+	ID          string    `json:"id"`
+	OrgID       string    `json:"org_id"`
+	Email       string    `json:"email"`
+	Name        string    `json:"name"`
+	AvatarURL   string    `json:"avatar_url"`
+	GithubID    *int64    `json:"github_id"`
+	Role        string    `json:"role"`
+	LastLoginAt time.Time `json:"last_login_at"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+func userResponse(u repository.User) UserResponse {
+	return UserResponse{
+		ID:          u.ID,
+		OrgID:       u.OrgID,
+		Email:       u.Email,
+		Name:        u.Name,
+		AvatarURL:   u.AvatarURL,
+		GithubID:    u.GithubID,
+		Role:        u.Role,
+		LastLoginAt: u.LastLoginAt,
+		CreatedAt:   u.CreatedAt,
+		UpdatedAt:   u.UpdatedAt,
+	}
+}
+
+func userResponses(users []repository.User) []UserResponse {
+	out := make([]UserResponse, len(users))
+	for i, u := range users {
+		out[i] = userResponse(u)
+	}
+	return out
 }
 
 func (h *UserHandler) List(w http.ResponseWriter, r *http.Request) {
 	userCtx := auth.GetUser(r.Context())
 
-	users, err := h.queries.ListUsersByOrg(r.Context(), userCtx.OrgID)
+	users, err := h.svc.List(r.Context(), userCtx.OrgID)
 	if err != nil {
-		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to list users")
+		respond.FromError(w, r, err)
 		return
 	}
 
-	respond.List(w, users)
+	respond.List(w, userResponses(users))
 }
 
 type UpdateRoleRequest struct {
@@ -52,35 +90,9 @@ func (h *UserHandler) UpdateRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Load the target scoped to the caller's org. A cross-org target must 404
-	// (without this, an owner in org A could re-role any user in org B by ID);
-	// the owner-count guard below also needs the target's current role.
-	targetUser, err := h.queries.GetUser(r.Context(), targetUserID)
-	if err != nil || targetUser.OrgID != userCtx.OrgID {
-		respond.Error(w, http.StatusNotFound, "user not found")
-		return
-	}
-
-	// Prevent demoting the last owner
-	if req.Role != "owner" && targetUser.Role == "owner" {
-		ownerCount, err := h.queries.CountOwnersByOrg(r.Context(), userCtx.OrgID)
-		if err != nil {
-			respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to check owner count")
-			return
-		}
-		if ownerCount <= 1 {
-			respond.Error(w, http.StatusBadRequest, "cannot demote the last owner")
-			return
-		}
-	}
-
-	updated, err := h.queries.UpdateUserRole(r.Context(), repository.UpdateUserRoleParams{
-		ID:    targetUserID,
-		Role:  req.Role,
-		OrgID: userCtx.OrgID,
-	})
+	updated, err := h.svc.UpdateRole(r.Context(), targetUserID, userCtx.OrgID, req.Role)
 	if err != nil {
-		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to update role")
+		respond.FromError(w, r, err)
 		return
 	}
 
@@ -88,8 +100,8 @@ func (h *UserHandler) UpdateRole(w http.ResponseWriter, r *http.Request) {
 	h.auditSvc.Log(r.Context(), service.AuditEntry{
 		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
 		Action: "user.update_role", EntityType: "user", EntityID: targetUserID,
-		After: updated, IPAddress: ip, UserAgent: ua,
+		After: userResponse(updated), IPAddress: ip, UserAgent: ua,
 	})
 
-	respond.JSON(w, http.StatusOK, updated)
+	respond.JSON(w, http.StatusOK, userResponse(updated))
 }

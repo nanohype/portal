@@ -25,6 +25,8 @@ export function ConfigUpload({ workspaceId, currentConfigVersion }: Props) {
         method: "POST",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: formData,
+        // Config archives can be large; wider deadline than the 30s API default.
+        signal: AbortSignal.timeout(120_000),
       });
 
       if (!res.ok) {
