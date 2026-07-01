@@ -22,6 +22,7 @@ async function downloadState(workspaceId: string, stateId: string) {
   const token = localStorage.getItem("portal_token");
   const res = await fetch(`/api/v1/workspaces/${workspaceId}/state/${stateId}/download`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
+    signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) {
     toast.error("Failed to download state file");
@@ -52,6 +53,7 @@ export function StateExplorer({ workspaceId }: Props) {
       const res = await fetch(`/api/v1/workspaces/${workspaceId}/state/serial/${serial}`, {
         method: "DELETE",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
+        signal: AbortSignal.timeout(30_000),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
     },
