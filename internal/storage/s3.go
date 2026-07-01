@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -16,6 +18,15 @@ import (
 
 	"github.com/nanohype/portal/internal/domain"
 )
+
+// requestTimeout bounds every S3 round-trip, body transfer included (all
+// objects here are read fully into memory, so the client timeout covers the
+// whole operation). Callers pass a context too, but in the worker that
+// context is the multi-hour job deadline — without a per-request bound a
+// wedged connection would hold a run open for the entire job budget. Two
+// minutes clears the largest state files and config archives with room to
+// spare.
+const requestTimeout = 2 * time.Minute
 
 // S3Storage persists OpenTofu state, run logs, plan JSON, config archives, and
 // module bundles in an S3-compatible object store, via the AWS SDK (the same SDK
@@ -28,7 +39,10 @@ type S3Storage struct {
 }
 
 func NewS3Storage(cfg *domain.Config) (*S3Storage, error) {
-	loadOpts := []func(*config.LoadOptions) error{config.WithRegion(cfg.S3Region)}
+	loadOpts := []func(*config.LoadOptions) error{
+		config.WithRegion(cfg.S3Region),
+		config.WithHTTPClient(&http.Client{Timeout: requestTimeout}),
+	}
 	if cfg.S3AccessKey != "" && cfg.S3SecretKey != "" {
 		// Explicit static keys — dev, or any non-IRSA S3-compatible store.
 		loadOpts = append(loadOpts, config.WithCredentialsProvider(
