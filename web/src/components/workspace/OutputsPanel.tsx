@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api } from "@/api/client";
-import type { StateOutput } from "@/api/types";
+import type { StateOutput } from "@/api/models";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { Copy, ChevronDown, ChevronRight, Lock } from "lucide-react";

@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -44,16 +45,36 @@ type UpdateAccountRequest struct {
 }
 
 // AccountResponse projects repository.Account for API + audit consumption.
-// ExternalIDEncrypted is `json:"-"` on the embedded struct so the ciphertext
-// never leaves the server; ExternalIDSet lets clients know whether one is
-// configured without seeing it.
+// The ExternalIDEncrypted ciphertext never leaves the server; ExternalIDSet
+// lets clients know whether one is configured without seeing it.
 type AccountResponse struct {
-	repository.Account
-	ExternalIDSet bool `json:"external_id_set"`
+	ID            string    `json:"id"`
+	OrgID         string    `json:"org_id"`
+	Name          string    `json:"name"`
+	Description   string    `json:"description"`
+	AWSAccountID  string    `json:"aws_account_id"`
+	AssumeRoleARN string    `json:"assume_role_arn"`
+	DefaultRegion string    `json:"default_region"`
+	CreatedBy     string    `json:"created_by"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+	ExternalIDSet bool      `json:"external_id_set"`
 }
 
 func accountResponse(a repository.Account) AccountResponse {
-	return AccountResponse{Account: a, ExternalIDSet: a.ExternalIDEncrypted != ""}
+	return AccountResponse{
+		ID:            a.ID,
+		OrgID:         a.OrgID,
+		Name:          a.Name,
+		Description:   a.Description,
+		AWSAccountID:  a.AWSAccountID,
+		AssumeRoleARN: a.AssumeRoleARN,
+		DefaultRegion: a.DefaultRegion,
+		CreatedBy:     a.CreatedBy,
+		CreatedAt:     a.CreatedAt,
+		UpdatedAt:     a.UpdatedAt,
+		ExternalIDSet: a.ExternalIDEncrypted != "",
+	}
 }
 
 var (

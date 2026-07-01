@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api } from "@/api/client";
-import type { User } from "@/api/types";
+import type { User } from "@/api/models";
 import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";

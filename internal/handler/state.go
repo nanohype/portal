@@ -3,11 +3,13 @@ package handler
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/nanohype/portal/internal/auth"
 	"github.com/nanohype/portal/internal/handler/respond"
+	"github.com/nanohype/portal/internal/repository"
 	"github.com/nanohype/portal/internal/service"
 )
 
@@ -18,6 +20,34 @@ type StateHandler struct {
 
 func NewStateHandler(svc *service.StateService, auditSvc *service.AuditService) *StateHandler {
 	return &StateHandler{svc: svc, auditSvc: auditSvc}
+}
+
+// StateVersionResponse projects repository.StateVersion for API + audit
+// consumption.
+type StateVersionResponse struct {
+	ID              string    `json:"id"`
+	WorkspaceID     string    `json:"workspace_id"`
+	OrgID           string    `json:"org_id"`
+	RunID           string    `json:"run_id"`
+	Serial          int32     `json:"serial"`
+	StateURL        string    `json:"state_url"`
+	ResourceCount   int32     `json:"resource_count"`
+	ResourceSummary string    `json:"resource_summary"`
+	CreatedAt       time.Time `json:"created_at"`
+}
+
+func stateVersionResponse(sv repository.StateVersion) StateVersionResponse {
+	return StateVersionResponse{
+		ID:              sv.ID,
+		WorkspaceID:     sv.WorkspaceID,
+		OrgID:           sv.OrgID,
+		RunID:           sv.RunID,
+		Serial:          sv.Serial,
+		StateURL:        sv.StateURL,
+		ResourceCount:   sv.ResourceCount,
+		ResourceSummary: sv.ResourceSummary,
+		CreatedAt:       sv.CreatedAt,
+	}
 }
 
 func (h *StateHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -37,7 +67,11 @@ func (h *StateHandler) List(w http.ResponseWriter, r *http.Request) {
 		respond.FromError(w, r, err)
 		return
 	}
-	respond.List(w, versions)
+	data := make([]StateVersionResponse, len(versions))
+	for i, sv := range versions {
+		data[i] = stateVersionResponse(sv)
+	}
+	respond.List(w, data)
 }
 
 func (h *StateHandler) GetCurrent(w http.ResponseWriter, r *http.Request) {
@@ -49,7 +83,7 @@ func (h *StateHandler) GetCurrent(w http.ResponseWriter, r *http.Request) {
 		respond.FromError(w, r, err)
 		return
 	}
-	respond.JSON(w, http.StatusOK, sv)
+	respond.JSON(w, http.StatusOK, stateVersionResponse(sv))
 }
 
 func (h *StateHandler) Get(w http.ResponseWriter, r *http.Request) {
@@ -61,7 +95,7 @@ func (h *StateHandler) Get(w http.ResponseWriter, r *http.Request) {
 		respond.FromError(w, r, err)
 		return
 	}
-	respond.JSON(w, http.StatusOK, sv)
+	respond.JSON(w, http.StatusOK, stateVersionResponse(sv))
 }
 
 func (h *StateHandler) Download(w http.ResponseWriter, r *http.Request) {
@@ -152,14 +186,14 @@ func (h *StateHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	h.auditSvc.Log(r.Context(), service.AuditEntry{
 		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
 		Action: "state_version.delete", EntityType: "state_version", EntityID: sv.ID,
-		Before: sv, IPAddress: ip, UserAgent: ua,
+		Before: stateVersionResponse(sv), IPAddress: ip, UserAgent: ua,
 	})
 
 	// Best-effort S3 cleanup already ran in the service; surface a cleanup
 	// failure as a 200 with the detail rather than failing the (completed) delete.
 	if storageErr != nil {
 		respond.JSON(w, http.StatusOK, map[string]any{
-			"deleted":       sv,
+			"deleted":       stateVersionResponse(sv),
 			"storage_error": storageErr.Error(),
 		})
 		return

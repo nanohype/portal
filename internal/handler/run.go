@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 
 	"github.com/coder/websocket"
 	"github.com/go-chi/chi/v5"
@@ -14,6 +15,7 @@ import (
 	"github.com/nanohype/portal/internal/auth"
 	"github.com/nanohype/portal/internal/handler/respond"
 	"github.com/nanohype/portal/internal/logstream"
+	"github.com/nanohype/portal/internal/repository"
 	"github.com/nanohype/portal/internal/service"
 	"github.com/nanohype/portal/internal/storage"
 	"github.com/nanohype/portal/internal/worker"
@@ -46,6 +48,53 @@ func wsOriginPatterns(origins []string) []string {
 	return patterns
 }
 
+// RunResponse projects repository.Run for API + audit consumption.
+type RunResponse struct {
+	ID               string     `json:"id"`
+	WorkspaceID      string     `json:"workspace_id"`
+	OrgID            string     `json:"org_id"`
+	Operation        string     `json:"operation"`
+	Status           string     `json:"status"`
+	PlanOutput       string     `json:"plan_output"`
+	PlanLogURL       string     `json:"plan_log_url"`
+	ApplyLogURL      string     `json:"apply_log_url"`
+	ResourcesAdded   int32      `json:"resources_added"`
+	ResourcesChanged int32      `json:"resources_changed"`
+	ResourcesDeleted int32      `json:"resources_deleted"`
+	ErrorMessage     string     `json:"error_message"`
+	CommitSHA        string     `json:"commit_sha"`
+	PlanJSONURL      string     `json:"plan_json_url"`
+	CreatedBy        string     `json:"created_by"`
+	StartedAt        *time.Time `json:"started_at"`
+	FinishedAt       *time.Time `json:"finished_at"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
+}
+
+func runResponse(r repository.Run) RunResponse {
+	return RunResponse{
+		ID:               r.ID,
+		WorkspaceID:      r.WorkspaceID,
+		OrgID:            r.OrgID,
+		Operation:        r.Operation,
+		Status:           r.Status,
+		PlanOutput:       r.PlanOutput,
+		PlanLogURL:       r.PlanLogURL,
+		ApplyLogURL:      r.ApplyLogURL,
+		ResourcesAdded:   r.ResourcesAdded,
+		ResourcesChanged: r.ResourcesChanged,
+		ResourcesDeleted: r.ResourcesDeleted,
+		ErrorMessage:     r.ErrorMessage,
+		CommitSHA:        r.CommitSHA,
+		PlanJSONURL:      r.PlanJSONURL,
+		CreatedBy:        r.CreatedBy,
+		StartedAt:        r.StartedAt,
+		FinishedAt:       r.FinishedAt,
+		CreatedAt:        r.CreatedAt,
+		UpdatedAt:        r.UpdatedAt,
+	}
+}
+
 type ImportResourceRequest struct {
 	Address string `json:"address"`
 	ID      string `json:"id"`
@@ -74,8 +123,13 @@ func (h *RunHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respond.JSON(w, http.StatusOK, respond.ListResponse[any]{
-		Data:    runs,
+	data := make([]RunResponse, len(runs))
+	for i, run := range runs {
+		data[i] = runResponse(run)
+	}
+
+	respond.JSON(w, http.StatusOK, respond.ListResponse[RunResponse]{
+		Data:    data,
 		Total:   total,
 		Page:    page,
 		PerPage: perPage,
@@ -92,7 +146,7 @@ func (h *RunHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respond.JSON(w, http.StatusOK, run)
+	respond.JSON(w, http.StatusOK, runResponse(run))
 }
 
 func (h *RunHandler) Create(w http.ResponseWriter, r *http.Request) {
@@ -161,10 +215,10 @@ func (h *RunHandler) Create(w http.ResponseWriter, r *http.Request) {
 	h.auditSvc.Log(r.Context(), service.AuditEntry{
 		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
 		Action: "run.create", EntityType: "run", EntityID: run.ID,
-		After: run, IPAddress: ip, UserAgent: ua,
+		After: runResponse(run), IPAddress: ip, UserAgent: ua,
 	})
 
-	respond.JSON(w, http.StatusCreated, run)
+	respond.JSON(w, http.StatusCreated, runResponse(run))
 }
 
 // isValidOperation returns whether an operation string is valid.
@@ -205,10 +259,10 @@ func (h *RunHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 	h.auditSvc.Log(r.Context(), service.AuditEntry{
 		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
 		Action: "run.cancel", EntityType: "run", EntityID: runID,
-		After: cancelled, IPAddress: ip, UserAgent: ua,
+		After: runResponse(cancelled), IPAddress: ip, UserAgent: ua,
 	})
 
-	respond.JSON(w, http.StatusOK, cancelled)
+	respond.JSON(w, http.StatusOK, runResponse(cancelled))
 }
 
 func (h *RunHandler) GetPlanJSON(w http.ResponseWriter, r *http.Request) {

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -51,18 +52,64 @@ type UpdateClusterRequest struct {
 }
 
 // ClusterResponse projects repository.Cluster for API + audit consumption.
-// CABundleEncrypted + SATokenEncrypted are `json:"-"` on the embedded struct
-// so the ciphertext never leaves the server; CredentialsSet lets clients
-// know whether credentials are configured without seeing them.
+// The CABundleEncrypted + SATokenEncrypted ciphertext never leaves the
+// server; CredentialsSet lets clients know whether credentials are configured
+// without seeing them.
 type ClusterResponse struct {
-	repository.Cluster
-	CredentialsSet bool `json:"credentials_set"`
+	ID               string     `json:"id"`
+	OrgID            string     `json:"org_id"`
+	AccountID        string     `json:"account_id"`
+	Name             string     `json:"name"`
+	Description      string     `json:"description"`
+	Environment      string     `json:"environment"`
+	APIEndpoint      string     `json:"api_endpoint"`
+	Region           string     `json:"region"`
+	AuthMode         string     `json:"auth_mode"`
+	EKSClusterName   string     `json:"eks_cluster_name"`
+	ConnectionStatus string     `json:"connection_status"`
+	LastConnectedAt  *time.Time `json:"last_connected_at"`
+	ConnectionError  string     `json:"connection_error"`
+	NodeCount        int32      `json:"node_count"`
+	K8sVersion       string     `json:"k8s_version"`
+	// Health projections from the hub-side cluster-health watcher. Empty string
+	// when not (yet) observed.
+	ArgoCDSyncStatus     string     `json:"argocd_sync_status"`
+	ArgoCDHealthStatus   string     `json:"argocd_health_status"`
+	ControlPlaneStatus   string     `json:"control_plane_status"`
+	PlatformVersion      string     `json:"platform_version"`
+	LastHealthObservedAt *time.Time `json:"last_health_observed_at"`
+	CreatedBy            string     `json:"created_by"`
+	CreatedAt            time.Time  `json:"created_at"`
+	UpdatedAt            time.Time  `json:"updated_at"`
+	CredentialsSet       bool       `json:"credentials_set"`
 }
 
 func clusterResponse(c repository.Cluster) ClusterResponse {
 	return ClusterResponse{
-		Cluster:        c,
-		CredentialsSet: c.CABundleEncrypted != "" && c.SATokenEncrypted != "",
+		ID:                   c.ID,
+		OrgID:                c.OrgID,
+		AccountID:            c.AccountID,
+		Name:                 c.Name,
+		Description:          c.Description,
+		Environment:          c.Environment,
+		APIEndpoint:          c.APIEndpoint,
+		Region:               c.Region,
+		AuthMode:             c.AuthMode,
+		EKSClusterName:       c.EKSClusterName,
+		ConnectionStatus:     c.ConnectionStatus,
+		LastConnectedAt:      c.LastConnectedAt,
+		ConnectionError:      c.ConnectionError,
+		NodeCount:            c.NodeCount,
+		K8sVersion:           c.K8sVersion,
+		ArgoCDSyncStatus:     c.ArgoCDSyncStatus,
+		ArgoCDHealthStatus:   c.ArgoCDHealthStatus,
+		ControlPlaneStatus:   c.ControlPlaneStatus,
+		PlatformVersion:      c.PlatformVersion,
+		LastHealthObservedAt: c.LastHealthObservedAt,
+		CreatedBy:            c.CreatedBy,
+		CreatedAt:            c.CreatedAt,
+		UpdatedAt:            c.UpdatedAt,
+		CredentialsSet:       c.CABundleEncrypted != "" && c.SATokenEncrypted != "",
 	}
 }
 

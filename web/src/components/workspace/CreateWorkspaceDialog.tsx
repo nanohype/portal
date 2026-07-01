@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useForm, useWatch, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import type { CreateWorkspaceRequest } from "@/api/types";
+import type { CreateWorkspaceRequest } from "@/api/models";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";

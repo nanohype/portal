@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api } from "@/api/client";
-import type { Workspace, CreateWorkspaceRequest } from "@/api/types";
+import type { Workspace, CreateWorkspaceRequest } from "@/api/models";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -11,7 +11,7 @@ import { RunStatusBadge } from "@/components/run/RunStatusBadge";
 import { Pagination } from "@/components/ui/pagination";
 import { CreateWorkspaceDialog } from "./CreateWorkspaceDialog";
 import { formatRelativeTime, getEnvironmentColor } from "@/lib/utils";
-import type { RunStatus } from "@/api/types";
+import type { RunStatus } from "@/api/models";
 import { Link } from "@/components/ui/link";
 import {
   Plus,

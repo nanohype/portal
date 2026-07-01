@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/oklog/ulid/v2"
@@ -37,8 +38,34 @@ type CreateVariableRequest struct {
 	Description string `json:"description"`
 }
 
-type VariableResponse struct {
-	repository.WorkspaceVariable
+// WorkspaceVariableResponse projects repository.WorkspaceVariable for API +
+// audit consumption; sensitive values are redacted to *** before mapping.
+type WorkspaceVariableResponse struct {
+	ID          string    `json:"id"`
+	WorkspaceID string    `json:"workspace_id"`
+	OrgID       string    `json:"org_id"`
+	Key         string    `json:"key"`
+	Value       string    `json:"value"`
+	Sensitive   bool      `json:"sensitive"`
+	Category    string    `json:"category"`
+	Description string    `json:"description"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+func workspaceVariableResponse(v repository.WorkspaceVariable) WorkspaceVariableResponse {
+	return WorkspaceVariableResponse{
+		ID:          v.ID,
+		WorkspaceID: v.WorkspaceID,
+		OrgID:       v.OrgID,
+		Key:         v.Key,
+		Value:       v.Value,
+		Sensitive:   v.Sensitive,
+		Category:    v.Category,
+		Description: v.Description,
+		CreatedAt:   v.CreatedAt,
+		UpdatedAt:   v.UpdatedAt,
+	}
 }
 
 func (h *VariableHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -54,13 +81,15 @@ func (h *VariableHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Redact sensitive values in response
-	for i := range vars {
-		if vars[i].Sensitive {
-			vars[i].Value = "***"
+	data := make([]WorkspaceVariableResponse, len(vars))
+	for i, v := range vars {
+		if v.Sensitive {
+			v.Value = "***"
 		}
+		data[i] = workspaceVariableResponse(v)
 	}
 
-	respond.List(w, vars)
+	respond.List(w, data)
 }
 
 func (h *VariableHandler) Create(w http.ResponseWriter, r *http.Request) {
@@ -124,14 +153,14 @@ func (h *VariableHandler) Create(w http.ResponseWriter, r *http.Request) {
 	h.auditSvc.Log(r.Context(), service.AuditEntry{
 		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
 		Action: "variable.create", EntityType: "variable", EntityID: v.ID,
-		After: auditVar, IPAddress: ip, UserAgent: ua,
+		After: workspaceVariableResponse(auditVar), IPAddress: ip, UserAgent: ua,
 	})
 
 	if v.Sensitive {
 		v.Value = "***"
 	}
 
-	respond.JSON(w, http.StatusCreated, v)
+	respond.JSON(w, http.StatusCreated, workspaceVariableResponse(v))
 }
 
 func (h *VariableHandler) Update(w http.ResponseWriter, r *http.Request) {
@@ -192,14 +221,15 @@ func (h *VariableHandler) Update(w http.ResponseWriter, r *http.Request) {
 	h.auditSvc.Log(r.Context(), service.AuditEntry{
 		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
 		Action: "variable.update", EntityType: "variable", EntityID: varID,
-		Before: auditBefore, After: auditVar, IPAddress: ip, UserAgent: ua,
+		Before: workspaceVariableResponse(auditBefore), After: workspaceVariableResponse(auditVar),
+		IPAddress: ip, UserAgent: ua,
 	})
 
 	if v.Sensitive {
 		v.Value = "***"
 	}
 
-	respond.JSON(w, http.StatusOK, v)
+	respond.JSON(w, http.StatusOK, workspaceVariableResponse(v))
 }
 
 func (h *VariableHandler) Delete(w http.ResponseWriter, r *http.Request) {
@@ -281,7 +311,7 @@ func (h *VariableHandler) BulkCreate(w http.ResponseWriter, r *http.Request) {
 		seen[v.Key] = true
 	}
 
-	created := make([]repository.WorkspaceVariable, 0, len(req.Variables))
+	created := make([]WorkspaceVariableResponse, 0, len(req.Variables))
 	ip, ua := auditContext(r)
 
 	for _, rv := range req.Variables {
@@ -323,13 +353,13 @@ func (h *VariableHandler) BulkCreate(w http.ResponseWriter, r *http.Request) {
 		h.auditSvc.Log(r.Context(), service.AuditEntry{
 			OrgID: userCtx.OrgID, UserID: userCtx.UserID,
 			Action: "variable.create", EntityType: "variable", EntityID: v.ID,
-			After: auditVar, IPAddress: ip, UserAgent: ua,
+			After: workspaceVariableResponse(auditVar), IPAddress: ip, UserAgent: ua,
 		})
 
 		if v.Sensitive {
 			v.Value = "***"
 		}
-		created = append(created, v)
+		created = append(created, workspaceVariableResponse(v))
 	}
 
 	respond.JSON(w, http.StatusCreated, created)
@@ -373,17 +403,19 @@ func (h *VariableHandler) ImportOutputs(w http.ResponseWriter, r *http.Request) 
 	}
 
 	ip, ua := auditContext(r)
-	for _, v := range imported {
+	data := make([]WorkspaceVariableResponse, len(imported))
+	for i, v := range imported {
 		auditVar := v
 		auditVar.Value = "***"
 		h.auditSvc.Log(r.Context(), service.AuditEntry{
 			OrgID: userCtx.OrgID, UserID: userCtx.UserID,
 			Action: "variable.import", EntityType: "variable", EntityID: v.ID,
-			After: auditVar, IPAddress: ip, UserAgent: ua,
+			After: workspaceVariableResponse(auditVar), IPAddress: ip, UserAgent: ua,
 		})
+		data[i] = workspaceVariableResponse(v)
 	}
 
-	respond.JSON(w, http.StatusCreated, imported)
+	respond.JSON(w, http.StatusCreated, data)
 }
 
 type CopyVariablesRequest struct {
@@ -427,20 +459,20 @@ func (h *VariableHandler) CopyVariables(w http.ResponseWriter, r *http.Request) 
 	}
 
 	ip, ua := auditContext(r)
-	copied := make([]repository.WorkspaceVariable, 0, len(affected))
+	copied := make([]WorkspaceVariableResponse, 0, len(affected))
 	for _, v := range affected {
 		auditVar := v
 		auditVar.Value = "***"
 		h.auditSvc.Log(r.Context(), service.AuditEntry{
 			OrgID: userCtx.OrgID, UserID: userCtx.UserID,
 			Action: "variable.copy", EntityType: "variable", EntityID: v.ID,
-			After: auditVar, IPAddress: ip, UserAgent: ua,
+			After: workspaceVariableResponse(auditVar), IPAddress: ip, UserAgent: ua,
 		})
 
 		if v.Sensitive {
 			v.Value = "***"
 		}
-		copied = append(copied, v)
+		copied = append(copied, workspaceVariableResponse(v))
 	}
 
 	respond.JSON(w, http.StatusCreated, copied)

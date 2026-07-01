@@ -36,7 +36,7 @@ Backend (Go 1.26) is layered **handler → service → repository**:
 
 **Executor model:** `local` (tofu in-process on the worker host) vs `kubernetes` (ephemeral pods, per-workspace tofu version via `EXECUTOR_IMAGE_PREFIX:tofu-<version>`).
 
-Frontend: TanStack Query + Router, Zustand, sonner toasts, xterm.js for the run-log WebSocket terminal. The API client (`web/src/api/client.ts`, openapi-fetch) is typed from the **hand-maintained** contract `web/src/api/types.ts` (no codegen). Routing is TanStack Router in `web/src/router.tsx` (auth-gated layout route, lazy chunks) — there is no `App.tsx`.
+Frontend: TanStack Query + Router, Zustand, sonner toasts, xterm.js for the run-log WebSocket terminal. The API contract is `api/openapi.yaml`; `web/src/api/types.ts` is **generated** from it (`npm run generate:api` in `web/`, drift-checked in CI) and consumed by the openapi-fetch client (`web/src/api/client.ts`). Components import domain types from `web/src/api/models.ts` (named aliases over the generated schemas). Routing is TanStack Router in `web/src/router.tsx` (auth-gated layout route, lazy chunks) — there is no `App.tsx`.
 
 ## Dev / build / test
 
@@ -87,7 +87,7 @@ Helpers: `task docker:build` (server/worker/web/migrate images), `task hub:insta
 - Variables: `terraform` category → tfvars / `TF_VAR_*`; `env` category → process env (put AWS creds here, **not** `terraform`).
 - `worker → service` is one-directional (the pipeline-stage worker uses `RunCreatorFunc`/`OutputImporter` function types to avoid the import cycle).
 - Terragrunt is co-equal to plain tofu — auto-detected by `executor.DetectBinary(workDir)`. Upload the **full parent tree** (`root.hcl`, `_envcommon/`) so `find_in_parent_folders` resolves; portal vars go in as `TF_VAR_*` (lower precedence than terragrunt's `inputs={}`, so terragrunt-owned keys win — the Discover UI marks them `configured_by: terragrunt`).
-- **Adding work:** a new API endpoint = a handler method in `internal/handler/<domain>.go` + the route in `internal/server/server.go` + the TS types/paths entry in `web/src/api/types.ts` by hand. A new page = a component in `web/src/components/` + a lazy route in `web/src/router.tsx` + TanStack Query hooks + sonner toasts. Don't truncate text in the UI.
+- **Adding work:** a new API endpoint = a handler method (+ its `*Response` type) in `internal/handler/<domain>.go` + the route in `internal/server/server.go` + the path/schema in `api/openapi.yaml`, then `npm run generate:api` in `web/` to regenerate `src/api/types.ts`. A new page = a component in `web/src/components/` + a lazy route in `web/src/router.tsx` + TanStack Query hooks + sonner toasts. Don't truncate text in the UI.
 
 ## CI gate
 

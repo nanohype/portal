@@ -91,7 +91,7 @@ Pipeline is an orchestrator, not an executor. `PipelineStageJobWorker` imports o
 
 - **Stack**: Vite 7, React 19, TypeScript, Tailwind CSS 4, TanStack Query, Zustand
 - **Theme**: Neutral dark palette (#0A0A0B base, #3E8E82 teal primary, #CF222E destructive) with Inter (UI) + JetBrains Mono (IDs/code), 13px base, glass effects — defined in `web/src/index.css`
-- **API client**: `web/src/api/client.ts` — openapi-fetch with typed paths from `web/src/api/types.ts`
+- **API client**: `web/src/api/client.ts` — openapi-fetch with typed paths from `web/src/api/types.ts`, generated from `api/openapi.yaml` (components import domain types via `web/src/api/models.ts`)
 - **Components**: `web/src/components/` — organized by domain (workspace/, pipeline/, run/, teams/, settings/, ui/)
 - **Routing**: TanStack Router in `web/src/router.tsx` (auth-gated layout route, typed params)
 - **Notifications**: sonner toasts on all mutations
@@ -178,9 +178,9 @@ a "wrapper" flag.
 
 ### Adding a new API endpoint
 
-1. Add handler method in `internal/handler/<domain>.go`
+1. Add handler method + its `*Response` type in `internal/handler/<domain>.go` (handlers are the wire boundary — repository rows never serialize directly)
 2. Wire route in `internal/server/server.go` (inside the `r.Route("/api/v1", ...)` block)
-3. Add the TypeScript types + `paths` entry in `web/src/api/types.ts` (the hand-maintained API contract — there is no codegen step)
+3. Describe the path + schemas in `api/openapi.yaml`, then `cd web && npm run generate:api` to regenerate `src/api/types.ts` (CI fails on drift)
 
 ### Adding a new frontend page/component
 

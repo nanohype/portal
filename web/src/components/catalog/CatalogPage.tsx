@@ -8,7 +8,7 @@ import type {
   Pipeline,
   Cluster,
   Account,
-} from "@/api/types";
+} from "@/api/models";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";

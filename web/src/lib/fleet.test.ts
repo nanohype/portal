@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { clusterState, summarizeFleet } from "./fleet";
-import type { Cluster, ClusterOperation } from "@/api/types";
+import type { Cluster, ClusterOperation } from "@/api/models";
 
 function cluster(p: Partial<Cluster>): Cluster {
   return {

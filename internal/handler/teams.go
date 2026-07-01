@@ -3,11 +3,13 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/nanohype/portal/internal/auth"
 	"github.com/nanohype/portal/internal/handler/respond"
+	"github.com/nanohype/portal/internal/repository"
 	"github.com/nanohype/portal/internal/service"
 )
 
@@ -18,6 +20,87 @@ type TeamHandler struct {
 
 func NewTeamHandler(svc *service.TeamService, auditSvc *service.AuditService) *TeamHandler {
 	return &TeamHandler{svc: svc, auditSvc: auditSvc}
+}
+
+// TeamResponse projects repository.Team for API + audit consumption.
+type TeamResponse struct {
+	ID        string    `json:"id"`
+	OrgID     string    `json:"org_id"`
+	Name      string    `json:"name"`
+	Slug      string    `json:"slug"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func teamResponse(t repository.Team) TeamResponse {
+	return TeamResponse{
+		ID:        t.ID,
+		OrgID:     t.OrgID,
+		Name:      t.Name,
+		Slug:      t.Slug,
+		CreatedAt: t.CreatedAt,
+		UpdatedAt: t.UpdatedAt,
+	}
+}
+
+func teamResponses(teams []repository.Team) []TeamResponse {
+	out := make([]TeamResponse, len(teams))
+	for i, t := range teams {
+		out[i] = teamResponse(t)
+	}
+	return out
+}
+
+// TeamMemberResponse projects repository.TeamMember (membership row joined
+// with the user's identity columns) for API + audit consumption.
+type TeamMemberResponse struct {
+	ID            string    `json:"id"`
+	TeamID        string    `json:"team_id"`
+	UserID        string    `json:"user_id"`
+	Role          string    `json:"role"`
+	CloudIdentity string    `json:"cloud_identity"`
+	CreatedAt     time.Time `json:"created_at"`
+	Email         string    `json:"email"`
+	UserName      string    `json:"user_name"`
+	AvatarURL     string    `json:"avatar_url"`
+}
+
+func teamMemberResponse(m repository.TeamMember) TeamMemberResponse {
+	return TeamMemberResponse{
+		ID:            m.ID,
+		TeamID:        m.TeamID,
+		UserID:        m.UserID,
+		Role:          m.Role,
+		CloudIdentity: m.CloudIdentity,
+		CreatedAt:     m.CreatedAt,
+		Email:         m.Email,
+		UserName:      m.UserName,
+		AvatarURL:     m.AvatarURL,
+	}
+}
+
+// WorkspaceTeamAccessResponse projects repository.WorkspaceTeamAccess for API
+// + audit consumption.
+type WorkspaceTeamAccessResponse struct {
+	ID          string    `json:"id"`
+	WorkspaceID string    `json:"workspace_id"`
+	TeamID      string    `json:"team_id"`
+	Role        string    `json:"role"`
+	CreatedAt   time.Time `json:"created_at"`
+	TeamName    string    `json:"team_name"`
+	TeamSlug    string    `json:"team_slug"`
+}
+
+func workspaceTeamAccessResponse(a repository.WorkspaceTeamAccess) WorkspaceTeamAccessResponse {
+	return WorkspaceTeamAccessResponse{
+		ID:          a.ID,
+		WorkspaceID: a.WorkspaceID,
+		TeamID:      a.TeamID,
+		Role:        a.Role,
+		CreatedAt:   a.CreatedAt,
+		TeamName:    a.TeamName,
+		TeamSlug:    a.TeamSlug,
+	}
 }
 
 type CreateTeamRequest struct {
@@ -61,7 +144,7 @@ func (h *TeamHandler) List(w http.ResponseWriter, r *http.Request) {
 			respond.FromError(w, r, err)
 			return
 		}
-		respond.List(w, teams)
+		respond.List(w, teamResponses(teams))
 		return
 	}
 
@@ -71,7 +154,7 @@ func (h *TeamHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respond.List(w, teams)
+	respond.List(w, teamResponses(teams))
 }
 
 func (h *TeamHandler) Create(w http.ResponseWriter, r *http.Request) {
@@ -102,10 +185,10 @@ func (h *TeamHandler) Create(w http.ResponseWriter, r *http.Request) {
 	h.auditSvc.Log(r.Context(), service.AuditEntry{
 		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
 		Action: "team.create", EntityType: "team", EntityID: team.ID,
-		After: team, IPAddress: ip, UserAgent: ua,
+		After: teamResponse(team), IPAddress: ip, UserAgent: ua,
 	})
 
-	respond.JSON(w, http.StatusCreated, team)
+	respond.JSON(w, http.StatusCreated, teamResponse(team))
 }
 
 func (h *TeamHandler) Get(w http.ResponseWriter, r *http.Request) {
@@ -118,7 +201,7 @@ func (h *TeamHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respond.JSON(w, http.StatusOK, team)
+	respond.JSON(w, http.StatusOK, teamResponse(team))
 }
 
 func (h *TeamHandler) Delete(w http.ResponseWriter, r *http.Request) {
@@ -150,7 +233,11 @@ func (h *TeamHandler) ListMembers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respond.List(w, members)
+	data := make([]TeamMemberResponse, len(members))
+	for i, m := range members {
+		data[i] = teamMemberResponse(m)
+	}
+	respond.List(w, data)
 }
 
 func (h *TeamHandler) AddMember(w http.ResponseWriter, r *http.Request) {
@@ -189,10 +276,10 @@ func (h *TeamHandler) AddMember(w http.ResponseWriter, r *http.Request) {
 	h.auditSvc.Log(r.Context(), service.AuditEntry{
 		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
 		Action: "team.add_member", EntityType: "team_member", EntityID: member.ID,
-		After: member, IPAddress: ip, UserAgent: ua,
+		After: teamMemberResponse(member), IPAddress: ip, UserAgent: ua,
 	})
 
-	respond.JSON(w, http.StatusCreated, member)
+	respond.JSON(w, http.StatusCreated, teamMemberResponse(member))
 }
 
 func (h *TeamHandler) UpdateMember(w http.ResponseWriter, r *http.Request) {
@@ -232,10 +319,10 @@ func (h *TeamHandler) UpdateMember(w http.ResponseWriter, r *http.Request) {
 	h.auditSvc.Log(r.Context(), service.AuditEntry{
 		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
 		Action: "team.update_member", EntityType: "team_member", EntityID: member.ID,
-		After: member, IPAddress: ip, UserAgent: ua,
+		After: teamMemberResponse(member), IPAddress: ip, UserAgent: ua,
 	})
 
-	respond.JSON(w, http.StatusOK, member)
+	respond.JSON(w, http.StatusOK, teamMemberResponse(member))
 }
 
 func (h *TeamHandler) RemoveMember(w http.ResponseWriter, r *http.Request) {
@@ -268,7 +355,11 @@ func (h *TeamHandler) ListWorkspaceAccess(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	respond.List(w, access)
+	data := make([]WorkspaceTeamAccessResponse, len(access))
+	for i, a := range access {
+		data[i] = workspaceTeamAccessResponse(a)
+	}
+	respond.List(w, data)
 }
 
 func (h *TeamHandler) SetWorkspaceAccess(w http.ResponseWriter, r *http.Request) {
@@ -306,10 +397,10 @@ func (h *TeamHandler) SetWorkspaceAccess(w http.ResponseWriter, r *http.Request)
 	h.auditSvc.Log(r.Context(), service.AuditEntry{
 		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
 		Action: "workspace.set_team_access", EntityType: "workspace_team_access",
-		EntityID: access.ID, After: access, IPAddress: ip, UserAgent: ua,
+		EntityID: access.ID, After: workspaceTeamAccessResponse(access), IPAddress: ip, UserAgent: ua,
 	})
 
-	respond.JSON(w, http.StatusCreated, access)
+	respond.JSON(w, http.StatusCreated, workspaceTeamAccessResponse(access))
 }
 
 func (h *TeamHandler) RemoveWorkspaceAccess(w http.ResponseWriter, r *http.Request) {

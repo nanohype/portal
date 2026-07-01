@@ -1,4 +1,4 @@
-import type { ClusterOperation } from "@/api/types";
+import type { ClusterOperation } from "@/api/models";
 import { PhaseStepper } from "./PhaseStepper";
 import { timelineFrame, type Step } from "./timeline-frame";
 

@@ -8,7 +8,7 @@ import { clusterConnection, argo } from "@/lib/status";
 import { SkeletonRows } from "@/components/ui/skeleton";
 import { Link } from "@/components/ui/link";
 import { formatRelativeTime } from "@/lib/utils";
-import type { Account, Cluster, ClusterOperation } from "@/api/types";
+import type { Account, Cluster, ClusterOperation } from "@/api/models";
 import { Server, Plus, Cloud } from "lucide-react";
 import { ClusterCreateModal } from "./ClusterCreateModal";
 import { ClusterProvisionDrawer } from "./ClusterProvisionDrawer";

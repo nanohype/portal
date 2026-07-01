@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { screen } from "@testing-library/react";
 import { renderWithClient } from "@/test/render";
-import type { Cluster } from "@/api/types";
+import type { Cluster } from "@/api/models";
 import { FleetOverview } from "./FleetOverview";
 
 const { apiMock } = vi.hoisted(() => ({

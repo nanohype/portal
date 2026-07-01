@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import type { UserEvent } from "@testing-library/user-event";
 import { renderWithClient } from "@/test/render";
 import { useAuthStore } from "@/stores/auth";
-import type { Cluster, User } from "@/api/types";
+import type { Cluster, User } from "@/api/models";
 import { TenantCreateModal } from "./TenantCreateModal";
 
 // Mock the api client at the module boundary (openapi-fetch binds fetch at

@@ -4,12 +4,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/nanohype/portal/internal/auth"
 	"github.com/nanohype/portal/internal/clusterspec"
 	"github.com/nanohype/portal/internal/handler/respond"
+	"github.com/nanohype/portal/internal/repository"
 	"github.com/nanohype/portal/internal/service"
 )
 
@@ -25,6 +27,54 @@ type ClusterOrderHandler struct {
 
 func NewClusterOrderHandler(svc *service.ClusterOrderService, auditSvc *service.AuditService) *ClusterOrderHandler {
 	return &ClusterOrderHandler{svc: svc, auditSvc: auditSvc}
+}
+
+// ClusterOperationResponse projects repository.ClusterOperation for API +
+// audit consumption. SpecJSON and VendPhases pass through as stored.
+type ClusterOperationResponse struct {
+	ID           string          `json:"id"`
+	OrgID        string          `json:"org_id"`
+	Name         string          `json:"name"`
+	Environment  string          `json:"environment"`
+	Team         string          `json:"team"`
+	Operation    string          `json:"operation"`
+	Status       string          `json:"status"`
+	GitCommitSHA string          `json:"git_commit_sha"`
+	Error        string          `json:"error"`
+	SpecJSON     json.RawMessage `json:"spec_json"`
+	ClusterID    *string         `json:"cluster_id"`
+	CreatedBy    string          `json:"created_by"`
+	CreatedAt    time.Time       `json:"created_at"`
+	CompletedAt  *time.Time      `json:"completed_at"`
+	VendPhases   json.RawMessage `json:"vend_phases"`
+}
+
+func clusterOperationResponse(op repository.ClusterOperation) ClusterOperationResponse {
+	return ClusterOperationResponse{
+		ID:           op.ID,
+		OrgID:        op.OrgID,
+		Name:         op.Name,
+		Environment:  op.Environment,
+		Team:         op.Team,
+		Operation:    op.Operation,
+		Status:       op.Status,
+		GitCommitSHA: op.GitCommitSHA,
+		Error:        op.Error,
+		SpecJSON:     op.SpecJSON,
+		ClusterID:    op.ClusterID,
+		CreatedBy:    op.CreatedBy,
+		CreatedAt:    op.CreatedAt,
+		CompletedAt:  op.CompletedAt,
+		VendPhases:   op.VendPhases,
+	}
+}
+
+func clusterOperationResponses(ops []repository.ClusterOperation) []ClusterOperationResponse {
+	out := make([]ClusterOperationResponse, len(ops))
+	for i, op := range ops {
+		out[i] = clusterOperationResponse(op)
+	}
+	return out
 }
 
 // Provision enqueues a cluster_operation of kind=provision. The request body is
@@ -59,9 +109,9 @@ func (h *ClusterOrderHandler) Provision(w http.ResponseWriter, r *http.Request) 
 	h.auditSvc.Log(r.Context(), service.AuditEntry{
 		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
 		Action: "cluster.provision_requested", EntityType: "cluster_operation", EntityID: op.ID,
-		After: op, IPAddress: ip, UserAgent: ua,
+		After: clusterOperationResponse(op), IPAddress: ip, UserAgent: ua,
 	})
-	respond.JSON(w, http.StatusAccepted, op)
+	respond.JSON(w, http.StatusAccepted, clusterOperationResponse(op))
 }
 
 // Deprovision enqueues a cluster_operation of kind=deprovision: the worker
@@ -88,9 +138,9 @@ func (h *ClusterOrderHandler) Deprovision(w http.ResponseWriter, r *http.Request
 	h.auditSvc.Log(r.Context(), service.AuditEntry{
 		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
 		Action: "cluster.deprovision_requested", EntityType: "cluster_operation", EntityID: op.ID,
-		After: op, IPAddress: ip, UserAgent: ua,
+		After: clusterOperationResponse(op), IPAddress: ip, UserAgent: ua,
 	})
-	respond.JSON(w, http.StatusAccepted, op)
+	respond.JSON(w, http.StatusAccepted, clusterOperationResponse(op))
 }
 
 // Unwedge enqueues a cluster_operation of kind=unwedge — the break-glass for a
@@ -124,9 +174,9 @@ func (h *ClusterOrderHandler) Unwedge(w http.ResponseWriter, r *http.Request) {
 	h.auditSvc.Log(r.Context(), service.AuditEntry{
 		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
 		Action: "cluster.unwedge_requested", EntityType: "cluster_operation", EntityID: op.ID,
-		After: op, IPAddress: ip, UserAgent: ua,
+		After: clusterOperationResponse(op), IPAddress: ip, UserAgent: ua,
 	})
-	respond.JSON(w, http.StatusAccepted, op)
+	respond.JSON(w, http.StatusAccepted, clusterOperationResponse(op))
 }
 
 // Operations returns the vend log for one cluster (by environment+name),
@@ -141,7 +191,7 @@ func (h *ClusterOrderHandler) Operations(w http.ResponseWriter, r *http.Request)
 		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to list cluster operations")
 		return
 	}
-	respond.List(w, ops)
+	respond.List(w, clusterOperationResponses(ops))
 }
 
 // List returns recent cluster operations across the org — the Clusters-tab
@@ -154,5 +204,5 @@ func (h *ClusterOrderHandler) List(w http.ResponseWriter, r *http.Request) {
 		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to list cluster operations")
 		return
 	}
-	respond.List(w, ops)
+	respond.List(w, clusterOperationResponses(ops))
 }

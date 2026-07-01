@@ -272,7 +272,7 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respond.JSON(w, http.StatusOK, user)
+	respond.JSON(w, http.StatusOK, userResponse(user))
 }
 
 type githubEmail struct {

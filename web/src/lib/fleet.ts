@@ -1,4 +1,4 @@
-import type { Cluster, ClusterOperation } from "@/api/types";
+import type { Cluster, ClusterOperation } from "@/api/models";
 
 // A cluster's rolled-up state for the fleet verdict. "" health columns mean
 // "not observed" (no ArgoCD Application yet, EKS describe not permitted) — that

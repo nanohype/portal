@@ -3,7 +3,7 @@ import { api } from "@/api/client";
 import { Link } from "@/components/ui/link";
 import { Spinner } from "@/components/ui/spinner";
 import { summarizeFleet } from "@/lib/fleet";
-import type { ClusterOperation } from "@/api/types";
+import type { ClusterOperation } from "@/api/models";
 import { CheckCircle2, AlertTriangle, Server, Activity } from "lucide-react";
 
 function opMoving(o: ClusterOperation): boolean {

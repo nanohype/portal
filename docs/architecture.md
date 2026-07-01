@@ -34,7 +34,7 @@ Go HTTP API built with [chi](https://github.com/go-chi/chi). Handles authenticat
 
 React 19 SPA served by Vite in development and nginx in production.
 
-- **API client**: `openapi-fetch` with typed paths from `web/src/api/types.ts`
+- **API client**: `openapi-fetch` with typed paths from `web/src/api/types.ts`, generated from `api/openapi.yaml`
 - **State management**: TanStack Query for server state, Zustand for local UI state
 - **Routing**: TanStack Router with an auth-gated layout route in `router.tsx`
 - **Terminal**: xterm.js renders real-time run logs via WebSocket

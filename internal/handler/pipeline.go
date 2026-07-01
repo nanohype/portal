@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/nanohype/portal/internal/auth"
 	"github.com/nanohype/portal/internal/handler/respond"
+	"github.com/nanohype/portal/internal/repository"
 	"github.com/nanohype/portal/internal/service"
 )
 
@@ -19,6 +21,123 @@ type PipelineHandler struct {
 
 func NewPipelineHandler(pipelineSvc *service.PipelineService, auditSvc *service.AuditService) *PipelineHandler {
 	return &PipelineHandler{pipelineSvc: pipelineSvc, auditSvc: auditSvc}
+}
+
+// PipelineResponse projects repository.Pipeline for API + audit consumption.
+type PipelineResponse struct {
+	ID          string    `json:"id"`
+	OrgID       string    `json:"org_id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	CreatedBy   string    `json:"created_by"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+func pipelineResponse(p repository.Pipeline) PipelineResponse {
+	return PipelineResponse{
+		ID:          p.ID,
+		OrgID:       p.OrgID,
+		Name:        p.Name,
+		Description: p.Description,
+		CreatedBy:   p.CreatedBy,
+		CreatedAt:   p.CreatedAt,
+		UpdatedAt:   p.UpdatedAt,
+	}
+}
+
+// PipelineStageResponse projects repository.PipelineStageWithWorkspace.
+type PipelineStageResponse struct {
+	ID            string    `json:"id"`
+	PipelineID    string    `json:"pipeline_id"`
+	WorkspaceID   string    `json:"workspace_id"`
+	StageOrder    int32     `json:"stage_order"`
+	AutoApply     bool      `json:"auto_apply"`
+	OnFailure     string    `json:"on_failure"`
+	CreatedAt     time.Time `json:"created_at"`
+	WorkspaceName string    `json:"workspace_name"`
+}
+
+func pipelineStageResponse(st repository.PipelineStageWithWorkspace) PipelineStageResponse {
+	return PipelineStageResponse{
+		ID:            st.ID,
+		PipelineID:    st.PipelineID,
+		WorkspaceID:   st.WorkspaceID,
+		StageOrder:    st.StageOrder,
+		AutoApply:     st.AutoApply,
+		OnFailure:     st.OnFailure,
+		CreatedAt:     st.CreatedAt,
+		WorkspaceName: st.WorkspaceName,
+	}
+}
+
+// PipelineRunResponse projects repository.PipelineRun for API + audit
+// consumption.
+type PipelineRunResponse struct {
+	ID           string     `json:"id"`
+	PipelineID   string     `json:"pipeline_id"`
+	OrgID        string     `json:"org_id"`
+	Status       string     `json:"status"`
+	CurrentStage int32      `json:"current_stage"`
+	TotalStages  int32      `json:"total_stages"`
+	CreatedBy    string     `json:"created_by"`
+	StartedAt    time.Time  `json:"started_at"`
+	FinishedAt   *time.Time `json:"finished_at,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+}
+
+func pipelineRunResponse(pr repository.PipelineRun) PipelineRunResponse {
+	return PipelineRunResponse{
+		ID:           pr.ID,
+		PipelineID:   pr.PipelineID,
+		OrgID:        pr.OrgID,
+		Status:       pr.Status,
+		CurrentStage: pr.CurrentStage,
+		TotalStages:  pr.TotalStages,
+		CreatedBy:    pr.CreatedBy,
+		StartedAt:    pr.StartedAt,
+		FinishedAt:   pr.FinishedAt,
+		CreatedAt:    pr.CreatedAt,
+		UpdatedAt:    pr.UpdatedAt,
+	}
+}
+
+// PipelineRunStageResponse projects repository.PipelineRunStageWithWorkspace.
+type PipelineRunStageResponse struct {
+	ID            string     `json:"id"`
+	PipelineRunID string     `json:"pipeline_run_id"`
+	StageID       string     `json:"stage_id"`
+	WorkspaceID   string     `json:"workspace_id"`
+	RunID         *string    `json:"run_id,omitempty"`
+	StageOrder    int32      `json:"stage_order"`
+	Status        string     `json:"status"`
+	AutoApply     bool       `json:"auto_apply"`
+	OnFailure     string     `json:"on_failure"`
+	StartedAt     *time.Time `json:"started_at,omitempty"`
+	FinishedAt    *time.Time `json:"finished_at,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+	WorkspaceName string     `json:"workspace_name"`
+}
+
+func pipelineRunStageResponse(st repository.PipelineRunStageWithWorkspace) PipelineRunStageResponse {
+	return PipelineRunStageResponse{
+		ID:            st.ID,
+		PipelineRunID: st.PipelineRunID,
+		StageID:       st.StageID,
+		WorkspaceID:   st.WorkspaceID,
+		RunID:         st.RunID,
+		StageOrder:    st.StageOrder,
+		Status:        st.Status,
+		AutoApply:     st.AutoApply,
+		OnFailure:     st.OnFailure,
+		StartedAt:     st.StartedAt,
+		FinishedAt:    st.FinishedAt,
+		CreatedAt:     st.CreatedAt,
+		UpdatedAt:     st.UpdatedAt,
+		WorkspaceName: st.WorkspaceName,
+	}
 }
 
 type CreatePipelineRequest struct {
@@ -42,7 +161,11 @@ func (h *PipelineHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respond.List(w, pipelines)
+	data := make([]PipelineResponse, len(pipelines))
+	for i, p := range pipelines {
+		data[i] = pipelineResponse(p)
+	}
+	respond.List(w, data)
 }
 
 func (h *PipelineHandler) Create(w http.ResponseWriter, r *http.Request) {
@@ -92,10 +215,10 @@ func (h *PipelineHandler) Create(w http.ResponseWriter, r *http.Request) {
 	h.auditSvc.Log(r.Context(), service.AuditEntry{
 		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
 		Action: "pipeline.create", EntityType: "pipeline", EntityID: pipeline.ID,
-		After: pipeline, IPAddress: ip, UserAgent: ua,
+		After: pipelineResponse(pipeline), IPAddress: ip, UserAgent: ua,
 	})
 
-	respond.JSON(w, http.StatusCreated, pipeline)
+	respond.JSON(w, http.StatusCreated, pipelineResponse(pipeline))
 }
 
 func (h *PipelineHandler) Get(w http.ResponseWriter, r *http.Request) {
@@ -114,9 +237,13 @@ func (h *PipelineHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respond.JSON(w, http.StatusOK, map[string]any{
-		"pipeline": pipeline,
-		"stages":   stages,
+	stageData := make([]PipelineStageResponse, len(stages))
+	for i, st := range stages {
+		stageData[i] = pipelineStageResponse(st)
+	}
+	respond.JSON(w, http.StatusOK, PipelineDetailResponse{
+		Pipeline: pipelineResponse(pipeline),
+		Stages:   stageData,
 	})
 }
 
@@ -160,10 +287,10 @@ func (h *PipelineHandler) Update(w http.ResponseWriter, r *http.Request) {
 	h.auditSvc.Log(r.Context(), service.AuditEntry{
 		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
 		Action: "pipeline.update", EntityType: "pipeline", EntityID: pipelineID,
-		After: pipeline, IPAddress: ip, UserAgent: ua,
+		After: pipelineResponse(pipeline), IPAddress: ip, UserAgent: ua,
 	})
 
-	respond.JSON(w, http.StatusOK, pipeline)
+	respond.JSON(w, http.StatusOK, pipelineResponse(pipeline))
 }
 
 func (h *PipelineHandler) Delete(w http.ResponseWriter, r *http.Request) {
@@ -213,10 +340,10 @@ func (h *PipelineHandler) StartRun(w http.ResponseWriter, r *http.Request) {
 	h.auditSvc.Log(r.Context(), service.AuditEntry{
 		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
 		Action: "pipeline_run.create", EntityType: "pipeline_run", EntityID: pipelineRun.ID,
-		After: pipelineRun, IPAddress: ip, UserAgent: ua,
+		After: pipelineRunResponse(pipelineRun), IPAddress: ip, UserAgent: ua,
 	})
 
-	respond.JSON(w, http.StatusCreated, pipelineRun)
+	respond.JSON(w, http.StatusCreated, pipelineRunResponse(pipelineRun))
 }
 
 func (h *PipelineHandler) ListRuns(w http.ResponseWriter, r *http.Request) {
@@ -238,8 +365,13 @@ func (h *PipelineHandler) ListRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respond.JSON(w, http.StatusOK, respond.ListResponse[any]{
-		Data:    toAnySlice(runs),
+	data := make([]PipelineRunResponse, len(runs))
+	for i, pr := range runs {
+		data[i] = pipelineRunResponse(pr)
+	}
+
+	respond.JSON(w, http.StatusOK, respond.ListResponse[PipelineRunResponse]{
+		Data:    data,
 		Total:   total,
 		Page:    page,
 		PerPage: perPage,
@@ -262,9 +394,13 @@ func (h *PipelineHandler) GetRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respond.JSON(w, http.StatusOK, map[string]any{
-		"pipeline_run": pipelineRun,
-		"stages":       stages,
+	stageData := make([]PipelineRunStageResponse, len(stages))
+	for i, st := range stages {
+		stageData[i] = pipelineRunStageResponse(st)
+	}
+	respond.JSON(w, http.StatusOK, PipelineRunDetailResponse{
+		PipelineRun: pipelineRunResponse(pipelineRun),
+		Stages:      stageData,
 	})
 }
 
@@ -282,16 +418,20 @@ func (h *PipelineHandler) CancelRun(w http.ResponseWriter, r *http.Request) {
 	h.auditSvc.Log(r.Context(), service.AuditEntry{
 		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
 		Action: "pipeline_run.cancel", EntityType: "pipeline_run", EntityID: pipelineRunID,
-		After: pipelineRun, IPAddress: ip, UserAgent: ua,
+		After: pipelineRunResponse(pipelineRun), IPAddress: ip, UserAgent: ua,
 	})
 
-	respond.JSON(w, http.StatusOK, pipelineRun)
+	respond.JSON(w, http.StatusOK, pipelineRunResponse(pipelineRun))
 }
 
-func toAnySlice[T any](items []T) []any {
-	result := make([]any, len(items))
-	for i, item := range items {
-		result[i] = item
-	}
-	return result
+// PipelineDetailResponse pairs a pipeline with its ordered stages.
+type PipelineDetailResponse struct {
+	Pipeline PipelineResponse        `json:"pipeline"`
+	Stages   []PipelineStageResponse `json:"stages"`
+}
+
+// PipelineRunDetailResponse pairs a pipeline run with its per-stage progress.
+type PipelineRunDetailResponse struct {
+	PipelineRun PipelineRunResponse        `json:"pipeline_run"`
+	Stages      []PipelineRunStageResponse `json:"stages"`
 }

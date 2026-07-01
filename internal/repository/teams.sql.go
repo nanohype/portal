@@ -6,46 +6,46 @@ import (
 )
 
 type Team struct {
-	ID        string    `json:"id"`
-	OrgID     string    `json:"org_id"`
-	Name      string    `json:"name"`
-	Slug      string    `json:"slug"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID        string
+	OrgID     string
+	Name      string
+	Slug      string
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 type TeamMember struct {
-	ID            string    `json:"id"`
-	TeamID        string    `json:"team_id"`
-	UserID        string    `json:"user_id"`
-	Role          string    `json:"role"`
-	CloudIdentity string    `json:"cloud_identity"`
-	CreatedAt     time.Time `json:"created_at"`
-	Email         string    `json:"email"`
-	UserName      string    `json:"user_name"`
-	AvatarURL     string    `json:"avatar_url"`
+	ID            string
+	TeamID        string
+	UserID        string
+	Role          string
+	CloudIdentity string
+	CreatedAt     time.Time
+	Email         string
+	UserName      string
+	AvatarURL     string
 }
 
 type WorkspaceTeamAccess struct {
-	ID          string    `json:"id"`
-	WorkspaceID string    `json:"workspace_id"`
-	TeamID      string    `json:"team_id"`
-	Role        string    `json:"role"`
-	CreatedAt   time.Time `json:"created_at"`
-	TeamName    string    `json:"team_name"`
-	TeamSlug    string    `json:"team_slug"`
+	ID          string
+	WorkspaceID string
+	TeamID      string
+	Role        string
+	CreatedAt   time.Time
+	TeamName    string
+	TeamSlug    string
 }
 
 type Approval struct {
-	ID        string    `json:"id"`
-	RunID     string    `json:"run_id"`
-	OrgID     string    `json:"org_id"`
-	UserID    string    `json:"user_id"`
-	Status    string    `json:"status"`
-	Comment   string    `json:"comment"`
-	CreatedAt time.Time `json:"created_at"`
-	UserName  string    `json:"user_name,omitempty"`
-	AvatarURL string    `json:"avatar_url,omitempty"`
+	ID        string
+	RunID     string
+	OrgID     string
+	UserID    string
+	Status    string
+	Comment   string
+	CreatedAt time.Time
+	UserName  string
+	AvatarURL string
 }
 
 type CreateTeamParams struct {
