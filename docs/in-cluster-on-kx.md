@@ -32,13 +32,13 @@ The hub itself, through rung-1 steps 0–5 (kx up: Crossplane v2 + provider-open
 
 1. **kx is up** with ArgoCD (`kubectl --context kind-kx get ns argocd`).
 2. **The `clusters` appset applied to kx's ArgoCD** + a read repo-cred for the
-   clusters repo. It's now a per-cluster files generator (eks-gitops#40) — applying
-   it: `kubectl --context kind-kx apply -f ../eks-gitops/applicationsets/clusters-appset.yaml`.
+   clusters repo. It's a per-cluster files generator — applying it:
+   `kubectl --context kind-kx apply -f ../eks-gitops/applicationsets/clusters-appset.yaml`.
 3. **The `platform` AppProject exists on kx** (hand-made — kx doesn't ship it).
 4. **A deploy key with WRITE on the clusters repo** (portal's worker pushes CRs
    over SSH). Don't read or commit the key material.
-5. **An S3 bucket + access key** for portal's OpenTofu state. The chart no longer
-   bundles an object store (portal#35) — point it at a small bucket. **confirm:**
+5. **An S3 bucket + access key** for portal's OpenTofu state. The chart bundles
+   no object store — point it at a small bucket. **confirm:**
    region + bucket name.
 6. **AWS credentials reachable by the worker.** When the vended spoke
    auto-registers as `eks_iam`, the worker mints an EKS token by assuming the
@@ -67,7 +67,7 @@ config:
   environment: development          # enables Dev Login (first user = owner)
   # in development the default jwt/encryption keys are accepted; override for real use
 
-objectStore:                        # your state bucket (portal#35 — external now)
+objectStore:                        # your state bucket (external — the chart bundles none)
   endpoint: "s3.us-west-2.amazonaws.com"
   bucket: "<your-portal-state-bucket>"
   region: "us-west-2"

@@ -12,10 +12,11 @@ The diagram covers the core tofu lifecycle — the server/worker/web split and t
 
 Go HTTP API built with [chi](https://github.com/go-chi/chi). Handles authentication, CRUD operations, WebSocket log streaming, and webhook ingestion.
 
-- **Auth**: GitHub OAuth flow issues a JWT stored in the browser's localStorage. Every API request carries it as a `Bearer` token. RBAC is enforced via middleware with four roles: `owner > admin > operator > viewer`.
+- **Auth**: GitHub OAuth flow issues a JWT. The login handoff delivers it via a short-lived `auth_token` cookie (never a query parameter); the SPA callback reads the cookie once, deletes it, and keeps the token in localStorage. Every API request carries it as a `Bearer` token. RBAC is enforced via middleware with four roles: `owner > admin > operator > viewer`.
 - **Routing**: all routes are defined in `internal/server/server.go` in a single `setupRouter()` function.
-- **Handlers**: one file per domain in `internal/handler/` — workspace, run, pipeline, variables, org_variables, pipeline_variables, teams, state, audit, etc. Handlers call services, services call the repository layer.
-- **WebSocket**: run log streaming uses a WebSocket endpoint (`/runs/{runID}/logs/ws`). The server subscribes to the log streamer (Redis or in-memory) and pushes lines to the connected browser.
+- **Handlers**: one file per domain in `internal/handler/` — workspace, run, pipeline, variables, org_variables, pipeline_variables, teams, state, audit, etc. Handlers are transport-only: they call services, services call the repository layer, and serialization happens once at the handler through explicit response DTOs.
+- **WebSocket**: run log streaming uses a WebSocket endpoint (`/runs/{runID}/logs/ws`). The client authenticates with the `["bearer", <jwt>]` subprotocol (`Sec-WebSocket-Protocol`); the server validates it, echoes `bearer` on the upgrade, subscribes to the log streamer (Redis or in-memory), and pushes lines to the connected browser.
+- **Probes**: `:8080/healthz` (process-only liveness) and `:8080/readyz` (readiness, pings Postgres); `GET /api/v1/health` is the app-level health surface the UI reads.
 
 ### Worker (`:8081`)
 
