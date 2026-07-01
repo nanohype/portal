@@ -11,12 +11,12 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 
-	"github.com/nanohype/portal/internal/domain"
+	"github.com/nanohype/portal/internal/config"
 )
 
 // requestTimeout bounds every S3 round-trip, body transfer included (all
@@ -38,21 +38,21 @@ type S3Storage struct {
 	bucket string
 }
 
-func NewS3Storage(cfg *domain.Config) (*S3Storage, error) {
-	loadOpts := []func(*config.LoadOptions) error{
-		config.WithRegion(cfg.S3Region),
-		config.WithHTTPClient(&http.Client{Timeout: requestTimeout}),
+func NewS3Storage(cfg *config.Config) (*S3Storage, error) {
+	loadOpts := []func(*awsconfig.LoadOptions) error{
+		awsconfig.WithRegion(cfg.S3Region),
+		awsconfig.WithHTTPClient(&http.Client{Timeout: requestTimeout}),
 	}
 	if cfg.S3AccessKey != "" && cfg.S3SecretKey != "" {
 		// Explicit static keys — dev, or any non-IRSA S3-compatible store.
-		loadOpts = append(loadOpts, config.WithCredentialsProvider(
+		loadOpts = append(loadOpts, awsconfig.WithCredentialsProvider(
 			credentials.NewStaticCredentialsProvider(cfg.S3AccessKey, cfg.S3SecretKey, ""),
 		))
 	}
 	// With no static keys the SDK's default chain supplies credentials — env,
 	// then EKS IRSA web-identity / EC2 / ECS. That's the production hub path: the
 	// worker's IRSA role grants S3 access and no long-lived key sits at rest.
-	awsCfg, err := config.LoadDefaultConfig(context.Background(), loadOpts...)
+	awsCfg, err := awsconfig.LoadDefaultConfig(context.Background(), loadOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("load aws config for s3: %w", err)
 	}

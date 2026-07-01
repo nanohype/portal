@@ -89,7 +89,7 @@ volumes:
   miniodata:
 ```
 
-`task dev` reads dev defaults from `internal/domain/config.go` — minio at
+`task dev` reads dev defaults from `internal/config/config.go` — minio at
 `localhost:9000` with `minioadmin`/`minioadmin`, postgres/redis on their default
 ports. With `ENVIRONMENT=development` the server relaxes validation (default
 JWT/encryption keys are allowed, dev login is enabled). The full env-var
@@ -303,8 +303,11 @@ The migrate Job runs automatically on upgrade.
 
 | Endpoint | Port | Description |
 |----------|------|-------------|
-| `GET /api/v1/health` | 8080 | Server health — pings Postgres, returns 503 if degraded |
-| `GET /healthz` | 8081 | Worker health — basic liveness check |
+| `GET /healthz` | 8080 | Server liveness — process-only, no dependency checks |
+| `GET /readyz` | 8080 | Server readiness — pings Postgres, returns 503 if unreachable |
+| `GET /api/v1/health` | 8080 | App-level health the UI reads — per-service status + dev-login flag |
+| `GET /healthz` | 8081 | Worker liveness — process-only |
+| `GET /readyz` | 8081 | Worker readiness — pings Postgres, returns 503 if unreachable |
 
 ## Production checklist
 

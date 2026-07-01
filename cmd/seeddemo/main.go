@@ -26,7 +26,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/oklog/ulid/v2"
 
-	"github.com/nanohype/portal/internal/domain"
+	"github.com/nanohype/portal/internal/config"
 	"github.com/nanohype/portal/internal/secrets"
 )
 
@@ -38,7 +38,7 @@ func main() {
 }
 
 func run() error {
-	cfg := &domain.Config{}
+	cfg := &config.Config{}
 	if err := env.Parse(cfg); err != nil {
 		return fmt.Errorf("parse config: %w", err)
 	}

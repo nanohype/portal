@@ -11,30 +11,27 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/oklog/ulid/v2"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/github"
 
 	"github.com/nanohype/portal/internal/auth"
-	"github.com/nanohype/portal/internal/domain"
+	"github.com/nanohype/portal/internal/config"
 	"github.com/nanohype/portal/internal/handler/respond"
-	"github.com/nanohype/portal/internal/repository"
+	"github.com/nanohype/portal/internal/service"
 )
 
 type AuthHandler struct {
-	cfg         *domain.Config
-	queries     *repository.Queries
-	db          *pgxpool.Pool
+	cfg         *config.Config
+	userSvc     *service.UserService
 	jwt         *auth.JWTAuth
 	oauthConfig *oauth2.Config
 }
 
-func NewAuthHandler(cfg *domain.Config, queries *repository.Queries, db *pgxpool.Pool, jwt *auth.JWTAuth) *AuthHandler {
+func NewAuthHandler(cfg *config.Config, userSvc *service.UserService, jwt *auth.JWTAuth) *AuthHandler {
 	return &AuthHandler{
 		cfg:     cfg,
-		queries: queries,
-		db:      db,
+		userSvc: userSvc,
 		jwt:     jwt,
 		oauthConfig: &oauth2.Config{
 			ClientID:     cfg.GitHubClientID,
@@ -196,36 +193,17 @@ func (h *AuthHandler) GitHubCallback(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Get or create default org (single-org mode for Phase 1)
-	org, err := h.ensureDefaultOrg(ctx)
-	if err != nil {
-		slog.Error("failed to ensure default org", "error", err)
-		respond.Error(w, http.StatusInternalServerError, "failed to setup organization")
-		return
-	}
-
-	// Determine role: first user in org gets owner, subsequent get viewer
-	userCount, err := h.queries.CountUsersByOrg(ctx, org.ID)
-	if err != nil {
-		slog.Error("failed to count users", "error", err)
-		respond.Error(w, http.StatusInternalServerError, "failed to setup user")
-		return
-	}
-	role := assignRole(userCount)
-
-	// Upsert user
-	user, err := h.queries.UpsertUserByGitHubID(ctx, repository.UpsertUserByGitHubIDParams{
-		ID:        ulid.Make().String(),
-		OrgID:     org.ID,
+	// Provision the verified identity (default org bootstrap, role assignment,
+	// upsert keyed on the GitHub account).
+	user, err := h.userSvc.Provision(ctx, service.ProvisionUserParams{
 		Email:     ghUser.Email,
 		Name:      ghUser.Name,
 		AvatarURL: ghUser.AvatarURL,
-		GithubID:  &ghUser.ID,
-		Role:      role,
+		GitHubID:  &ghUser.ID,
 	})
 	if err != nil {
-		slog.Error("failed to upsert user", "error", err)
-		respond.Error(w, http.StatusInternalServerError, "failed to create user")
+		slog.Error("failed to provision user", "error", err)
+		respond.Error(w, http.StatusInternalServerError, "failed to setup user")
 		return
 	}
 
@@ -247,31 +225,12 @@ func (h *AuthHandler) DevLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := r.Context()
-
-	org, err := h.ensureDefaultOrg(ctx)
-	if err != nil {
-		respond.Error(w, http.StatusInternalServerError, "failed to setup organization")
-		return
-	}
-
-	userCount, err := h.queries.CountUsersByOrg(ctx, org.ID)
-	if err != nil {
-		respond.Error(w, http.StatusInternalServerError, "failed to setup user")
-		return
-	}
-	role := assignRole(userCount)
-
-	user, err := h.queries.UpsertUserByEmail(ctx, repository.UpsertUserByEmailParams{
-		ID:        ulid.Make().String(),
-		OrgID:     org.ID,
-		Email:     "dev@portal.local",
-		Name:      "Dev User",
-		AvatarURL: "",
-		Role:      role,
+	user, err := h.userSvc.Provision(r.Context(), service.ProvisionUserParams{
+		Email: "dev@portal.local",
+		Name:  "Dev User",
 	})
 	if err != nil {
-		respond.Error(w, http.StatusInternalServerError, "failed to create dev user")
+		respond.Error(w, http.StatusInternalServerError, "failed to setup user")
 		return
 	}
 
@@ -292,40 +251,19 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.queries.GetUser(r.Context(), userCtx.UserID)
+	user, err := h.userSvc.Get(r.Context(), userCtx.UserID)
 	if err != nil {
-		respond.Error(w, http.StatusNotFound, "user not found")
+		respond.FromError(w, r, err)
 		return
 	}
 
 	respond.JSON(w, http.StatusOK, user)
 }
 
-func (h *AuthHandler) ensureDefaultOrg(ctx context.Context) (repository.Organization, error) {
-	org, err := h.queries.GetDefaultOrganization(ctx)
-	if err == nil {
-		return org, nil
-	}
-
-	return h.queries.CreateOrganization(ctx, repository.CreateOrganizationParams{
-		ID:   ulid.Make().String(),
-		Name: "Default Organization",
-		Slug: "default",
-	})
-}
-
 type githubEmail struct {
 	Email    string `json:"email"`
 	Primary  bool   `json:"primary"`
 	Verified bool   `json:"verified"`
-}
-
-// assignRole returns "owner" for the first user in an org, "viewer" otherwise.
-func assignRole(userCount int64) string {
-	if userCount == 0 {
-		return "owner"
-	}
-	return "viewer"
 }
 
 // isActiveOrgMember reports whether the authenticated user (carried by client's

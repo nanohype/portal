@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/oklog/ulid/v2"
@@ -10,18 +12,25 @@ import (
 	"github.com/nanohype/portal/internal/apperr"
 	"github.com/nanohype/portal/internal/conv"
 	"github.com/nanohype/portal/internal/repository"
+	"github.com/nanohype/portal/internal/storage"
+	"github.com/nanohype/portal/internal/tfstate"
 )
 
 // ErrWorkspaceHasRuns is returned when a workspace cannot be deleted because it has runs.
 var ErrWorkspaceHasRuns = fmt.Errorf("workspace has existing runs")
 
+// ErrStorageNotConfigured is returned by state-backed operations (output
+// import) when the service was built without an object store.
+var ErrStorageNotConfigured = fmt.Errorf("storage not configured")
+
 type WorkspaceService struct {
 	queries *repository.Queries
 	db      *pgxpool.Pool
+	storage *storage.S3Storage
 }
 
-func NewWorkspaceService(queries *repository.Queries, db *pgxpool.Pool) *WorkspaceService {
-	return &WorkspaceService{queries: queries, db: db}
+func NewWorkspaceService(queries *repository.Queries, db *pgxpool.Pool, store *storage.S3Storage) *WorkspaceService {
+	return &WorkspaceService{queries: queries, db: db, storage: store}
 }
 
 type CreateWorkspaceParams struct {
@@ -281,5 +290,114 @@ func (s *WorkspaceService) CopyInto(ctx context.Context, sourceID, targetID, org
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit variable-copy tx: %w", err)
 	}
+	return affected, nil
+}
+
+// ImportOutputsParams selects a source workspace whose latest state outputs are
+// imported as terraform variables on a target workspace.
+type ImportOutputsParams struct {
+	SourceWorkspaceID string
+	TargetWorkspaceID string
+	OrgID             string
+	// SkipSensitive drops outputs marked sensitive in state instead of storing
+	// their values as plaintext variables. Pipeline stage imports skip them; the
+	// explicit import endpoint brings everything the operator asked for across.
+	SkipSensitive bool
+	// DescriptionSource names where each imported value came from in the
+	// variable's description, e.g. "workspace" or "pipeline stage".
+	DescriptionSource string
+}
+
+// ImportOutputs reads the source workspace's latest state, parses its outputs,
+// and upserts each one as a terraform-category variable on the target (update
+// by key when it exists, create otherwise). Both the import-outputs endpoint
+// and pipeline stage advancement run through here. A failed upsert is logged
+// and skipped so one bad output doesn't abort the rest; the returned slice
+// holds the variables actually written. A source with no outputs returns an
+// empty result — callers decide whether that is an error.
+func (s *WorkspaceService) ImportOutputs(ctx context.Context, params ImportOutputsParams) ([]repository.WorkspaceVariable, error) {
+	if s.storage == nil {
+		return nil, ErrStorageNotConfigured
+	}
+
+	sv, err := s.queries.GetLatestStateVersion(ctx, repository.GetLatestStateVersionParams{
+		WorkspaceID: params.SourceWorkspaceID, OrgID: params.OrgID,
+	})
+	if err != nil {
+		return nil, apperr.Wrap(apperr.KindNotFound, "source workspace has no state", err)
+	}
+
+	data, err := s.storage.GetState(ctx, sv.StateURL)
+	if err != nil {
+		return nil, fmt.Errorf("fetch source state: %w", err)
+	}
+
+	outputs, err := tfstate.ParseOutputs(data)
+	if err != nil {
+		return nil, fmt.Errorf("parse source outputs: %w", err)
+	}
+	if len(outputs) == 0 {
+		slog.Info("no outputs to import", "source_workspace", params.SourceWorkspaceID, "target_workspace", params.TargetWorkspaceID)
+		return nil, nil
+	}
+
+	existing, err := s.queries.ListWorkspaceVariables(ctx, repository.ListWorkspaceVariablesParams{
+		WorkspaceID: params.TargetWorkspaceID, OrgID: params.OrgID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list target variables: %w", err)
+	}
+	existingByKey := make(map[string]repository.WorkspaceVariable, len(existing))
+	for _, v := range existing {
+		if v.Category == "terraform" {
+			existingByKey[v.Key] = v
+		}
+	}
+
+	affected := make([]repository.WorkspaceVariable, 0, len(outputs))
+	for _, out := range outputs {
+		if params.SkipSensitive && out.Sensitive {
+			continue
+		}
+
+		// Non-string outputs (lists, maps, numbers) are stored as their JSON
+		// encoding, which is also how tofu expects complex variable values.
+		var valueStr string
+		switch v := out.Value.(type) {
+		case string:
+			valueStr = v
+		default:
+			b, _ := json.Marshal(v)
+			valueStr = string(b)
+		}
+
+		desc := fmt.Sprintf("Imported from %s output (%s)", params.DescriptionSource, out.Type)
+
+		var v repository.WorkspaceVariable
+		if ev, exists := existingByKey[out.Name]; exists {
+			v, err = s.queries.UpdateWorkspaceVariable(ctx, repository.UpdateWorkspaceVariableParams{
+				ID: ev.ID, OrgID: params.OrgID, Value: valueStr, Sensitive: false, Description: desc,
+			})
+		} else {
+			v, err = s.queries.CreateWorkspaceVariable(ctx, repository.CreateWorkspaceVariableParams{
+				ID:          ulid.Make().String(),
+				WorkspaceID: params.TargetWorkspaceID,
+				OrgID:       params.OrgID,
+				Key:         out.Name,
+				Value:       valueStr,
+				Sensitive:   false,
+				Category:    "terraform",
+				Description: desc,
+			})
+		}
+		if err != nil {
+			slog.Warn("failed to import output as variable", "key", out.Name, "error", err)
+			continue
+		}
+		affected = append(affected, v)
+	}
+
+	slog.Info("imported outputs between workspaces",
+		"source", params.SourceWorkspaceID, "target", params.TargetWorkspaceID, "imported", len(affected))
 	return affected, nil
 }

@@ -16,7 +16,7 @@ import (
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 	"github.com/riverqueue/river/rivermigrate"
 
-	"github.com/nanohype/portal/internal/domain"
+	"github.com/nanohype/portal/internal/config"
 )
 
 func main() {
@@ -28,7 +28,7 @@ func main() {
 	migrationsPath := flag.String("path", "file://migrations", "Path to migrations directory")
 	flag.Parse()
 
-	cfg := &domain.Config{}
+	cfg := &config.Config{}
 	if err := env.Parse(cfg); err != nil {
 		logger.Error("failed to parse config", "error", err)
 		os.Exit(1)

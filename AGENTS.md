@@ -74,7 +74,7 @@ The Helm chart at `deploy/helm/portal` renders three Deployments (server, worker
 - **GitOps write paths over SSH** (`gitops.sshKey` deploy key, mounted read-only): `tenantsRepoURL` enables tenant vend (commits a rendered eks-agent-platform tenant chart); `clustersRepoURL` enables cluster vend (commits an eks-fleet `Cluster` CR). ArgoCD reconciles both.
 - Cluster-ops watchers (`argocdSync`, `clusterWatchback`, `clusterHealth`) project live substrate state onto DB rows and are **inert off the hub** — they only act when the worker runs in-cluster.
 
-Helpers: `task docker:build` (server/worker/web/migrate images), `task hub:install` (helm upgrade --install with production options). Runbooks: `docs/in-cluster-on-kx.md` (kind hub), `docs/deploy-on-hub.md` (real EKS hub + cross-account IAM). Health: `GET /api/v1/health` (8080, pings Postgres) and `GET /healthz` (8081, worker). `/metrics` is unauthenticated by design (pod-direct Grafana Agent scrape — don't route it via ingress).
+Helpers: `task docker:build` (server/worker/web/migrate images), `task hub:install` (helm upgrade --install with production options). Runbooks: `docs/in-cluster-on-kx.md` (kind hub), `docs/deploy-on-hub.md` (real EKS hub + cross-account IAM). Health: `/healthz` (liveness, process-only) + `/readyz` (readiness, pings Postgres) on both the server (8080) and worker (8081); `GET /api/v1/health` (8080) is the app-level surface the UI reads. `/metrics` is unauthenticated by design (pod-direct Grafana Agent scrape — don't route it via ingress).
 
 ## Conventions an agent must follow
 

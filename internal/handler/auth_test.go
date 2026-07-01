@@ -4,11 +4,11 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/nanohype/portal/internal/domain"
+	"github.com/nanohype/portal/internal/config"
 )
 
 func TestOAuthStateVerification(t *testing.T) {
-	h := &AuthHandler{cfg: &domain.Config{JWTSecret: "test-secret-32-bytes-long-value!"}}
+	h := &AuthHandler{cfg: &config.Config{JWTSecret: "test-secret-32-bytes-long-value!"}}
 
 	state := "01JTEST1234567890ABCDEF"
 	sig := h.signState(state)
@@ -56,26 +56,5 @@ func TestSplitStateCookie(t *testing.T) {
 		if len(got) != tt.want {
 			t.Errorf("splitStateCookie(%q) = %d parts, want %d", tt.input, len(got), tt.want)
 		}
-	}
-}
-
-func TestAssignRole(t *testing.T) {
-	tests := []struct {
-		name      string
-		userCount int64
-		want      string
-	}{
-		{"first user gets owner", 0, "owner"},
-		{"second user gets viewer", 1, "viewer"},
-		{"many users get viewer", 100, "viewer"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := assignRole(tt.userCount)
-			if got != tt.want {
-				t.Errorf("assignRole(%d) = %q, want %q", tt.userCount, got, tt.want)
-			}
-		})
 	}
 }

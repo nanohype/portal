@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 
@@ -13,8 +12,6 @@ import (
 
 	"github.com/nanohype/portal/internal/conv"
 	"github.com/nanohype/portal/internal/repository"
-	"github.com/nanohype/portal/internal/storage"
-	"github.com/nanohype/portal/internal/tfstate"
 	"github.com/nanohype/portal/internal/worker"
 )
 
@@ -22,12 +19,11 @@ type PipelineService struct {
 	queries     *repository.Queries
 	db          *pgxpool.Pool
 	runSvc      *RunService
-	storage     *storage.S3Storage
 	riverClient *river.Client[pgx.Tx]
 }
 
-func NewPipelineService(queries *repository.Queries, db *pgxpool.Pool, runSvc *RunService, store *storage.S3Storage) *PipelineService {
-	return &PipelineService{queries: queries, db: db, runSvc: runSvc, storage: store}
+func NewPipelineService(queries *repository.Queries, db *pgxpool.Pool, runSvc *RunService) *PipelineService {
+	return &PipelineService{queries: queries, db: db, runSvc: runSvc}
 }
 
 func (s *PipelineService) SetRiverClient(client *river.Client[pgx.Tx]) {
@@ -283,87 +279,4 @@ func (s *PipelineService) ListRuns(ctx context.Context, pipelineID, orgID string
 
 func (s *PipelineService) ListRunStages(ctx context.Context, pipelineRunID string) ([]repository.PipelineRunStageWithWorkspace, error) {
 	return s.queries.ListPipelineRunStages(ctx, pipelineRunID)
-}
-
-// ImportOutputsBetweenWorkspaces imports outputs from the source workspace's state
-// as terraform variables into the target workspace.
-func ImportOutputsBetweenWorkspaces(ctx context.Context, queries *repository.Queries, store *storage.S3Storage, sourceWorkspaceID, targetWorkspaceID, orgID string) error {
-	if store == nil {
-		return fmt.Errorf("storage not configured")
-	}
-
-	sv, err := queries.GetLatestStateVersion(ctx, repository.GetLatestStateVersionParams{
-		WorkspaceID: sourceWorkspaceID, OrgID: orgID,
-	})
-	if err != nil {
-		return fmt.Errorf("source workspace has no state: %w", err)
-	}
-
-	data, err := store.GetState(ctx, sv.StateURL)
-	if err != nil {
-		return fmt.Errorf("failed to fetch source state: %w", err)
-	}
-
-	outputs, err := tfstate.ParseOutputs(data)
-	if err != nil {
-		return fmt.Errorf("failed to parse outputs: %w", err)
-	}
-
-	if len(outputs) == 0 {
-		slog.Info("no outputs to import", "source_workspace", sourceWorkspaceID, "target_workspace", targetWorkspaceID)
-		return nil
-	}
-
-	existing, err := queries.ListWorkspaceVariables(ctx, repository.ListWorkspaceVariablesParams{
-		WorkspaceID: targetWorkspaceID, OrgID: orgID,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to list target variables: %w", err)
-	}
-	existingByKey := make(map[string]repository.WorkspaceVariable, len(existing))
-	for _, v := range existing {
-		if v.Category == "terraform" {
-			existingByKey[v.Key] = v
-		}
-	}
-
-	for _, out := range outputs {
-		if out.Sensitive {
-			continue
-		}
-
-		var valueStr string
-		switch v := out.Value.(type) {
-		case string:
-			valueStr = v
-		default:
-			b, _ := json.Marshal(v)
-			valueStr = string(b)
-		}
-
-		desc := fmt.Sprintf("Imported from pipeline stage output (%s)", out.Type)
-
-		if ev, exists := existingByKey[out.Name]; exists {
-			_, err = queries.UpdateWorkspaceVariable(ctx, repository.UpdateWorkspaceVariableParams{
-				ID: ev.ID, OrgID: orgID, Value: valueStr, Sensitive: false, Description: desc,
-			})
-		} else {
-			_, err = queries.CreateWorkspaceVariable(ctx, repository.CreateWorkspaceVariableParams{
-				ID:          ulid.Make().String(),
-				WorkspaceID: targetWorkspaceID,
-				OrgID:       orgID,
-				Key:         out.Name,
-				Value:       valueStr,
-				Sensitive:   false,
-				Category:    "terraform",
-				Description: desc,
-			})
-		}
-		if err != nil {
-			slog.Warn("failed to import output as variable", "key", out.Name, "error", err)
-		}
-	}
-
-	slog.Info("imported outputs between workspaces", "source", sourceWorkspaceID, "target", targetWorkspaceID, "outputs", len(outputs))
-	return nil
 }

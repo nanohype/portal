@@ -8,25 +8,24 @@ import (
 
 	"github.com/nanohype/portal/internal/auth"
 	"github.com/nanohype/portal/internal/handler/respond"
-	"github.com/nanohype/portal/internal/repository"
 	"github.com/nanohype/portal/internal/service"
 )
 
 type UserHandler struct {
-	queries  *repository.Queries
+	svc      *service.UserService
 	auditSvc *service.AuditService
 }
 
-func NewUserHandler(queries *repository.Queries, auditSvc *service.AuditService) *UserHandler {
-	return &UserHandler{queries: queries, auditSvc: auditSvc}
+func NewUserHandler(svc *service.UserService, auditSvc *service.AuditService) *UserHandler {
+	return &UserHandler{svc: svc, auditSvc: auditSvc}
 }
 
 func (h *UserHandler) List(w http.ResponseWriter, r *http.Request) {
 	userCtx := auth.GetUser(r.Context())
 
-	users, err := h.queries.ListUsersByOrg(r.Context(), userCtx.OrgID)
+	users, err := h.svc.List(r.Context(), userCtx.OrgID)
 	if err != nil {
-		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to list users")
+		respond.FromError(w, r, err)
 		return
 	}
 
@@ -52,35 +51,9 @@ func (h *UserHandler) UpdateRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Load the target scoped to the caller's org. A cross-org target must 404
-	// (without this, an owner in org A could re-role any user in org B by ID);
-	// the owner-count guard below also needs the target's current role.
-	targetUser, err := h.queries.GetUser(r.Context(), targetUserID)
-	if err != nil || targetUser.OrgID != userCtx.OrgID {
-		respond.Error(w, http.StatusNotFound, "user not found")
-		return
-	}
-
-	// Prevent demoting the last owner
-	if req.Role != "owner" && targetUser.Role == "owner" {
-		ownerCount, err := h.queries.CountOwnersByOrg(r.Context(), userCtx.OrgID)
-		if err != nil {
-			respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to check owner count")
-			return
-		}
-		if ownerCount <= 1 {
-			respond.Error(w, http.StatusBadRequest, "cannot demote the last owner")
-			return
-		}
-	}
-
-	updated, err := h.queries.UpdateUserRole(r.Context(), repository.UpdateUserRoleParams{
-		ID:    targetUserID,
-		Role:  req.Role,
-		OrgID: userCtx.OrgID,
-	})
+	updated, err := h.svc.UpdateRole(r.Context(), targetUserID, userCtx.OrgID, req.Role)
 	if err != nil {
-		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to update role")
+		respond.FromError(w, r, err)
 		return
 	}
 

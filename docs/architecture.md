@@ -27,7 +27,7 @@ Go HTTP API built with [chi](https://github.com/go-chi/chi). Handles authenticat
 - Uploads results (state, logs, JSON plan) to S3
 - Handles post-plan branching: auto-apply, awaiting approval, or planned
 - **Pipeline callback**: when a run completes, checks if it belongs to a pipeline stage and advances the pipeline
-- Exposes a health endpoint on `:8081/healthz` for liveness probes
+- Exposes `:8081/healthz` (process-only liveness) and `:8081/readyz` (readiness, pings Postgres) for probes
 - Graceful shutdown: waits for in-progress jobs up to `SHUTDOWN_TIMEOUT`
 
 ### Web (`:5173`)

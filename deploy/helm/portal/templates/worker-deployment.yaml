@@ -20,8 +20,8 @@ spec:
   template:
     metadata:
       annotations:
-        # The worker serves /metrics + /healthz on its health port (8081);
-        # scraped by the Grafana Agent → Amazon Managed Prometheus.
+        # The worker serves /metrics + /healthz + /readyz on its health port
+        # (8081); scraped by the Grafana Agent → Amazon Managed Prometheus.
         prometheus.io/scrape: "true"
         prometheus.io/port: "8081"
         prometheus.io/path: "/metrics"
@@ -70,7 +70,7 @@ spec:
             periodSeconds: 15
           readinessProbe:
             httpGet:
-              path: /healthz
+              path: /readyz
               port: 8081
             initialDelaySeconds: 5
             periodSeconds: 5

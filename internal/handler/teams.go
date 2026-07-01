@@ -3,27 +3,21 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
-	"regexp"
-	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/oklog/ulid/v2"
 
 	"github.com/nanohype/portal/internal/auth"
 	"github.com/nanohype/portal/internal/handler/respond"
-	"github.com/nanohype/portal/internal/repository"
 	"github.com/nanohype/portal/internal/service"
 )
 
-var slugRegex = regexp.MustCompile("[^a-z0-9-]")
-
 type TeamHandler struct {
-	queries  *repository.Queries
+	svc      *service.TeamService
 	auditSvc *service.AuditService
 }
 
-func NewTeamHandler(queries *repository.Queries, auditSvc *service.AuditService) *TeamHandler {
-	return &TeamHandler{queries: queries, auditSvc: auditSvc}
+func NewTeamHandler(svc *service.TeamService, auditSvc *service.AuditService) *TeamHandler {
+	return &TeamHandler{svc: svc, auditSvc: auditSvc}
 }
 
 type CreateTeamRequest struct {
@@ -62,18 +56,18 @@ func (h *TeamHandler) List(w http.ResponseWriter, r *http.Request) {
 	// Used by the tenant create form so operators see only teams they
 	// can actually own a tenant under.
 	if r.URL.Query().Get("member_of") == "me" {
-		teams, err := h.queries.ListTeamsForUser(r.Context(), userCtx.UserID, userCtx.OrgID)
+		teams, err := h.svc.ListForUser(r.Context(), userCtx.UserID, userCtx.OrgID)
 		if err != nil {
-			respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to list teams")
+			respond.FromError(w, r, err)
 			return
 		}
 		respond.List(w, teams)
 		return
 	}
 
-	teams, err := h.queries.ListTeams(r.Context(), userCtx.OrgID)
+	teams, err := h.svc.List(r.Context(), userCtx.OrgID)
 	if err != nil {
-		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to list teams")
+		respond.FromError(w, r, err)
 		return
 	}
 
@@ -98,24 +92,9 @@ func (h *TeamHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	slug := slugRegex.ReplaceAllString(strings.ToLower(req.Name), "")
-	slug = strings.Trim(slug, "-")
-	if len(slug) > 64 {
-		slug = slug[:64]
-	}
-	if slug == "" {
-		respond.Error(w, http.StatusBadRequest, "name must contain at least one alphanumeric character")
-		return
-	}
-
-	team, err := h.queries.CreateTeam(r.Context(), repository.CreateTeamParams{
-		ID:    ulid.Make().String(),
-		OrgID: userCtx.OrgID,
-		Name:  req.Name,
-		Slug:  slug,
-	})
+	team, err := h.svc.Create(r.Context(), userCtx.OrgID, req.Name)
 	if err != nil {
-		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to create team")
+		respond.FromError(w, r, err)
 		return
 	}
 
@@ -133,9 +112,9 @@ func (h *TeamHandler) Get(w http.ResponseWriter, r *http.Request) {
 	userCtx := auth.GetUser(r.Context())
 	teamID := chi.URLParam(r, "teamID")
 
-	team, err := h.queries.GetTeam(r.Context(), teamID, userCtx.OrgID)
+	team, err := h.svc.Get(r.Context(), teamID, userCtx.OrgID)
 	if err != nil {
-		respond.Error(w, http.StatusNotFound, "team not found")
+		respond.FromError(w, r, err)
 		return
 	}
 
@@ -146,8 +125,8 @@ func (h *TeamHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	userCtx := auth.GetUser(r.Context())
 	teamID := chi.URLParam(r, "teamID")
 
-	if err := h.queries.DeleteTeam(r.Context(), teamID, userCtx.OrgID); err != nil {
-		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to delete team")
+	if err := h.svc.Delete(r.Context(), teamID, userCtx.OrgID); err != nil {
+		respond.FromError(w, r, err)
 		return
 	}
 
@@ -165,14 +144,9 @@ func (h *TeamHandler) ListMembers(w http.ResponseWriter, r *http.Request) {
 	userCtx := auth.GetUser(r.Context())
 	teamID := chi.URLParam(r, "teamID")
 
-	if _, err := h.queries.GetTeam(r.Context(), teamID, userCtx.OrgID); err != nil {
-		respond.Error(w, http.StatusNotFound, "team not found")
-		return
-	}
-
-	members, err := h.queries.ListTeamMembers(r.Context(), teamID)
+	members, err := h.svc.ListMembers(r.Context(), teamID, userCtx.OrgID)
 	if err != nil {
-		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to list members")
+		respond.FromError(w, r, err)
 		return
 	}
 
@@ -182,11 +156,6 @@ func (h *TeamHandler) ListMembers(w http.ResponseWriter, r *http.Request) {
 func (h *TeamHandler) AddMember(w http.ResponseWriter, r *http.Request) {
 	userCtx := auth.GetUser(r.Context())
 	teamID := chi.URLParam(r, "teamID")
-
-	if _, err := h.queries.GetTeam(r.Context(), teamID, userCtx.OrgID); err != nil {
-		respond.Error(w, http.StatusNotFound, "team not found")
-		return
-	}
 
 	var req AddTeamMemberRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -204,15 +173,15 @@ func (h *TeamHandler) AddMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	member, err := h.queries.AddTeamMember(r.Context(), repository.AddTeamMemberParams{
-		ID:            ulid.Make().String(),
+	member, err := h.svc.AddMember(r.Context(), service.AddTeamMemberParams{
 		TeamID:        teamID,
+		OrgID:         userCtx.OrgID,
 		UserID:        req.UserID,
 		Role:          req.Role,
 		CloudIdentity: req.CloudIdentity,
 	})
 	if err != nil {
-		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to add member")
+		respond.FromError(w, r, err)
 		return
 	}
 
@@ -231,11 +200,6 @@ func (h *TeamHandler) UpdateMember(w http.ResponseWriter, r *http.Request) {
 	teamID := chi.URLParam(r, "teamID")
 	userID := chi.URLParam(r, "userID")
 
-	if _, err := h.queries.GetTeam(r.Context(), teamID, userCtx.OrgID); err != nil {
-		respond.Error(w, http.StatusNotFound, "team not found")
-		return
-	}
-
 	var req UpdateTeamMemberRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respond.Error(w, http.StatusBadRequest, "invalid request body")
@@ -252,14 +216,15 @@ func (h *TeamHandler) UpdateMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	member, err := h.queries.UpdateTeamMember(r.Context(), repository.UpdateTeamMemberParams{
+	member, err := h.svc.UpdateMember(r.Context(), service.UpdateTeamMemberParams{
 		TeamID:        teamID,
+		OrgID:         userCtx.OrgID,
 		UserID:        userID,
 		Role:          req.Role,
 		CloudIdentity: req.CloudIdentity,
 	})
 	if err != nil {
-		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to update member")
+		respond.FromError(w, r, err)
 		return
 	}
 
@@ -278,13 +243,8 @@ func (h *TeamHandler) RemoveMember(w http.ResponseWriter, r *http.Request) {
 	teamID := chi.URLParam(r, "teamID")
 	userID := chi.URLParam(r, "userID")
 
-	if _, err := h.queries.GetTeam(r.Context(), teamID, userCtx.OrgID); err != nil {
-		respond.Error(w, http.StatusNotFound, "team not found")
-		return
-	}
-
-	if err := h.queries.RemoveTeamMember(r.Context(), teamID, userID); err != nil {
-		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to remove member")
+	if err := h.svc.RemoveMember(r.Context(), teamID, userCtx.OrgID, userID); err != nil {
+		respond.FromError(w, r, err)
 		return
 	}
 
@@ -302,16 +262,9 @@ func (h *TeamHandler) ListWorkspaceAccess(w http.ResponseWriter, r *http.Request
 	userCtx := auth.GetUser(r.Context())
 	workspaceID := chi.URLParam(r, "workspaceID")
 
-	if _, err := h.queries.GetWorkspace(r.Context(), repository.GetWorkspaceParams{
-		ID: workspaceID, OrgID: userCtx.OrgID,
-	}); err != nil {
-		respond.Error(w, http.StatusNotFound, "workspace not found")
-		return
-	}
-
-	access, err := h.queries.ListWorkspaceTeamAccess(r.Context(), workspaceID)
+	access, err := h.svc.ListWorkspaceAccess(r.Context(), workspaceID, userCtx.OrgID)
 	if err != nil {
-		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to list access")
+		respond.FromError(w, r, err)
 		return
 	}
 
@@ -321,13 +274,6 @@ func (h *TeamHandler) ListWorkspaceAccess(w http.ResponseWriter, r *http.Request
 func (h *TeamHandler) SetWorkspaceAccess(w http.ResponseWriter, r *http.Request) {
 	userCtx := auth.GetUser(r.Context())
 	workspaceID := chi.URLParam(r, "workspaceID")
-
-	if _, err := h.queries.GetWorkspace(r.Context(), repository.GetWorkspaceParams{
-		ID: workspaceID, OrgID: userCtx.OrgID,
-	}); err != nil {
-		respond.Error(w, http.StatusNotFound, "workspace not found")
-		return
-	}
 
 	var req SetWorkspaceAccessRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -345,14 +291,14 @@ func (h *TeamHandler) SetWorkspaceAccess(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	access, err := h.queries.SetWorkspaceTeamAccess(r.Context(), repository.SetWorkspaceTeamAccessParams{
-		ID:          ulid.Make().String(),
+	access, err := h.svc.SetWorkspaceAccess(r.Context(), service.SetWorkspaceAccessParams{
 		WorkspaceID: workspaceID,
+		OrgID:       userCtx.OrgID,
 		TeamID:      req.TeamID,
 		Role:        req.Role,
 	})
 	if err != nil {
-		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to set access")
+		respond.FromError(w, r, err)
 		return
 	}
 
@@ -371,15 +317,8 @@ func (h *TeamHandler) RemoveWorkspaceAccess(w http.ResponseWriter, r *http.Reque
 	workspaceID := chi.URLParam(r, "workspaceID")
 	teamID := chi.URLParam(r, "teamID")
 
-	if _, err := h.queries.GetWorkspace(r.Context(), repository.GetWorkspaceParams{
-		ID: workspaceID, OrgID: userCtx.OrgID,
-	}); err != nil {
-		respond.Error(w, http.StatusNotFound, "workspace not found")
-		return
-	}
-
-	if err := h.queries.RemoveWorkspaceTeamAccess(r.Context(), workspaceID, teamID); err != nil {
-		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to revoke access")
+	if err := h.svc.RemoveWorkspaceAccess(r.Context(), workspaceID, userCtx.OrgID, teamID); err != nil {
+		respond.FromError(w, r, err)
 		return
 	}
 

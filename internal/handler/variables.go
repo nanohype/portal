@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -14,8 +15,6 @@ import (
 	"github.com/nanohype/portal/internal/repository"
 	"github.com/nanohype/portal/internal/secrets"
 	"github.com/nanohype/portal/internal/service"
-	"github.com/nanohype/portal/internal/storage"
-	"github.com/nanohype/portal/internal/tfstate"
 )
 
 type VariableHandler struct {
@@ -24,11 +23,10 @@ type VariableHandler struct {
 	auditSvc     *service.AuditService
 	workspaceSvc *service.WorkspaceService
 	discoverySvc *service.DiscoveryService
-	storage      *storage.S3Storage
 }
 
-func NewVariableHandler(queries *repository.Queries, encryptor *secrets.Encryptor, auditSvc *service.AuditService, workspaceSvc *service.WorkspaceService, discoverySvc *service.DiscoveryService, store *storage.S3Storage) *VariableHandler {
-	return &VariableHandler{queries: queries, encryptor: encryptor, auditSvc: auditSvc, workspaceSvc: workspaceSvc, discoverySvc: discoverySvc, storage: store}
+func NewVariableHandler(queries *repository.Queries, encryptor *secrets.Encryptor, auditSvc *service.AuditService, workspaceSvc *service.WorkspaceService, discoverySvc *service.DiscoveryService) *VariableHandler {
+	return &VariableHandler{queries: queries, encryptor: encryptor, auditSvc: auditSvc, workspaceSvc: workspaceSvc, discoverySvc: discoverySvc}
 }
 
 type CreateVariableRequest struct {
@@ -355,111 +353,37 @@ func (h *VariableHandler) ImportOutputs(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if h.storage == nil {
-		respond.Error(w, http.StatusServiceUnavailable, "storage not configured")
-		return
-	}
-
-	// Get latest state from the source workspace
-	sv, err := h.queries.GetLatestStateVersion(r.Context(), repository.GetLatestStateVersionParams{
-		WorkspaceID: req.SourceWorkspaceID, OrgID: userCtx.OrgID,
+	imported, err := h.workspaceSvc.ImportOutputs(r.Context(), service.ImportOutputsParams{
+		SourceWorkspaceID: req.SourceWorkspaceID,
+		TargetWorkspaceID: workspaceID,
+		OrgID:             userCtx.OrgID,
+		DescriptionSource: "workspace",
 	})
 	if err != nil {
-		respond.Error(w, http.StatusNotFound, "source workspace has no state")
+		if errors.Is(err, service.ErrStorageNotConfigured) {
+			respond.Error(w, http.StatusServiceUnavailable, "storage not configured")
+			return
+		}
+		respond.FromError(w, r, err)
 		return
 	}
-
-	data, err := h.storage.GetState(r.Context(), sv.StateURL)
-	if err != nil {
-		respond.Error(w, http.StatusInternalServerError, "failed to fetch source state")
-		return
-	}
-
-	outputs, err := tfstate.ParseOutputs(data)
-	if err != nil {
-		respond.Error(w, http.StatusInternalServerError, "failed to parse source outputs")
-		return
-	}
-
-	if len(outputs) == 0 {
+	if len(imported) == 0 {
 		respond.Error(w, http.StatusBadRequest, "source workspace has no outputs")
 		return
 	}
 
-	// Get existing variables to detect duplicates
-	existing, err := h.queries.ListWorkspaceVariables(r.Context(), repository.ListWorkspaceVariablesParams{
-		WorkspaceID: workspaceID, OrgID: userCtx.OrgID,
-	})
-	if err != nil {
-		respond.Error(w, http.StatusInternalServerError, "failed to list existing variables")
-		return
-	}
-	existingByKey := make(map[string]repository.WorkspaceVariable, len(existing))
-	for _, v := range existing {
-		if v.Category == "terraform" {
-			existingByKey[v.Key] = v
-		}
-	}
-
-	// Create or update variables from outputs
 	ip, ua := auditContext(r)
-	var result []repository.WorkspaceVariable
-	for _, out := range outputs {
-		desc := fmt.Sprintf("Imported from workspace output (%s)", out.Type)
-
-		// Convert output value to string for variable storage
-		var valueStr string
-		switch v := out.Value.(type) {
-		case string:
-			valueStr = v
-		default:
-			b, _ := json.Marshal(v)
-			valueStr = string(b)
-		}
-
-		if ev, exists := existingByKey[out.Name]; exists {
-			// Update existing variable with the output value
-			v, err := h.queries.UpdateWorkspaceVariable(r.Context(), repository.UpdateWorkspaceVariableParams{
-				ID: ev.ID, OrgID: userCtx.OrgID, Value: valueStr, Sensitive: false, Description: desc,
-			})
-			if err != nil {
-				continue
-			}
-			auditVar := v
-			auditVar.Value = "***"
-			h.auditSvc.Log(r.Context(), service.AuditEntry{
-				OrgID: userCtx.OrgID, UserID: userCtx.UserID,
-				Action: "variable.import", EntityType: "variable", EntityID: v.ID,
-				After: auditVar, IPAddress: ip, UserAgent: ua,
-			})
-			result = append(result, v)
-		} else {
-			// Create new variable
-			v, err := h.queries.CreateWorkspaceVariable(r.Context(), repository.CreateWorkspaceVariableParams{
-				ID:          ulid.Make().String(),
-				WorkspaceID: workspaceID,
-				OrgID:       userCtx.OrgID,
-				Key:         out.Name,
-				Value:       valueStr,
-				Sensitive:   false,
-				Category:    "terraform",
-				Description: desc,
-			})
-			if err != nil {
-				continue
-			}
-			auditVar := v
-			auditVar.Value = "***"
-			h.auditSvc.Log(r.Context(), service.AuditEntry{
-				OrgID: userCtx.OrgID, UserID: userCtx.UserID,
-				Action: "variable.import", EntityType: "variable", EntityID: v.ID,
-				After: auditVar, IPAddress: ip, UserAgent: ua,
-			})
-			result = append(result, v)
-		}
+	for _, v := range imported {
+		auditVar := v
+		auditVar.Value = "***"
+		h.auditSvc.Log(r.Context(), service.AuditEntry{
+			OrgID: userCtx.OrgID, UserID: userCtx.UserID,
+			Action: "variable.import", EntityType: "variable", EntityID: v.ID,
+			After: auditVar, IPAddress: ip, UserAgent: ua,
+		})
 	}
 
-	respond.JSON(w, http.StatusCreated, result)
+	respond.JSON(w, http.StatusCreated, imported)
 }
 
 type CopyVariablesRequest struct {

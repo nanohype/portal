@@ -11,7 +11,6 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/nanohype/portal/internal/repository"
-	"github.com/nanohype/portal/internal/storage"
 )
 
 // PipelineStageJobArgs is the River job argument for processing a pipeline stage.
@@ -34,25 +33,24 @@ func (PipelineStageJobArgs) InsertOpts() river.InsertOpts {
 // RunCreatorFunc creates a workspace run. Avoids import cycle with service package.
 type RunCreatorFunc func(ctx context.Context, workspaceID, orgID, operation, createdBy string, autoApplyOverride *bool) (repository.Run, error)
 
-// OutputImporter is a function that imports outputs between workspaces.
-type OutputImporter func(ctx context.Context, queries *repository.Queries, store *storage.S3Storage, sourceWorkspaceID, targetWorkspaceID, orgID string) error
+// OutputImporter imports the source workspace's state outputs as variables on
+// the target workspace. Avoids import cycle with service package.
+type OutputImporter func(ctx context.Context, sourceWorkspaceID, targetWorkspaceID, orgID string) error
 
 type PipelineStageJobWorker struct {
 	river.WorkerDefaults[PipelineStageJobArgs]
 	queries       *repository.Queries
 	createRun     RunCreatorFunc
 	importOutputs OutputImporter
-	storage       *storage.S3Storage
 	riverClient   *river.Client[pgx.Tx]
 	db            *pgxpool.Pool
 }
 
-func NewPipelineStageJobWorker(queries *repository.Queries, createRun RunCreatorFunc, importOutputs OutputImporter, store *storage.S3Storage) *PipelineStageJobWorker {
+func NewPipelineStageJobWorker(queries *repository.Queries, createRun RunCreatorFunc, importOutputs OutputImporter) *PipelineStageJobWorker {
 	return &PipelineStageJobWorker{
 		queries:       queries,
 		createRun:     createRun,
 		importOutputs: importOutputs,
-		storage:       store,
 	}
 }
 
@@ -107,7 +105,7 @@ func (w *PipelineStageJobWorker) Work(ctx context.Context, job *river.Job[Pipeli
 		}
 
 		if w.importOutputs != nil {
-			if err := w.importOutputs(ctx, w.queries, w.storage, prevStage.WorkspaceID, stage.WorkspaceID, args.OrgID); err != nil {
+			if err := w.importOutputs(ctx, prevStage.WorkspaceID, stage.WorkspaceID, args.OrgID); err != nil {
 				logger.Warn("output import failed (continuing)", "error", err)
 			}
 		}
