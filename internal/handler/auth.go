@@ -214,9 +214,25 @@ func (h *AuthHandler) GitHubCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Redirect to frontend with token
-	redirectURL := fmt.Sprintf("%s/auth/callback?token=%s", h.cfg.WebURL, jwtToken)
-	http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
+	h.redirectWithToken(w, r, jwtToken)
+}
+
+// redirectWithToken hands the freshly minted JWT to the SPA callback page via
+// a short-lived, path-scoped cookie and redirects there. The token never
+// appears in a URL, so it can't land in browser history, proxy logs, or
+// Referer headers. The cookie is readable by the SPA (not HttpOnly), scoped
+// to the callback route, and expires in 60 seconds; the callback page reads
+// it once, stores it, and deletes it.
+func (h *AuthHandler) redirectWithToken(w http.ResponseWriter, r *http.Request, token string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "auth_token",
+		Value:    token,
+		Path:     "/auth/callback",
+		MaxAge:   60,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   h.cfg.Environment != "development",
+	})
+	http.Redirect(w, r, h.cfg.WebURL+"/auth/callback", http.StatusTemporaryRedirect)
 }
 
 func (h *AuthHandler) DevLogin(w http.ResponseWriter, r *http.Request) {
@@ -240,8 +256,7 @@ func (h *AuthHandler) DevLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	redirectURL := fmt.Sprintf("%s/auth/callback?token=%s", h.cfg.WebURL, token)
-	http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
+	h.redirectWithToken(w, r, token)
 }
 
 func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {

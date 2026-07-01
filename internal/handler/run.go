@@ -257,8 +257,13 @@ func (h *RunHandler) StreamLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Clients authenticate by requesting subprotocols ["bearer", <jwt>]
+	// (validated by auth.Middleware); offering "bearer" here echoes it back
+	// as the selected subprotocol, which browsers require to complete the
+	// handshake when protocols were requested.
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		OriginPatterns: wsOriginPatterns(h.allowedOrigins),
+		Subprotocols:   []string{auth.WebSocketBearerProtocol},
 	})
 	if err != nil {
 		slog.Error("websocket accept failed", "error", err)
