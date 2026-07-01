@@ -63,8 +63,9 @@ paths:
       operationId: githubCallback
       summary: GitHub OAuth callback (browser redirect)
       description: >
-        Exchanges the code, provisions the user, and redirects to the SPA
-        callback page with the JWT delivered via a short-lived cookie.
+        Exchanges the code, provisions the user, sets the short-lived HttpOnly
+        handoff cookie (scoped to /auth/handoff), and redirects to the SPA
+        callback page, which completes login via POST /auth/handoff.
       security: []
       parameters:
         - name: code
@@ -76,6 +77,36 @@ paths:
       responses:
         "307":
           description: Redirect to the SPA /auth/callback page.
+        default: { $ref: "#/components/responses/Error" }
+
+  /auth/handoff:
+    post:
+      operationId: authHandoff
+      summary: Exchange the HttpOnly login-handoff cookie for the JWT (one-time)
+      description: >
+        Completes the login handoff. The OAuth callback (and dev login) set a
+        short-lived HttpOnly cookie scoped to this path; this endpoint returns
+        the JWT once and expires the cookie in the same response
+        (delete-on-read), so a second call gets 401. POST keeps the exchange
+        non-cacheable, and SameSite=Lax blocks cross-site POSTs from carrying
+        the cookie. Unauthenticated by design — the caller has no bearer token
+        yet.
+      security: []
+      responses:
+        "200":
+          description: The JWT, exactly once; the handoff cookie is expired in the same response.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string }
+                required: [token]
+        "401":
+          description: Missing, expired, or malformed handoff cookie
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
         default: { $ref: "#/components/responses/Error" }
 
   /auth/me:

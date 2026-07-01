@@ -50,11 +50,31 @@ export interface paths {
         };
         /**
          * GitHub OAuth callback (browser redirect)
-         * @description Exchanges the code, provisions the user, and redirects to the SPA callback page with the JWT delivered via a short-lived cookie.
+         * @description Exchanges the code, provisions the user, sets the short-lived HttpOnly handoff cookie (scoped to /auth/handoff), and redirects to the SPA callback page, which completes login via POST /auth/handoff.
          */
         get: operations["githubCallback"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/handoff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Exchange the HttpOnly login-handoff cookie for the JWT (one-time)
+         * @description Completes the login handoff. The OAuth callback (and dev login) set a short-lived HttpOnly cookie scoped to this path; this endpoint returns the JWT once and expires the cookie in the same response (delete-on-read), so a second call gets 401. POST keeps the exchange non-cacheable, and SameSite=Lax blocks cross-site POSTs from carrying the cookie. Unauthenticated by design — the caller has no bearer token yet.
+         */
+        post: operations["authHandoff"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2230,6 +2250,38 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    authHandoff: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The JWT, exactly once; the handoff cookie is expired in the same response. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        token: string;
+                    };
+                };
+            };
+            /** @description Missing, expired, or malformed handoff cookie */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
             default: components["responses"]["Error"];
         };

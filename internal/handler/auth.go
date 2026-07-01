@@ -217,22 +217,67 @@ func (h *AuthHandler) GitHubCallback(w http.ResponseWriter, r *http.Request) {
 	h.redirectWithToken(w, r, jwtToken)
 }
 
-// redirectWithToken hands the freshly minted JWT to the SPA callback page via
-// a short-lived, path-scoped cookie and redirects there. The token never
-// appears in a URL, so it can't land in browser history, proxy logs, or
-// Referer headers. The cookie is readable by the SPA (not HttpOnly), scoped
-// to the callback route, and expires in 60 seconds; the callback page reads
-// it once, stores it, and deletes it.
+// The login handoff cookie: HttpOnly (never script-readable), scoped to the
+// handoff endpoint (path-scoped cookies only ride to that route), and
+// short-lived — the SPA callback exchanges it exactly once via POST
+// /auth/handoff.
+const (
+	handoffCookieName = "auth_token"
+	handoffCookiePath = "/api/v1/auth/handoff"
+)
+
+// redirectWithToken hands the freshly minted JWT to the SPA via a short-lived
+// HttpOnly cookie scoped to the handoff endpoint, then redirects to the SPA
+// callback page. The token never appears in a URL (browser history, proxy
+// logs, Referer headers) or anywhere script-readable (document.cookie): the
+// callback page POSTs to /auth/handoff, which returns the token once and
+// expires the cookie in the same response.
 func (h *AuthHandler) redirectWithToken(w http.ResponseWriter, r *http.Request, token string) {
 	http.SetCookie(w, &http.Cookie{
-		Name:     "auth_token",
+		Name:     handoffCookieName,
 		Value:    token,
-		Path:     "/auth/callback",
+		Path:     handoffCookiePath,
 		MaxAge:   60,
+		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 		Secure:   h.cfg.Environment != "development",
 	})
 	http.Redirect(w, r, h.cfg.WebURL+"/auth/callback", http.StatusTemporaryRedirect)
+}
+
+type HandoffResponse struct {
+	Token string `json:"token"`
+}
+
+// Handoff completes the login handoff: it exchanges the HttpOnly cookie set by
+// redirectWithToken for the JWT as a JSON body, exactly once. The cookie is
+// expired in the same response (delete-on-read), so a replayed POST finds
+// nothing and gets 401. POST keeps the exchange non-cacheable, and
+// SameSite=Lax means the browser won't attach the cookie to a cross-site POST.
+func (h *AuthHandler) Handoff(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie(handoffCookieName)
+	if err != nil {
+		respond.Error(w, http.StatusUnauthorized, "no handoff token")
+		return
+	}
+	if _, err := h.jwt.ValidateToken(cookie.Value); err != nil {
+		respond.Error(w, http.StatusUnauthorized, "invalid handoff token")
+		return
+	}
+
+	// Delete-on-read: expire the cookie in the same response so the exchange
+	// works exactly once. Mirror the attributes redirectWithToken set so the
+	// clearing cookie matches what the browser stored.
+	http.SetCookie(w, &http.Cookie{
+		Name:     handoffCookieName,
+		Value:    "",
+		Path:     handoffCookiePath,
+		MaxAge:   -1,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   h.cfg.Environment != "development",
+	})
+	respond.JSON(w, http.StatusOK, HandoffResponse{Token: cookie.Value})
 }
 
 func (h *AuthHandler) DevLogin(w http.ResponseWriter, r *http.Request) {

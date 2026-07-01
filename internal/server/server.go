@@ -214,9 +214,12 @@ func (s *Server) setupRouter() {
 
 			r.Get("/health", healthHandler.Check)
 
-			// Auth routes
+			// Auth routes. /auth/handoff sits outside the authenticated group
+			// on purpose: the caller has no bearer token yet — the endpoint IS
+			// how the SPA obtains it (one-time HttpOnly-cookie exchange).
 			r.Get("/auth/github", authHandler.GitHubLogin)
 			r.Get("/auth/github/callback", authHandler.GitHubCallback)
+			r.Post("/auth/handoff", authHandler.Handoff)
 			if s.cfg.Environment == "development" {
 				r.Get("/auth/dev", authHandler.DevLogin)
 			}

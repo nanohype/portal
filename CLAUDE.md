@@ -73,7 +73,7 @@ Three processes: **server** (HTTP API), **worker** (runs tofu commands), **web**
 - **Config**: `internal/config/` — env-var config with dev defaults; `internal/domain/` stays pure (stdlib-only)
 - **Repository**: `internal/repository/` — hand-written pgx queries in `*.sql.go` (sqlc-style: typed Params structs + `scanX` helpers, but NOT generated — edit them directly; there is no sqlc/codegen step). Row structs carry no json tags — serialization happens once, at the handler layer
 - **Worker**: `internal/worker/jobs.go` — River job worker with pipeline callback; `pipeline_jobs.go` for pipeline stage jobs; `cluster_*.go` + `tenant_apply.go` for the fleet/tenant jobs
-- **Auth**: GitHub OAuth → JWT, RBAC with roles owner > admin > operator > viewer. JWTs never ride in URLs: the login handoff sets a short-lived `auth_token` cookie the SPA callback reads once, and WebSockets authenticate via the `["bearer", <jwt>]` subprotocol (`Sec-WebSocket-Protocol`)
+- **Auth**: GitHub OAuth → JWT, RBAC with roles owner > admin > operator > viewer. JWTs never ride in URLs or script-readable state: the login handoff sets a short-lived HttpOnly `auth_token` cookie scoped to `POST /api/v1/auth/handoff`, which the SPA callback exchanges once for the JWT (the response expires the cookie — delete-on-read); WebSockets authenticate via the `["bearer", <jwt>]` subprotocol (`Sec-WebSocket-Protocol`)
 - **Probes**: `/healthz` (process-only liveness) + `/readyz` (DB-checking readiness) on both server (:8080) and worker (:8081); `GET /api/v1/health` is the app-level health surface the UI reads (per-service status + dev-login flag)
 - **Response helpers**: `internal/handler/respond/respond.go` — use `respond.JSON()`, `respond.Error()`, `respond.NoContent()`
 
