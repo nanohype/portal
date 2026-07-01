@@ -1855,7 +1855,9 @@ export interface components {
             cluster_version?: string;
             system_nodes?: components["schemas"]["ClusterOrderSystemNodes"];
             network?: components["schemas"]["ClusterOrderNetwork"];
+            /** @description Clusters vend with a private API endpoint (the eks-fleet default). Setting this true requires a non-empty endpoint_public_access_cidrs allowlist — orders that opt into public access without one are rejected with 400 (mirroring the Cluster XRD's CEL rule). */
             endpoint_public_access?: boolean;
+            /** @description CIDR allowlist scoping who can reach the public endpoint (e.g. 203.0.113.0/24). Required (non-empty) when endpoint_public_access is true; each entry must parse as a CIDR. */
             endpoint_public_access_cidrs?: string[];
         };
         ClusterOrderSystemNodes: {

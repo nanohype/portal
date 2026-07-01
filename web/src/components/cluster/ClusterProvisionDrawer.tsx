@@ -20,6 +20,15 @@ import { VendTimeline } from "./VendTimeline";
 
 const AWS_REGION_RE = /^[a-z]{2}-[a-z]+-\d$/;
 const K8S_NAME_RE = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
+const CIDR_RE = /^\d{1,3}(\.\d{1,3}){3}\/\d{1,2}$/;
+
+// "203.0.113.0/24, 198.51.100.7/32" → ["203.0.113.0/24", "198.51.100.7/32"]
+export function parseCidrList(raw: string): string[] {
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s !== "");
+}
 
 // The vend "order desk" as a slide-over: it produces an eks-fleet Cluster CR
 // (committed to the clusters GitOps repo) rather than registering an existing
@@ -45,7 +54,11 @@ export function ClusterProvisionDrawer({
   >("dev");
   const [region, setRegion] = useState("");
   const [clusterVersion, setClusterVersion] = useState("");
-  const [publicAccess, setPublicAccess] = useState(true);
+  // Private-by-default: the fleet's Cluster XRD defaults endpointPublicAccess
+  // to false, and its CEL rule rejects a public opt-in without a CIDR
+  // allowlist. The form mirrors both so a bad order can't be placed.
+  const [publicAccess, setPublicAccess] = useState(false);
+  const [publicCidrs, setPublicCidrs] = useState("");
   // Set on a successful order → the drawer switches to the live timeline view.
   const [orderedId, setOrderedId] = useState<string | null>(null);
 
@@ -58,7 +71,8 @@ export function ClusterProvisionDrawer({
     setEnvironment("dev");
     setRegion("");
     setClusterVersion("");
-    setPublicAccess(true);
+    setPublicAccess(false);
+    setPublicCidrs("");
     setOrderedId(null);
   };
 
@@ -82,6 +96,9 @@ export function ClusterProvisionDrawer({
           environment,
           cluster_version: clusterVersion.trim() || undefined,
           endpoint_public_access: publicAccess,
+          endpoint_public_access_cidrs: publicAccess
+            ? parseCidrList(publicCidrs)
+            : undefined,
         },
       });
       if (error) throw error;
@@ -144,13 +161,26 @@ export function ClusterProvisionDrawer({
   const regionInvalid = region !== "" && !AWS_REGION_RE.test(region);
   const teamInvalid = team !== "" && !K8S_NAME_RE.test(team);
   const nameInvalid = name !== "" && !K8S_NAME_RE.test(name);
+  // Opting into a public endpoint makes the CIDR allowlist required — the
+  // fleet's CEL rule rejects public-without-allowlist, so gate submit here.
+  const cidrList = parseCidrList(publicCidrs);
+  const cidrsMissing = publicAccess && cidrList.length === 0;
+  const cidrsMalformed =
+    publicAccess && cidrList.some((c) => !CIDR_RE.test(c));
+  const cidrError = cidrsMissing
+    ? "Required to enable the public endpoint — comma-separated CIDRs, e.g. 203.0.113.0/24"
+    : cidrsMalformed
+      ? "Each entry must be a CIDR like 203.0.113.0/24"
+      : null;
   const canSubmit =
     accountID !== "" &&
     name.trim() !== "" &&
     !nameInvalid &&
     team.trim() !== "" &&
     !teamInvalid &&
-    AWS_REGION_RE.test(region);
+    AWS_REGION_RE.test(region) &&
+    !cidrsMissing &&
+    !cidrsMalformed;
 
   const ordered = orderedId !== null;
 
@@ -271,15 +301,33 @@ export function ClusterProvisionDrawer({
               />
             </Field>
 
-            <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
-              <input
-                type="checkbox"
-                checked={publicAccess}
-                onChange={(e) => setPublicAccess(e.target.checked)}
-                className="accent-primary"
-              />
-              Public API endpoint
-            </label>
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={publicAccess}
+                  onChange={(e) => setPublicAccess(e.target.checked)}
+                  className="accent-primary"
+                />
+                Public API endpoint
+              </label>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                Clusters vend with a private API endpoint. Turning this on
+                exposes it publicly and requires a CIDR allowlist scoping who
+                can reach it.
+              </p>
+            </div>
+
+            {publicAccess && (
+              <Field label="Allowed CIDRs" error={cidrError}>
+                <Input
+                  value={publicCidrs}
+                  onChange={(e) => setPublicCidrs(e.target.value)}
+                  placeholder="203.0.113.0/24, 198.51.100.7/32"
+                  className="font-mono"
+                />
+              </Field>
+            )}
           </div>
         )}
       </DrawerBody>

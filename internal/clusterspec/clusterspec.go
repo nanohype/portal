@@ -8,6 +8,7 @@ package clusterspec
 
 import (
 	"fmt"
+	"net/netip"
 	"regexp"
 
 	"sigs.k8s.io/yaml"
@@ -66,7 +67,11 @@ type Network struct {
 }
 
 // Validate checks the required fields and their shapes. The eks-fleet defaults
-// cover the optional fields, so only the four identity inputs are enforced here.
+// cover the optional fields, so only the four identity inputs are enforced here —
+// plus the fleet's private-by-default endpoint invariant: opting into a public
+// API endpoint requires a non-empty CIDR allowlist. That mirrors the Cluster
+// XRD's CEL rule so a bad order fails here (400) instead of twenty minutes into
+// the vend.
 func (in Input) Validate() error {
 	switch {
 	case !k8sName.MatchString(in.Name):
@@ -80,6 +85,14 @@ func (in Input) Validate() error {
 	}
 	if in.Environment != "" && !validEnv[in.Environment] {
 		return fmt.Errorf("environment %q must be dev, staging, or production", in.Environment)
+	}
+	if in.EndpointPublicAccess != nil && *in.EndpointPublicAccess && len(in.EndpointPublicAccessCidrs) == 0 {
+		return fmt.Errorf("endpoint_public_access requires endpoint_public_access_cidrs: clusters vend with a private API endpoint unless a CIDR allowlist scopes the public one")
+	}
+	for _, cidr := range in.EndpointPublicAccessCidrs {
+		if _, err := netip.ParsePrefix(cidr); err != nil {
+			return fmt.Errorf("endpoint_public_access_cidrs entry %q is not a valid CIDR", cidr)
+		}
 	}
 	return nil
 }

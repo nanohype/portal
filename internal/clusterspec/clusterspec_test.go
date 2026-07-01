@@ -133,6 +133,15 @@ func TestValidate_Errors(t *testing.T) {
 		"bad region": func(i *Input) { i.Region = "uswest2" },
 		"bad team":   func(i *Input) { i.Team = "Platform/x" },
 		"bad env":    func(i *Input) { i.Environment = "qa" },
+		"public endpoint without cidr allowlist": func(i *Input) {
+			yes := true
+			i.EndpointPublicAccess = &yes
+		},
+		"malformed cidr": func(i *Input) {
+			yes := true
+			i.EndpointPublicAccess = &yes
+			i.EndpointPublicAccessCidrs = []string{"203.0.113.0"} // no /prefix
+		},
 	}
 	for name, mut := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -143,6 +152,30 @@ func TestValidate_Errors(t *testing.T) {
 			}
 			if _, err := in.Render(); err == nil {
 				t.Errorf("Render should reject %s", name)
+			}
+		})
+	}
+}
+
+// The private-by-default posture: no endpoint fields, an explicit false, and a
+// public opt-in with an allowlist are all valid orders.
+func TestValidate_EndpointPosture(t *testing.T) {
+	base := Input{Name: "ok", Account: "111111111111", Region: "us-west-2", Team: "platform"}
+	no, yes := false, true
+	cases := map[string]func(*Input){
+		"private by omission":     func(i *Input) {},
+		"explicit private":        func(i *Input) { i.EndpointPublicAccess = &no },
+		"public with cidrs": func(i *Input) {
+			i.EndpointPublicAccess = &yes
+			i.EndpointPublicAccessCidrs = []string{"203.0.113.0/24", "198.51.100.7/32"}
+		},
+	}
+	for name, mut := range cases {
+		t.Run(name, func(t *testing.T) {
+			in := base
+			mut(&in)
+			if err := in.Validate(); err != nil {
+				t.Errorf("unexpected validation error: %v", err)
 			}
 		})
 	}
