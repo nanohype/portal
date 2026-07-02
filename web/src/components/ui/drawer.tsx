@@ -9,9 +9,9 @@ import {
   useId,
   useRef,
   useState,
-} from "react";
-import { X } from "lucide-react";
-import { cn } from "@/lib/utils";
+} from 'react';
+import { X } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 // Each Drawer generates a unique title id and hands it to its DrawerTitle, so a
 // drawer that's closing while something else opens can't collide on a hardcoded
@@ -34,13 +34,7 @@ interface DrawerProps {
 // lock) but it animates OUT before unmounting — Dialog pops out instantly. The
 // component drives enter vs exit by swapping the slide class and unmounts on the
 // panel's animationend; OS reduced-motion collapses both to an instant (index.css).
-export function Drawer({
-  open,
-  onClose,
-  children,
-  className,
-  width = "max-w-md",
-}: DrawerProps) {
+export function Drawer({ open, onClose, children, className, width = 'max-w-md' }: DrawerProps) {
   const [mounted, setMounted] = useState(open);
   const [closing, setClosing] = useState(false);
   const [prevOpen, setPrevOpen] = useState(open);
@@ -68,11 +62,11 @@ export function Drawer({
   });
 
   const handleEscape = useCallback((e: KeyboardEvent) => {
-    if (e.key === "Escape") onCloseRef.current();
+    if (e.key === 'Escape') onCloseRef.current();
   }, []);
 
   const handleFocusTrap = useCallback((e: KeyboardEvent) => {
-    if (e.key !== "Tab" || !contentRef.current) return;
+    if (e.key !== 'Tab' || !contentRef.current) return;
     const f = contentRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
     if (f.length === 0) return;
     const first = f[0];
@@ -92,13 +86,13 @@ export function Drawer({
   // mount, NOT on every keystroke.
   useEffect(() => {
     if (!mounted) return;
-    document.addEventListener("keydown", handleEscape);
-    document.addEventListener("keydown", handleFocusTrap);
-    document.body.style.overflow = "hidden";
+    document.addEventListener('keydown', handleEscape);
+    document.addEventListener('keydown', handleFocusTrap);
+    document.body.style.overflow = 'hidden';
     return () => {
-      document.removeEventListener("keydown", handleEscape);
-      document.removeEventListener("keydown", handleFocusTrap);
-      document.body.style.overflow = "";
+      document.removeEventListener('keydown', handleEscape);
+      document.removeEventListener('keydown', handleFocusTrap);
+      document.body.style.overflow = '';
     };
   }, [mounted, handleEscape, handleFocusTrap]);
 
@@ -137,16 +131,11 @@ export function Drawer({
   if (!mounted) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-50"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={titleId}
-    >
+    <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-labelledby={titleId}>
       <div
         className={cn(
-          "fixed inset-0 bg-black/70 backdrop-blur-md",
-          closing ? "animate-overlay-out" : "animate-overlay-in",
+          'fixed inset-0 bg-black/70 backdrop-blur-md',
+          closing ? 'animate-overlay-out' : 'animate-overlay-in',
         )}
         aria-hidden="true"
         onClick={onClose}
@@ -156,27 +145,19 @@ export function Drawer({
         onAnimationEnd={onPanelAnimEnd}
         onClick={(e: MouseEvent) => e.stopPropagation()}
         className={cn(
-          "fixed inset-y-0 right-0 z-50 flex h-full w-full flex-col border-l border-border bg-card/80 backdrop-blur-xl shadow-2xl shadow-black/40",
+          'fixed inset-y-0 right-0 z-50 flex h-full w-full flex-col border-l border-border bg-card/80 backdrop-blur-xl shadow-2xl shadow-black/40',
           width,
-          closing ? "animate-slide-out-right" : "animate-slide-in-right",
+          closing ? 'animate-slide-out-right' : 'animate-slide-in-right',
           className,
         )}
       >
-        <DrawerTitleIdContext.Provider value={titleId}>
-          {children}
-        </DrawerTitleIdContext.Provider>
+        <DrawerTitleIdContext.Provider value={titleId}>{children}</DrawerTitleIdContext.Provider>
       </div>
     </div>
   );
 }
 
-export function DrawerHeader({
-  children,
-  onClose,
-}: {
-  children: ReactNode;
-  onClose?: () => void;
-}) {
+export function DrawerHeader({ children, onClose }: { children: ReactNode; onClose?: () => void }) {
   return (
     <div className="flex items-start justify-between gap-4 border-b border-border/60 px-6 py-5">
       <div className="min-w-0">{children}</div>
@@ -193,22 +174,10 @@ export function DrawerHeader({
   );
 }
 
-export function DrawerTitle({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
+export function DrawerTitle({ children, className }: { children: ReactNode; className?: string }) {
   const id = useContext(DrawerTitleIdContext);
   return (
-    <h2
-      id={id}
-      className={cn(
-        "text-base font-semibold tracking-tight text-foreground",
-        className,
-      )}
-    >
+    <h2 id={id} className={cn('text-base font-semibold tracking-tight text-foreground', className)}>
       {children}
     </h2>
   );
@@ -218,18 +187,8 @@ export function DrawerDescription({ children }: { children: ReactNode }) {
   return <p className="mt-1 text-[12px] text-muted-foreground">{children}</p>;
 }
 
-export function DrawerBody({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <div className={cn("flex-1 overflow-y-auto px-6 py-5", className)}>
-      {children}
-    </div>
-  );
+export function DrawerBody({ children, className }: { children: ReactNode; className?: string }) {
+  return <div className={cn('flex-1 overflow-y-auto px-6 py-5', className)}>{children}</div>;
 }
 
 export function DrawerFooter({ children }: { children: ReactNode }) {

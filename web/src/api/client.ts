@@ -1,7 +1,7 @@
-import createClient from "openapi-fetch";
-import type { paths } from "./types";
+import createClient from 'openapi-fetch';
+import type { paths } from './types';
 
-const API_BASE = "/api/v1";
+const API_BASE = '/api/v1';
 
 // Default 30s deadline on every request; AbortSignal.any keeps
 // caller-supplied signals working alongside it.
@@ -16,16 +16,16 @@ export const api = createClient<paths>({
 // Add auth token to requests
 api.use({
   onRequest({ request }) {
-    const token = localStorage.getItem("portal_token");
+    const token = localStorage.getItem('portal_token');
     if (token) {
-      request.headers.set("Authorization", `Bearer ${token}`);
+      request.headers.set('Authorization', `Bearer ${token}`);
     }
     return request;
   },
   onResponse({ response }) {
     if (response.status === 401) {
-      localStorage.removeItem("portal_token");
-      window.location.href = "/login";
+      localStorage.removeItem('portal_token');
+      window.location.href = '/login';
     }
     return response;
   },

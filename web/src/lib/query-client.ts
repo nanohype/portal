@@ -1,4 +1,4 @@
-import { QueryClient } from "@tanstack/react-query";
+import { QueryClient } from '@tanstack/react-query';
 
 // Shared singleton so both the React tree (QueryClientProvider) and the router's
 // beforeLoad auth gate (ensureQueryData) use the same cache.

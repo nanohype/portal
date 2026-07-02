@@ -1,30 +1,28 @@
-import { useQuery } from "@tanstack/react-query";
-import { api } from "@/api/client";
-import { StatusBadge } from "@/components/ui/status-badge";
-import { tenantOpStatus } from "@/lib/status";
-import { Spinner } from "@/components/ui/spinner";
-import { formatRelativeTime } from "@/lib/utils";
-import type { Cluster, ClusterOperation, OpsFeedItem } from "@/api/models";
-import { Cloud, Layers, Activity } from "lucide-react";
-import { VendTimeline } from "@/components/cluster/VendTimeline";
-import { DeprovisionTimeline } from "@/components/cluster/DeprovisionTimeline";
-
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/api/client';
+import { StatusBadge } from '@/components/ui/status-badge';
+import { tenantOpStatus } from '@/lib/status';
+import { Spinner } from '@/components/ui/spinner';
+import { formatRelativeTime } from '@/lib/utils';
+import type { Cluster, ClusterOperation, OpsFeedItem } from '@/api/models';
+import { Cloud, Layers, Activity } from 'lucide-react';
+import { VendTimeline } from '@/components/cluster/VendTimeline';
+import { DeprovisionTimeline } from '@/components/cluster/DeprovisionTimeline';
 
 // A cluster op is still moving if pending, or a committed provision/deprovision
 // that hasn't reached a terminal and isn't a portal-side failure (and is younger
 // than an hour). Mirrors ClusterList's orders-poll predicate.
 function clusterOpInFlight(o: ClusterOperation): boolean {
-  if (o.status === "pending") return true;
-  if (o.status === "active" || o.status === "failed" || o.status === "deprovisioned")
-    return false;
+  if (o.status === 'pending') return true;
+  if (o.status === 'active' || o.status === 'failed' || o.status === 'deprovisioned') return false;
   const p = o.vend_phases ?? {};
-  if ("failed" in p) return false;
+  if ('failed' in p) return false;
   return Date.now() - new Date(o.created_at).getTime() < 60 * 60 * 1000;
 }
 
 function itemInFlight(item: OpsFeedItem): boolean {
-  if (item.kind === "cluster" && item.cluster) return clusterOpInFlight(item.cluster);
-  if (item.kind === "tenant" && item.tenant) return item.tenant.status === "pending";
+  if (item.kind === 'cluster' && item.cluster) return clusterOpInFlight(item.cluster);
+  if (item.kind === 'tenant' && item.tenant) return item.tenant.status === 'pending';
   return false;
 }
 
@@ -34,33 +32,31 @@ export function OpsPage() {
     isLoading,
     isError,
   } = useQuery({
-    queryKey: ["ops-feed"],
+    queryKey: ['ops-feed'],
     queryFn: async () => {
-      const { data, error } = await api.GET("/ops/feed");
+      const { data, error } = await api.GET('/ops/feed');
       if (error) throw error;
       return data?.data ?? [];
     },
     // Poll while anything across the org is still moving — the page is the only
     // thing polling, so it stops on nav.
-    refetchInterval: (query) =>
-      query.state.data?.some(itemInFlight) ? 3000 : false,
+    refetchInterval: (query) => (query.state.data?.some(itemInFlight) ? 3000 : false),
   });
 
   // cluster_id → name for tenant rows. Distinct ["clusters","list"] key returning
   // the bare array (the accounts-lookup convention) — avoids the envelope-shape
   // collision with ClusterList's ["clusters"] query.
   const { data: clusters } = useQuery({
-    queryKey: ["clusters", "list"],
+    queryKey: ['clusters', 'list'],
     queryFn: async () => {
-      const { data, error } = await api.GET("/clusters", {
+      const { data, error } = await api.GET('/clusters', {
         params: { query: { per_page: 100 } },
       });
       if (error) throw error;
       return data?.data ?? [];
     },
   });
-  const clusterName = (id: string) =>
-    clusters?.find((c: Cluster) => c.id === id)?.name ?? id;
+  const clusterName = (id: string) => clusters?.find((c: Cluster) => c.id === id)?.name ?? id;
 
   const items = feed ?? [];
 
@@ -90,14 +86,13 @@ export function OpsPage() {
           </div>
           <h2 className="text-sm font-semibold mb-1">No operations yet</h2>
           <p className="text-xs text-muted-foreground max-w-[320px]">
-            Provision a cluster or deploy a tenant and it shows up here the moment
-            it&apos;s placed.
+            Provision a cluster or deploy a tenant and it shows up here the moment it&apos;s placed.
           </p>
         </div>
       ) : (
         <div className="space-y-1.5">
           {items.map((item, i) =>
-            item.kind === "cluster" && item.cluster ? (
+            item.kind === 'cluster' && item.cluster ? (
               <OpRow
                 key={`cluster-${item.cluster.id}`}
                 delay={i}
@@ -105,7 +100,7 @@ export function OpsPage() {
                 title={item.cluster.name}
                 subtitle={`${item.cluster.environment} · ${item.cluster.operation}`}
                 middle={
-                  item.cluster.operation === "provision" ? (
+                  item.cluster.operation === 'provision' ? (
                     <VendTimeline op={item.cluster} />
                   ) : (
                     <DeprovisionTimeline op={item.cluster} />
@@ -113,11 +108,9 @@ export function OpsPage() {
                 }
                 sha={item.cluster.git_commit_sha}
                 at={item.at}
-                error={
-                  item.cluster.status === "failed" ? item.cluster.error : ""
-                }
+                error={item.cluster.status === 'failed' ? item.cluster.error : ''}
               />
-            ) : item.kind === "tenant" && item.tenant ? (
+            ) : item.kind === 'tenant' && item.tenant ? (
               <OpRow
                 key={`tenant-${item.tenant.id}`}
                 delay={i}
@@ -127,7 +120,7 @@ export function OpsPage() {
                 middle={<StatusBadge visual={tenantOpStatus(item.tenant.status)} />}
                 sha={item.tenant.git_commit_sha}
                 at={item.at}
-                error={item.tenant.status === "failed" ? item.tenant.error : ""}
+                error={item.tenant.status === 'failed' ? item.tenant.error : ''}
               />
             ) : null,
           )}
@@ -172,9 +165,7 @@ function OpRow({
         </div>
       </div>
       {error && (
-        <p className="text-[11px] text-destructive/90 mt-1.5 font-mono break-all">
-          {error}
-        </p>
+        <p className="text-[11px] text-destructive/90 mt-1.5 font-mono break-all">{error}</p>
       )}
     </div>
   );

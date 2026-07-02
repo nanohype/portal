@@ -1,5 +1,5 @@
-import { cn } from "@/lib/utils";
-import type { Step, Frame } from "./timeline-frame";
+import { cn } from '@/lib/utils';
+import type { Step, Frame } from './timeline-frame';
 
 // PhaseStepper is the shared presentational dots+label stepper. The caller
 // computes the frame and the cosmetic label/tooltip/alert from the op; this just
@@ -31,20 +31,17 @@ export function PhaseStepper({
             <div key={s.key} className="flex items-center">
               <span
                 className={cn(
-                  "w-2 h-2 rounded-full shrink-0",
+                  'w-2 h-2 rounded-full shrink-0',
                   isFailPoint
-                    ? "bg-destructive"
+                    ? 'bg-destructive'
                     : isDone
-                      ? cn("bg-primary", isFrontier && "animate-pulse")
-                      : "border border-border/70",
+                      ? cn('bg-primary', isFrontier && 'animate-pulse')
+                      : 'border border-border/70',
                 )}
               />
               {i < steps.length - 1 && (
                 <span
-                  className={cn(
-                    "w-3 h-px",
-                    i < lastReached ? "bg-primary/40" : "bg-border/50",
-                  )}
+                  className={cn('w-3 h-px', i < lastReached ? 'bg-primary/40' : 'bg-border/50')}
                 />
               )}
             </div>
@@ -53,8 +50,8 @@ export function PhaseStepper({
       </div>
       <span
         className={cn(
-          "text-[11px] truncate max-w-[18rem]",
-          alert ? "text-destructive" : "text-muted-foreground",
+          'text-[11px] truncate max-w-[18rem]',
+          alert ? 'text-destructive' : 'text-muted-foreground',
         )}
       >
         {label}

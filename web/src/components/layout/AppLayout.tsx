@@ -1,34 +1,34 @@
-import { useState, useRef, useEffect } from "react";
-import type { ReactNode } from "react";
-import { useAuth } from "@/hooks/useAuth";
-import { useLocation } from "@/hooks/useNavigate";
-import { Link } from "@/components/ui/link";
-import { navCategories } from "@/lib/nav";
-import { CommandPalette } from "@/components/CommandPalette";
-import { useTheme } from "@/stores/theme";
-import { Box, Search, LogOut, Sun, Moon } from "lucide-react";
+import { useState, useRef, useEffect } from 'react';
+import type { ReactNode } from 'react';
+import { useAuth } from '@/hooks/useAuth';
+import { useLocation } from '@/hooks/useNavigate';
+import { Link } from '@/components/ui/link';
+import { navCategories } from '@/lib/nav';
+import { CommandPalette } from '@/components/CommandPalette';
+import { useTheme } from '@/stores/theme';
+import { Box, Search, LogOut, Sun, Moon } from 'lucide-react';
 
 export function AppLayout({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
   const location = useLocation();
-  const path = location.split("?")[0];
+  const path = location.split('?')[0];
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  const isAdmin = user?.role === "admin" || user?.role === "owner";
+  const isAdmin = user?.role === 'admin' || user?.role === 'owner';
   const { theme, toggle } = useTheme();
 
   // ⌘K / Ctrl+K toggles the command palette
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setPaletteOpen((o) => !o);
       }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, []);
 
   useEffect(() => {
@@ -38,8 +38,8 @@ export function AppLayout({ children }: { children: ReactNode }) {
         setShowUserMenu(false);
       }
     };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
   }, [showUserMenu]);
 
   return (
@@ -58,15 +58,11 @@ export function AppLayout({ children }: { children: ReactNode }) {
           </Link>
           <button
             onClick={toggle}
-            aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
-            title={theme === "dark" ? "Light theme" : "Dark theme"}
+            aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+            title={theme === 'dark' ? 'Light theme' : 'Dark theme'}
             className="-mr-1 rounded-[6px] p-1.5 text-dim hover:text-foreground hover:bg-hover transition-colors cursor-pointer"
           >
-            {theme === "dark" ? (
-              <Sun className="w-3.5 h-3.5" />
-            ) : (
-              <Moon className="w-3.5 h-3.5" />
-            )}
+            {theme === 'dark' ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
           </button>
         </div>
 
@@ -103,8 +99,8 @@ export function AppLayout({ children }: { children: ReactNode }) {
                         href={item.href}
                         className={`flex items-center gap-2.5 px-2.5 py-1.5 rounded-[6px] text-[13px] transition-colors ${
                           active
-                            ? "bg-primary/10 text-primary font-medium"
-                            : "text-dim hover:text-foreground hover:bg-hover"
+                            ? 'bg-primary/10 text-primary font-medium'
+                            : 'text-dim hover:text-foreground hover:bg-hover'
                         }`}
                       >
                         <item.icon className="w-4 h-4 shrink-0" />

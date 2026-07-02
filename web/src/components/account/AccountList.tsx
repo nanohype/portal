@@ -1,23 +1,23 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { api } from "@/api/client";
-import { useAuth } from "@/hooks/useAuth";
-import { Button } from "@/components/ui/button";
-import { SkeletonRows } from "@/components/ui/skeleton";
-import { Link } from "@/components/ui/link";
-import { formatRelativeTime } from "@/lib/utils";
-import { Cloud, Plus } from "lucide-react";
-import { AccountCreateModal } from "./AccountCreateModal";
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/api/client';
+import { useAuth } from '@/hooks/useAuth';
+import { Button } from '@/components/ui/button';
+import { SkeletonRows } from '@/components/ui/skeleton';
+import { Link } from '@/components/ui/link';
+import { formatRelativeTime } from '@/lib/utils';
+import { Cloud, Plus } from 'lucide-react';
+import { AccountCreateModal } from './AccountCreateModal';
 
 export function AccountList() {
   const { user } = useAuth();
-  const isAdmin = user?.role === "admin" || user?.role === "owner";
+  const isAdmin = user?.role === 'admin' || user?.role === 'owner';
   const [showCreate, setShowCreate] = useState(false);
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["accounts"],
+    queryKey: ['accounts'],
     queryFn: async () => {
-      const { data, error } = await api.GET("/accounts", {
+      const { data, error } = await api.GET('/accounts', {
         params: { query: { per_page: 100 } },
       });
       if (error) throw error;
@@ -59,8 +59,7 @@ export function AccountList() {
           </div>
           <h2 className="text-sm font-semibold mb-1">No accounts yet</h2>
           <p className="text-xs text-muted-foreground mb-5 max-w-[300px]">
-            Register an AWS account so portal can manage clusters and resources
-            inside it.
+            Register an AWS account so portal can manage clusters and resources inside it.
           </p>
           {isAdmin && (
             <Button size="sm" onClick={() => setShowCreate(true)}>
@@ -109,10 +108,7 @@ export function AccountList() {
         </div>
       )}
 
-      <AccountCreateModal
-        open={showCreate}
-        onClose={() => setShowCreate(false)}
-      />
+      <AccountCreateModal open={showCreate} onClose={() => setShowCreate(false)} />
     </div>
   );
 }

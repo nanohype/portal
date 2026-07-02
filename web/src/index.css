@@ -1,32 +1,32 @@
-@import "tailwindcss";
+@import 'tailwindcss';
 
 @theme {
-  --color-background: #0A0A0B;
-  --color-foreground: #EDEDEF;
+  --color-background: #0a0a0b;
+  --color-foreground: #ededef;
   --color-card: #111113;
-  --color-card-foreground: #EDEDEF;
+  --color-card-foreground: #ededef;
   --color-popover: #111113;
-  --color-popover-foreground: #EDEDEF;
-  --color-primary: #3E8E82;
-  --color-primary-foreground: #FFFFFF;
-  --color-secondary: #1A1A1D;
-  --color-secondary-foreground: #EDEDEF;
-  --color-muted: #1A1A1D;
-  --color-muted-foreground: #7E7E85;
-  --color-accent: #1A1A1D;
-  --color-accent-foreground: #EDEDEF;
-  --color-destructive: #CF222E;
-  --color-destructive-foreground: #EDEDEF;
+  --color-popover-foreground: #ededef;
+  --color-primary: #3e8e82;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #1a1a1d;
+  --color-secondary-foreground: #ededef;
+  --color-muted: #1a1a1d;
+  --color-muted-foreground: #7e7e85;
+  --color-accent: #1a1a1d;
+  --color-accent-foreground: #ededef;
+  --color-destructive: #cf222e;
+  --color-destructive-foreground: #ededef;
   --color-border: rgba(255, 255, 255, 0.06);
   --color-input: #161618;
   --color-input-border: rgba(255, 255, 255, 0.08);
-  --color-ring: #3E8E82;
-  --color-success: #2DA44E;
-  --color-warning: #D4A72C;
-  --color-dim: #52525A;
+  --color-ring: #3e8e82;
+  --color-success: #2da44e;
+  --color-warning: #d4a72c;
+  --color-dim: #52525a;
   --color-hover: rgba(255, 255, 255, 0.04);
   --color-scrollbar: rgba(255, 255, 255, 0.16);
-  --color-scrollbar-hover: rgba(255, 255, 255, 0.30);
+  --color-scrollbar-hover: rgba(255, 255, 255, 0.3);
 
   --radius-sm: 0.25rem;
   --radius-md: 0.375rem;
@@ -36,8 +36,8 @@
   /* Type — Inter for UI, JetBrains Mono for IDs/SHAs/regions/logs. Wired as
      tokens so the font-sans / font-mono utilities resolve to the loaded faces
      instead of falling back to the system stacks. */
-  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 
   /* Motion — one scale for easing + durations so transitions stay consistent.
      ease-out-expo is the expressive enter curve (decelerate into place); the
@@ -56,29 +56,29 @@
    light surfaces. The toggle (AppLayout) swaps the class; an inline script in
    index.html sets it pre-paint to avoid a flash. */
 html.light {
-  --color-background: #FBFBFC;
-  --color-foreground: #1A1A1F;
-  --color-card: #FFFFFF;
-  --color-card-foreground: #1A1A1F;
-  --color-popover: #FFFFFF;
-  --color-popover-foreground: #1A1A1F;
-  --color-primary: #2F7A6E;
-  --color-primary-foreground: #FFFFFF;
-  --color-secondary: #F2F2F4;
-  --color-secondary-foreground: #1A1A1F;
-  --color-muted: #F2F2F4;
-  --color-muted-foreground: #5C5C66;
-  --color-accent: #F0F0F3;
-  --color-accent-foreground: #1A1A1F;
-  --color-destructive: #C5221C;
-  --color-destructive-foreground: #FFFFFF;
-  --color-border: rgba(17, 17, 20, 0.10);
-  --color-input: #FFFFFF;
+  --color-background: #fbfbfc;
+  --color-foreground: #1a1a1f;
+  --color-card: #ffffff;
+  --color-card-foreground: #1a1a1f;
+  --color-popover: #ffffff;
+  --color-popover-foreground: #1a1a1f;
+  --color-primary: #2f7a6e;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #f2f2f4;
+  --color-secondary-foreground: #1a1a1f;
+  --color-muted: #f2f2f4;
+  --color-muted-foreground: #5c5c66;
+  --color-accent: #f0f0f3;
+  --color-accent-foreground: #1a1a1f;
+  --color-destructive: #c5221c;
+  --color-destructive-foreground: #ffffff;
+  --color-border: rgba(17, 17, 20, 0.1);
+  --color-input: #ffffff;
   --color-input-border: rgba(17, 17, 20, 0.14);
-  --color-ring: #2F7A6E;
-  --color-success: #1A7F37;
-  --color-warning: #9A6700;
-  --color-dim: #8B8B93;
+  --color-ring: #2f7a6e;
+  --color-success: #1a7f37;
+  --color-warning: #9a6700;
+  --color-dim: #8b8b93;
   --color-hover: rgba(17, 17, 20, 0.045);
   --color-scrollbar: rgba(17, 17, 20, 0.18);
   --color-scrollbar-hover: rgba(17, 17, 20, 0.34);
@@ -102,7 +102,9 @@ code,
 pre,
 .font-mono {
   font-variant-ligatures: none;
-  font-feature-settings: "liga" 0, "calt" 0;
+  font-feature-settings:
+    'liga' 0,
+    'calt' 0;
 }
 
 .xterm {
@@ -110,7 +112,11 @@ pre,
 }
 
 /* Smooth global transitions */
-a, button, [role="tab"], input, select {
+a,
+button,
+[role='tab'],
+input,
+select {
   transition: all 0.15s ease;
 }
 
@@ -151,24 +157,49 @@ a, button, [role="tab"], input, select {
 
 /* Keyframes */
 @keyframes fade-in {
-  from { opacity: 0; transform: translateY(3px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 @keyframes scale-in {
-  from { opacity: 0; transform: scale(0.98); }
-  to { opacity: 1; transform: scale(1); }
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 @keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
 }
 @keyframes glow-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(62, 142, 130, 0); }
-  50% { box-shadow: 0 0 12px 2px rgba(62, 142, 130, 0.15); }
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(62, 142, 130, 0);
+  }
+  50% {
+    box-shadow: 0 0 12px 2px rgba(62, 142, 130, 0.15);
+  }
 }
 @keyframes fade-overlay {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .animate-fade-in {
@@ -181,7 +212,12 @@ a, button, [role="tab"], input, select {
   animation: scale-in 0.15s cubic-bezier(0.32, 0.72, 0, 1) both;
 }
 .animate-shimmer {
-  background: linear-gradient(90deg, transparent 0%, rgba(62, 142, 130, 0.06) 50%, transparent 100%);
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(62, 142, 130, 0.06) 50%,
+    transparent 100%
+  );
   background-size: 200% 100%;
   animation: shimmer 2s ease-in-out infinite;
 }
@@ -192,16 +228,28 @@ a, button, [role="tab"], input, select {
 /* Slide-over (Drawer) — enter decelerates in, exit is quicker. Paired with the
    overlay fade. The component drives enter vs exit by swapping the class. */
 @keyframes slide-in-right {
-  from { transform: translateX(100%); }
-  to { transform: translateX(0); }
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
 }
 @keyframes slide-out-right {
-  from { transform: translateX(0); }
-  to { transform: translateX(100%); }
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(100%);
+  }
 }
 @keyframes fade-out {
-  from { opacity: 1; }
-  to { opacity: 0; }
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
 }
 .animate-slide-in-right {
   animation: slide-in-right var(--duration-slow) var(--ease-out-expo) both;
@@ -218,8 +266,14 @@ a, button, [role="tab"], input, select {
 
 /* Modal/popover exit — fade + slight scale-down (mirror of the fade-in enter). */
 @keyframes pop-out {
-  from { opacity: 1; transform: scale(1); }
-  to { opacity: 0; transform: scale(0.98); }
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.98);
+  }
 }
 .animate-pop-out {
   animation: pop-out var(--duration-fast) var(--ease-out) both;
@@ -228,7 +282,9 @@ a, button, [role="tab"], input, select {
 /* Honor the OS reduced-motion setting — collapse every animation/transition to
    an instant so the UI stays legible without movement. */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  *,
+  *::before,
+  *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
@@ -237,11 +293,21 @@ a, button, [role="tab"], input, select {
 }
 
 /* Stagger delays */
-.stagger-1 { animation-delay: 30ms; }
-.stagger-2 { animation-delay: 60ms; }
-.stagger-3 { animation-delay: 90ms; }
-.stagger-4 { animation-delay: 120ms; }
-.stagger-5 { animation-delay: 150ms; }
+.stagger-1 {
+  animation-delay: 30ms;
+}
+.stagger-2 {
+  animation-delay: 60ms;
+}
+.stagger-3 {
+  animation-delay: 90ms;
+}
+.stagger-4 {
+  animation-delay: 120ms;
+}
+.stagger-5 {
+  animation-delay: 150ms;
+}
 
 /* Glass effects */
 .glass {

@@ -1,13 +1,13 @@
-import { useQuery } from "@tanstack/react-query";
-import { api } from "@/api/client";
-import { Link } from "@/components/ui/link";
-import { Spinner } from "@/components/ui/spinner";
-import { summarizeFleet } from "@/lib/fleet";
-import type { ClusterOperation } from "@/api/models";
-import { CheckCircle2, AlertTriangle, Server, Activity } from "lucide-react";
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/api/client';
+import { Link } from '@/components/ui/link';
+import { Spinner } from '@/components/ui/spinner';
+import { summarizeFleet } from '@/lib/fleet';
+import type { ClusterOperation } from '@/api/models';
+import { CheckCircle2, AlertTriangle, Server, Activity } from 'lucide-react';
 
 function opMoving(o: ClusterOperation): boolean {
-  return o.status === "pending" || o.status === "committed";
+  return o.status === 'pending' || o.status === 'committed';
 }
 
 export function FleetOverview() {
@@ -15,9 +15,9 @@ export function FleetOverview() {
   // — distinct from ClusterList's enveloped ["clusters"] so the shapes can't
   // collide in the query cache.
   const { data: clusters, isLoading } = useQuery({
-    queryKey: ["clusters", "list"],
+    queryKey: ['clusters', 'list'],
     queryFn: async () => {
-      const { data, error } = await api.GET("/clusters", {
+      const { data, error } = await api.GET('/clusters', {
         params: { query: { per_page: 100 } },
       });
       if (error) throw error;
@@ -26,14 +26,13 @@ export function FleetOverview() {
   });
 
   const { data: operations } = useQuery({
-    queryKey: ["cluster-operations"],
+    queryKey: ['cluster-operations'],
     queryFn: async () => {
-      const { data, error } = await api.GET("/cluster-orders");
+      const { data, error } = await api.GET('/cluster-orders');
       if (error) throw error;
       return data?.data ?? [];
     },
-    refetchInterval: (query) =>
-      (query.state.data ?? []).some(opMoving) ? 5000 : false,
+    refetchInterval: (query) => ((query.state.data ?? []).some(opMoving) ? 5000 : false),
   });
 
   if (isLoading) {
@@ -59,9 +58,7 @@ export function FleetOverview() {
       {/* Verdict */}
       <div
         className={`rounded-lg border p-4 mb-6 flex items-center gap-3 ${
-          s.green
-            ? "bg-success/8 border-success/20"
-            : "bg-warning/10 border-warning/25"
+          s.green ? 'bg-success/8 border-success/20' : 'bg-warning/10 border-warning/25'
         }`}
       >
         {s.green ? (
@@ -71,12 +68,10 @@ export function FleetOverview() {
         )}
         <div className="text-sm font-medium">
           {s.total === 0
-            ? "No clusters yet"
+            ? 'No clusters yet'
             : s.green
-              ? `All ${s.total} cluster${s.total === 1 ? "" : "s"} healthy`
-              : `${s.attention} of ${s.total} cluster${
-                  s.total === 1 ? "" : "s"
-                } need attention`}
+              ? `All ${s.total} cluster${s.total === 1 ? '' : 's'} healthy`
+              : `${s.attention} of ${s.total} cluster${s.total === 1 ? '' : 's'} need attention`}
         </div>
       </div>
 
@@ -106,9 +101,9 @@ export function FleetOverview() {
 
       {(s.inFlightVends > 0 || s.inFlightDeprovisions > 0) && (
         <p className="text-[12px] text-muted-foreground mb-4">
-          {s.inFlightVends} vend{s.inFlightVends === 1 ? "" : "s"} ·{" "}
-          {s.inFlightDeprovisions} teardown
-          {s.inFlightDeprovisions === 1 ? "" : "s"} in flight —{" "}
+          {s.inFlightVends} vend{s.inFlightVends === 1 ? '' : 's'} · {s.inFlightDeprovisions}{' '}
+          teardown
+          {s.inFlightDeprovisions === 1 ? '' : 's'} in flight —{' '}
           <Link href="/ops" className="text-primary hover:underline">
             watch in Operations
           </Link>
@@ -131,23 +126,21 @@ function Stat({
   label: string;
   value: number;
   icon?: typeof Server;
-  tone?: "success" | "warning";
+  tone?: 'success' | 'warning';
 }) {
   const valueColor =
-    tone === "success" && value > 0
-      ? "text-success"
-      : tone === "warning" && value > 0
-        ? "text-warning"
-        : "text-foreground";
+    tone === 'success' && value > 0
+      ? 'text-success'
+      : tone === 'warning' && value > 0
+        ? 'text-warning'
+        : 'text-foreground';
   return (
     <div className="rounded-lg border border-border bg-card/40 p-3">
       <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground mb-1">
         {Icon && <Icon className="w-3 h-3" />}
         {label}
       </div>
-      <div className={`text-2xl font-semibold tabular-nums ${valueColor}`}>
-        {value}
-      </div>
+      <div className={`text-2xl font-semibold tabular-nums ${valueColor}`}>{value}</div>
     </div>
   );
 }
@@ -169,10 +162,7 @@ function Breakdown({
       ) : (
         <div className="space-y-1">
           {rows.map((r) => (
-            <div
-              key={r.key}
-              className="flex items-center justify-between text-[13px]"
-            >
+            <div key={r.key} className="flex items-center justify-between text-[13px]">
               <span className="font-mono text-muted-foreground">{r.key}</span>
               <span className="tabular-nums">{r.count}</span>
             </div>

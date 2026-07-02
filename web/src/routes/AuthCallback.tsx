@@ -1,8 +1,8 @@
-import { useEffect } from "react";
-import { api } from "@/api/client";
-import { useAuthStore } from "@/stores/auth";
-import { navigate } from "@/hooks/useNavigate";
-import { Spinner } from "@/components/ui/spinner";
+import { useEffect } from 'react';
+import { api } from '@/api/client';
+import { useAuthStore } from '@/stores/auth';
+import { navigate } from '@/hooks/useNavigate';
+import { Spinner } from '@/components/ui/spinner';
 
 // The server delivers the JWT via a short-lived HttpOnly cookie scoped to the
 // handoff endpoint — never in a URL or in document.cookie, so it can't leak
@@ -18,7 +18,7 @@ let handoffInFlight: Promise<string | null> | null = null;
 
 function exchangeHandoffToken(): Promise<string | null> {
   handoffInFlight ??= api
-    .POST("/auth/handoff")
+    .POST('/auth/handoff')
     .then(({ data }) => data?.token ?? null)
     .catch(() => null)
     .finally(() => {
@@ -35,11 +35,11 @@ export function AuthCallbackPage() {
       if (token) {
         // Store the token, then navigate client-side — the protected route's
         // beforeLoad resolves /auth/me before rendering, so there's no reload flash.
-        localStorage.setItem("portal_token", token);
+        localStorage.setItem('portal_token', token);
         useAuthStore.setState({ token, isAuthenticated: true });
-        navigate("/");
+        navigate('/');
       } else {
-        navigate("/login");
+        navigate('/login');
       }
     });
     return () => {

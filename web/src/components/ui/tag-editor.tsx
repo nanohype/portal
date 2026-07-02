@@ -1,6 +1,6 @@
-import { useState } from "react";
-import { Input } from "@/components/ui/input";
-import { X, Plus } from "lucide-react";
+import { useState } from 'react';
+import { Input } from '@/components/ui/input';
+import { X, Plus } from 'lucide-react';
 
 interface TagEditorProps {
   value: string;
@@ -10,7 +10,7 @@ interface TagEditorProps {
 function parseTags(value: string): Record<string, string> {
   try {
     const parsed = JSON.parse(value);
-    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
       const result: Record<string, string> = {};
       for (const [k, v] of Object.entries(parsed)) {
         result[k] = String(v);
@@ -24,8 +24,8 @@ function parseTags(value: string): Record<string, string> {
 }
 
 export function TagEditor({ value, onChange }: TagEditorProps) {
-  const [newKey, setNewKey] = useState("");
-  const [newValue, setNewValue] = useState("");
+  const [newKey, setNewKey] = useState('');
+  const [newValue, setNewValue] = useState('');
 
   const tags = parseTags(value);
 
@@ -37,8 +37,8 @@ export function TagEditor({ value, onChange }: TagEditorProps) {
     if (!newKey.trim()) return;
     const updated = { ...tags, [newKey.trim()]: newValue.trim() };
     update(updated);
-    setNewKey("");
-    setNewValue("");
+    setNewKey('');
+    setNewValue('');
   };
 
   const removeTag = (key: string) => {
@@ -48,7 +48,7 @@ export function TagEditor({ value, onChange }: TagEditorProps) {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") {
+    if (e.key === 'Enter') {
       e.preventDefault();
       addTag();
     }

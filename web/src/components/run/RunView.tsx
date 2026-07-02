@@ -1,46 +1,43 @@
-import { useEffect, useRef, useCallback, useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Terminal } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
-import { toast } from "sonner";
-import { api } from "@/api/client";
-import { useRunStream } from "@/hooks/useRunStream";
-import { RunStatusBadge } from "./RunStatusBadge";
-import { isRunInFlight } from "@/lib/status";
-import { ApprovalPanel } from "./ApprovalPanel";
-import { PlanDiffViewer } from "./PlanDiffViewer";
-import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
-import { formatRelativeTime, formatDuration } from "@/lib/utils";
-import { cn } from "@/lib/utils";
-import { navigate } from "@/hooks/useNavigate";
-import { Link } from "@/components/ui/link";
-import { ArrowLeft, Clock, Timer, GitCommit, XCircle, RotateCcw } from "lucide-react";
-import type { RunStatus, TofuPlanJSON } from "@/api/models";
+import { useEffect, useRef, useCallback, useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Terminal } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
+import { toast } from 'sonner';
+import { api } from '@/api/client';
+import { useRunStream } from '@/hooks/useRunStream';
+import { RunStatusBadge } from './RunStatusBadge';
+import { isRunInFlight } from '@/lib/status';
+import { ApprovalPanel } from './ApprovalPanel';
+import { PlanDiffViewer } from './PlanDiffViewer';
+import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
+import { formatRelativeTime, formatDuration } from '@/lib/utils';
+import { cn } from '@/lib/utils';
+import { navigate } from '@/hooks/useNavigate';
+import { Link } from '@/components/ui/link';
+import { ArrowLeft, Clock, Timer, GitCommit, XCircle, RotateCcw } from 'lucide-react';
+import type { RunStatus, TofuPlanJSON } from '@/api/models';
 
 interface Props {
   workspaceId: string;
   runId: string;
 }
 
-type ViewTab = "logs" | "changes";
+type ViewTab = 'logs' | 'changes';
 
 export function RunView({ workspaceId, runId }: Props) {
   const queryClient = useQueryClient();
   const termRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
-  const [activeTab, setActiveTab] = useState<ViewTab>("logs");
+  const [activeTab, setActiveTab] = useState<ViewTab>('logs');
 
   const { data: run, isLoading } = useQuery({
-    queryKey: ["run", runId],
+    queryKey: ['run', runId],
     queryFn: async () => {
-      const { data, error } = await api.GET(
-        "/workspaces/{workspaceId}/runs/{runId}",
-        {
-          params: { path: { workspaceId, runId } },
-        }
-      );
+      const { data, error } = await api.GET('/workspaces/{workspaceId}/runs/{runId}', {
+        params: { path: { workspaceId, runId } },
+      });
       if (error) throw error;
       return data;
     },
@@ -51,75 +48,68 @@ export function RunView({ workspaceId, runId }: Props) {
   });
 
   const isRunning =
-    run?.status === "planning" ||
-    run?.status === "applying" ||
-    run?.status === "queued";
+    run?.status === 'planning' || run?.status === 'applying' || run?.status === 'queued';
 
   const isTerminal =
-    run?.status === "planned" ||
-    run?.status === "awaiting_approval" ||
-    run?.status === "applied" ||
-    run?.status === "errored" ||
-    run?.status === "cancelled" ||
-    run?.status === "discarded";
+    run?.status === 'planned' ||
+    run?.status === 'awaiting_approval' ||
+    run?.status === 'applied' ||
+    run?.status === 'errored' ||
+    run?.status === 'cancelled' ||
+    run?.status === 'discarded';
 
   const hasChanges = !!run?.plan_json_url && isTerminal;
 
   const { data: planJSON } = useQuery({
-    queryKey: ["plan-json", runId],
+    queryKey: ['plan-json', runId],
     queryFn: async () => {
-      const { data, error } = await api.GET(
-        "/workspaces/{workspaceId}/runs/{runId}/plan-json",
-        { params: { path: { workspaceId, runId } } }
-      );
+      const { data, error } = await api.GET('/workspaces/{workspaceId}/runs/{runId}/plan-json', {
+        params: { path: { workspaceId, runId } },
+      });
       if (error) throw error;
       return data as TofuPlanJSON;
     },
-    enabled: activeTab === "changes" && !!run?.plan_json_url,
+    enabled: activeTab === 'changes' && !!run?.plan_json_url,
   });
 
   const isCancellable =
-    run?.status === "pending" ||
-    run?.status === "queued" ||
-    run?.status === "planning" ||
-    run?.status === "applying" ||
-    run?.status === "awaiting_approval";
+    run?.status === 'pending' ||
+    run?.status === 'queued' ||
+    run?.status === 'planning' ||
+    run?.status === 'applying' ||
+    run?.status === 'awaiting_approval';
 
   const cancelMutation = useMutation({
     mutationFn: async () => {
-      const { data, error } = await api.POST(
-        "/workspaces/{workspaceId}/runs/{runId}/cancel",
-        { params: { path: { workspaceId, runId } } }
-      );
+      const { data, error } = await api.POST('/workspaces/{workspaceId}/runs/{runId}/cancel', {
+        params: { path: { workspaceId, runId } },
+      });
       if (error) throw error;
       return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["run", runId] });
-      toast.success("Run cancelled");
+      queryClient.invalidateQueries({ queryKey: ['run', runId] });
+      toast.success('Run cancelled');
     },
-    onError: () => toast.error("Failed to cancel run"),
+    onError: () => toast.error('Failed to cancel run'),
   });
 
-  const isRetryable = run?.status === "errored" || run?.status === "cancelled";
+  const isRetryable = run?.status === 'errored' || run?.status === 'cancelled';
 
   const retryMutation = useMutation({
     mutationFn: async () => {
-      const { data, error } = await api.POST(
-        "/workspaces/{workspaceId}/runs",
-        {
-          params: { path: { workspaceId } },
-          body: { operation: run?.operation },
-        }
-      );
+      const { data, error } = await api.POST('/workspaces/{workspaceId}/runs', {
+        params: { path: { workspaceId } },
+        body: { operation: run?.operation },
+      });
       if (error) throw error;
       return data;
     },
     onSuccess: (newRun) => {
-      toast.success("Retry run created");
+      toast.success('Retry run created');
       navigate(`/workspaces/${workspaceId}/runs/${newRun.id}`);
     },
-    onError: () => toast.error("Failed to retry run"),
+    onError: () => toast.error('Failed to retry run'),
   });
 
   const handleData = useCallback((data: string) => {
@@ -147,18 +137,18 @@ export function RunView({ workspaceId, runId }: Props) {
 
     const terminal = new Terminal({
       theme: {
-        background: "#0a0a0a",
-        foreground: "#e5e5e5",
-        cursor: "#e5e5e5",
-        selectionBackground: "#3b82f620",
-        black: "#0a0a0a",
-        red: "#ef4444",
-        green: "#22c55e",
-        yellow: "#eab308",
-        blue: "#3b82f6",
-        magenta: "#a855f7",
-        cyan: "#06b6d4",
-        white: "#e5e5e5",
+        background: '#0a0a0a',
+        foreground: '#e5e5e5',
+        cursor: '#e5e5e5',
+        selectionBackground: '#3b82f620',
+        black: '#0a0a0a',
+        red: '#ef4444',
+        green: '#22c55e',
+        yellow: '#eab308',
+        blue: '#3b82f6',
+        magenta: '#a855f7',
+        cyan: '#06b6d4',
+        white: '#e5e5e5',
       },
       fontSize: 13,
       fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", monospace',
@@ -195,7 +185,7 @@ export function RunView({ workspaceId, runId }: Props) {
     if (!termReady || !terminalRef.current || wroteOutputRef.current) return;
     if (run?.plan_output && isTerminal) {
       terminalRef.current.clear();
-      terminalRef.current.write(run.plan_output.replace(/\n/g, "\r\n"));
+      terminalRef.current.write(run.plan_output.replace(/\n/g, '\r\n'));
       wroteOutputRef.current = true;
     }
   }, [termReady, run?.plan_output, isTerminal]);
@@ -217,10 +207,10 @@ export function RunView({ workspaceId, runId }: Props) {
   }
 
   const showApproval =
-    run.status === "planned" ||
-    run.status === "awaiting_approval" ||
-    run.status === "applied" ||
-    run.status === "discarded";
+    run.status === 'planned' ||
+    run.status === 'awaiting_approval' ||
+    run.status === 'applied' ||
+    run.status === 'discarded';
 
   return (
     <div className="h-full flex flex-col">
@@ -237,7 +227,7 @@ export function RunView({ workspaceId, runId }: Props) {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <h1 className="text-lg font-semibold tracking-tight">
-              {run.operation.charAt(0).toUpperCase() + run.operation.slice(1)}{" "}
+              {run.operation.charAt(0).toUpperCase() + run.operation.slice(1)}{' '}
               <span className="font-mono text-base text-muted-foreground">
                 {run.id.slice(0, 12)}
               </span>
@@ -291,24 +281,16 @@ export function RunView({ workspaceId, runId }: Props) {
         </div>
 
         {/* Resource change summary */}
-        {(run.resources_added ||
-          run.resources_changed ||
-          run.resources_deleted) ? (
+        {run.resources_added || run.resources_changed || run.resources_deleted ? (
           <div className="flex items-center gap-4 mt-3 text-sm font-mono">
             {run.resources_added ? (
-              <span className="text-success">
-                +{run.resources_added} to add
-              </span>
+              <span className="text-success">+{run.resources_added} to add</span>
             ) : null}
             {run.resources_changed ? (
-              <span className="text-warning">
-                ~{run.resources_changed} to change
-              </span>
+              <span className="text-warning">~{run.resources_changed} to change</span>
             ) : null}
             {run.resources_deleted ? (
-              <span className="text-destructive">
-                -{run.resources_deleted} to destroy
-              </span>
+              <span className="text-destructive">-{run.resources_deleted} to destroy</span>
             ) : null}
           </div>
         ) : null}
@@ -323,47 +305,46 @@ export function RunView({ workspaceId, runId }: Props) {
       {/* Tab bar — only show when Changes tab is available */}
       {hasChanges && (
         <div className="flex border-b border-border bg-card" role="tablist" aria-label="Run output">
-          {(["logs", "changes"] as const).map((tab) => (
+          {(['logs', 'changes'] as const).map((tab) => (
             <button
               key={tab}
               role="tab"
               aria-selected={activeTab === tab}
               onClick={() => setActiveTab(tab)}
               className={cn(
-                "px-4 py-2 text-sm font-medium transition-colors cursor-pointer",
+                'px-4 py-2 text-sm font-medium transition-colors cursor-pointer',
                 activeTab === tab
-                  ? "text-foreground border-b-2 border-primary"
-                  : "text-muted-foreground hover:text-foreground"
+                  ? 'text-foreground border-b-2 border-primary'
+                  : 'text-muted-foreground hover:text-foreground',
               )}
             >
-              {tab === "logs" ? "Logs" : "Changes"}
+              {tab === 'logs' ? 'Logs' : 'Changes'}
             </button>
           ))}
         </div>
       )}
 
       {/* Logs tab */}
-      {activeTab === "logs" && (
+      {activeTab === 'logs' && (
         <div className="flex-1 min-h-0 overflow-auto bg-[#0a0a0a]">
           {/* Live terminal for running jobs */}
           <div
             ref={termRef}
-            className={cn(
-              "h-full",
-              isTerminal && run?.plan_output && "hidden"
-            )}
+            className={cn('h-full', isTerminal && run?.plan_output && 'hidden')}
             role="log"
             aria-label="Run output logs"
           />
           {/* Static log output for finished runs */}
           {isTerminal && run?.plan_output && (
-            <pre className="p-4 text-sm font-mono text-[#e5e5e5] whitespace-pre-wrap">{run.plan_output}</pre>
+            <pre className="p-4 text-sm font-mono text-[#e5e5e5] whitespace-pre-wrap">
+              {run.plan_output}
+            </pre>
           )}
         </div>
       )}
 
       {/* Changes tab */}
-      {activeTab === "changes" && hasChanges && run.plan_output && (
+      {activeTab === 'changes' && hasChanges && run.plan_output && (
         <div className="flex-1 min-h-0 overflow-auto">
           <PlanDiffViewer planOutput={run.plan_output} planJSON={planJSON} />
         </div>

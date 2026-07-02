@@ -1,42 +1,29 @@
-import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
-import { api } from "@/api/client";
-import { useAuth } from "@/hooks/useAuth";
-import { navigate } from "@/hooks/useNavigate";
-import type { Team, TenantOperation, TenantTeamAccess } from "@/api/models";
-import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
-import { Link } from "@/components/ui/link";
-import { useConfirm } from "@/components/ui/confirm-context";
-import { formatRelativeTime } from "@/lib/utils";
-import { StatusBadge } from "@/components/ui/status-badge";
-import {
-  tenantPhase,
-  tenantOpStatus,
-  isTenantPhaseTransitional,
-} from "@/lib/status";
-import {
-  ArrowLeft,
-  Boxes,
-  ChevronDown,
-  ChevronRight,
-  Trash2,
-} from "lucide-react";
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { api } from '@/api/client';
+import { useAuth } from '@/hooks/useAuth';
+import { navigate } from '@/hooks/useNavigate';
+import type { Team, TenantOperation, TenantTeamAccess } from '@/api/models';
+import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
+import { Link } from '@/components/ui/link';
+import { useConfirm } from '@/components/ui/confirm-context';
+import { formatRelativeTime } from '@/lib/utils';
+import { StatusBadge } from '@/components/ui/status-badge';
+import { tenantPhase, tenantOpStatus, isTenantPhaseTransitional } from '@/lib/status';
+import { ArrowLeft, Boxes, ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
 
 export function TenantDetail({ tenantId }: { tenantId: string }) {
   const { user } = useAuth();
-  const canWrite =
-    user?.role === "operator" ||
-    user?.role === "admin" ||
-    user?.role === "owner";
+  const canWrite = user?.role === 'operator' || user?.role === 'admin' || user?.role === 'owner';
   const queryClient = useQueryClient();
   const confirm = useConfirm();
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["tenant", tenantId],
+    queryKey: ['tenant', tenantId],
     queryFn: async () => {
-      const { data, error } = await api.GET("/tenants/{tenantId}", {
+      const { data, error } = await api.GET('/tenants/{tenantId}', {
         params: { path: { tenantId } },
       });
       if (error) throw error;
@@ -44,18 +31,15 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
     },
     // Poll fast only while the tenant is still settling; otherwise back off.
     refetchInterval: (query) =>
-      query.state.data && isTenantPhaseTransitional(query.state.data.phase)
-        ? 5000
-        : 30000,
+      query.state.data && isTenantPhaseTransitional(query.state.data.phase) ? 5000 : 30000,
   });
 
   const { data: operations } = useQuery({
-    queryKey: ["tenant", tenantId, "operations"],
+    queryKey: ['tenant', tenantId, 'operations'],
     queryFn: async () => {
-      const { data, error } = await api.GET(
-        "/tenants/{tenantId}/operations",
-        { params: { path: { tenantId } } },
-      );
+      const { data, error } = await api.GET('/tenants/{tenantId}/operations', {
+        params: { path: { tenantId } },
+      });
       if (error) throw error;
       return data?.data ?? [];
     },
@@ -64,26 +48,26 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
     // enqueue, and we want the UI to reflect that.
     refetchInterval: (q) => {
       const ops = q.state.data as TenantOperation[] | undefined;
-      const transitional = ops?.some((o) => o.status === "pending");
+      const transitional = ops?.some((o) => o.status === 'pending');
       return transitional ? 2000 : 10000;
     },
   });
 
   const deleteMutation = useMutation({
     mutationFn: async () => {
-      const { data, error } = await api.DELETE("/tenants/{tenantId}", {
+      const { data, error } = await api.DELETE('/tenants/{tenantId}', {
         params: { path: { tenantId } },
       });
       if (error) throw error;
       return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["tenant", tenantId, "operations"] });
-      queryClient.invalidateQueries({ queryKey: ["tenants"] });
-      toast.success("Tenant delete enqueued · ArgoCD will prune shortly");
-      navigate("/tenants");
+      queryClient.invalidateQueries({ queryKey: ['tenant', tenantId, 'operations'] });
+      queryClient.invalidateQueries({ queryKey: ['tenants'] });
+      toast.success('Tenant delete enqueued · ArgoCD will prune shortly');
+      navigate('/tenants');
     },
-    onError: () => toast.error("Failed to enqueue tenant delete"),
+    onError: () => toast.error('Failed to enqueue tenant delete'),
   });
 
   const [showSpec, setShowSpec] = useState(false);
@@ -124,19 +108,14 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-lg font-semibold tracking-tight">
-                {data.name}
-              </h1>
+              <h1 className="text-lg font-semibold tracking-tight">{data.name}</h1>
               <StatusBadge visual={tenantPhase(data.phase)} />
             </div>
             <p className="text-[12px] text-muted-foreground mt-0.5">
-              <Link
-                href={`/clusters/${data.cluster_id}`}
-                className="hover:text-foreground"
-              >
+              <Link href={`/clusters/${data.cluster_id}`} className="hover:text-foreground">
                 cluster {data.cluster_id}
               </Link>
-              {" · "}observed {formatRelativeTime(data.last_observed_at)}
+              {' · '}observed {formatRelativeTime(data.last_observed_at)}
             </p>
           </div>
         </div>
@@ -149,8 +128,8 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
                 await confirm({
                   title: `Delete tenant "${data.name}"?`,
                   message:
-                    "This commits a removal to the tenants repo and ArgoCD will prune the resources.",
-                  confirmLabel: "Delete",
+                    'This commits a removal to the tenants repo and ArgoCD will prune the resources.',
+                  confirmLabel: 'Delete',
                 })
               ) {
                 deleteMutation.mutate();
@@ -165,9 +144,7 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
         )}
       </div>
 
-      {operations && operations.length > 0 && (
-        <OperationsPanel ops={operations} />
-      )}
+      {operations && operations.length > 0 && <OperationsPanel ops={operations} />}
 
       {canWrite && <AccessPanel tenantId={tenantId} />}
 
@@ -191,12 +168,12 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
 function AccessPanel({ tenantId }: { tenantId: string }) {
   const queryClient = useQueryClient();
   const confirm = useConfirm();
-  const [picker, setPicker] = useState("");
+  const [picker, setPicker] = useState('');
 
   const { data: access } = useQuery({
-    queryKey: ["tenant", tenantId, "access"],
+    queryKey: ['tenant', tenantId, 'access'],
     queryFn: async () => {
-      const { data, error } = await api.GET("/tenants/{tenantId}/access", {
+      const { data, error } = await api.GET('/tenants/{tenantId}/access', {
         params: { path: { tenantId } },
       });
       if (error) throw error;
@@ -205,9 +182,9 @@ function AccessPanel({ tenantId }: { tenantId: string }) {
   });
 
   const { data: teams } = useQuery({
-    queryKey: ["teams", "all"],
+    queryKey: ['teams', 'all'],
     queryFn: async () => {
-      const { data, error } = await api.GET("/teams");
+      const { data, error } = await api.GET('/teams');
       if (error) throw error;
       return data?.data ?? [];
     },
@@ -215,40 +192,38 @@ function AccessPanel({ tenantId }: { tenantId: string }) {
 
   const grant = useMutation({
     mutationFn: async (teamID: string) => {
-      const { data, error } = await api.POST(
-        "/tenants/{tenantId}/access",
-        { params: { path: { tenantId } }, body: { team_id: teamID } },
-      );
+      const { data, error } = await api.POST('/tenants/{tenantId}/access', {
+        params: { path: { tenantId } },
+        body: { team_id: teamID },
+      });
       if (error) throw error;
       return data!;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["tenant", tenantId, "access"] });
-      toast.success("Access granted");
-      setPicker("");
+      queryClient.invalidateQueries({ queryKey: ['tenant', tenantId, 'access'] });
+      toast.success('Access granted');
+      setPicker('');
     },
-    onError: () => toast.error("Failed to grant access"),
+    onError: () => toast.error('Failed to grant access'),
   });
 
   const revoke = useMutation({
     mutationFn: async (teamID: string) => {
-      const { error } = await api.DELETE(
-        "/tenants/{tenantId}/access/{teamId}",
-        { params: { path: { tenantId, teamId: teamID } } },
-      );
+      const { error } = await api.DELETE('/tenants/{tenantId}/access/{teamId}', {
+        params: { path: { tenantId, teamId: teamID } },
+      });
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["tenant", tenantId, "access"] });
-      toast.success("Access revoked");
+      queryClient.invalidateQueries({ queryKey: ['tenant', tenantId, 'access'] });
+      toast.success('Access revoked');
     },
-    onError: () => toast.error("Failed to revoke access"),
+    onError: () => toast.error('Failed to revoke access'),
   });
 
   const grantedIDs = new Set((access ?? []).map((a: TenantTeamAccess) => a.team_id));
   const ungranted = (teams ?? []).filter((t: Team) => !grantedIDs.has(t.id));
-  const teamName = (id: string) =>
-    (teams ?? []).find((t: Team) => t.id === id)?.name ?? id;
+  const teamName = (id: string) => (teams ?? []).find((t: Team) => t.id === id)?.name ?? id;
 
   return (
     <div className="mb-6 border border-border/60 rounded-lg overflow-hidden">
@@ -258,25 +233,20 @@ function AccessPanel({ tenantId }: { tenantId: string }) {
       <div className="divide-y divide-border/30">
         {(access ?? []).length === 0 ? (
           <div className="px-4 py-3 text-xs text-muted-foreground">
-            No teams have access yet — admins can see this tenant; operators
-            and viewers can only see it after a grant.
+            No teams have access yet — admins can see this tenant; operators and viewers can only
+            see it after a grant.
           </div>
         ) : (
           (access ?? []).map((a: TenantTeamAccess) => (
-            <div
-              key={a.id}
-              className="px-4 py-2.5 text-xs flex items-center gap-3"
-            >
+            <div key={a.id} className="px-4 py-2.5 text-xs flex items-center gap-3">
               <span className="font-medium flex-1">{teamName(a.team_id)}</span>
-              <span className="text-muted-foreground/70">
-                {formatRelativeTime(a.granted_at)}
-              </span>
+              <span className="text-muted-foreground/70">{formatRelativeTime(a.granted_at)}</span>
               <button
                 onClick={async () => {
                   if (
                     await confirm({
                       title: `Revoke access from ${teamName(a.team_id)}?`,
-                      confirmLabel: "Revoke",
+                      confirmLabel: 'Revoke',
                     })
                   ) {
                     revoke.mutate(a.team_id);
@@ -369,11 +339,7 @@ function JSONPanel({
         onClick={onToggle}
         className="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-medium hover:bg-accent/30 transition-colors cursor-pointer"
       >
-        {open ? (
-          <ChevronDown className="w-3 h-3" />
-        ) : (
-          <ChevronRight className="w-3 h-3" />
-        )}
+        {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
         {title}
       </button>
       {open && (

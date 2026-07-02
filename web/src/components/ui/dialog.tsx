@@ -9,15 +9,15 @@ import {
   useId,
   useRef,
   useState,
-} from "react";
-import { cn } from "@/lib/utils";
+} from 'react';
+import { cn } from '@/lib/utils';
 
-type DialogSize = "md" | "lg" | "xl";
+type DialogSize = 'md' | 'lg' | 'xl';
 
 const SIZE_CLASS: Record<DialogSize, string> = {
-  md: "max-w-lg", // default — single-column forms
-  lg: "max-w-2xl",
-  xl: "max-w-3xl", // wide enough for a two-column layout
+  md: 'max-w-lg', // default — single-column forms
+  lg: 'max-w-2xl',
+  xl: 'max-w-3xl', // wide enough for a two-column layout
 };
 
 interface DialogProps {
@@ -36,7 +36,7 @@ const DialogTitleIdContext = createContext<string | undefined>(undefined);
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-export function Dialog({ open, onClose, children, size = "md" }: DialogProps) {
+export function Dialog({ open, onClose, children, size = 'md' }: DialogProps) {
   const contentRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const [mounted, setMounted] = useState(open);
@@ -63,13 +63,12 @@ export function Dialog({ open, onClose, children, size = "md" }: DialogProps) {
     onCloseRef.current = onClose;
   });
   const handleEscape = useCallback((e: KeyboardEvent) => {
-    if (e.key === "Escape") onCloseRef.current();
+    if (e.key === 'Escape') onCloseRef.current();
   }, []);
 
   const handleFocusTrap = useCallback((e: KeyboardEvent) => {
-    if (e.key !== "Tab" || !contentRef.current) return;
-    const focusable =
-      contentRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
+    if (e.key !== 'Tab' || !contentRef.current) return;
+    const focusable = contentRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
     if (focusable.length === 0) return;
     const first = focusable[0];
     const last = focusable[focusable.length - 1];
@@ -86,13 +85,13 @@ export function Dialog({ open, onClose, children, size = "md" }: DialogProps) {
 
   useEffect(() => {
     if (!mounted) return;
-    document.addEventListener("keydown", handleEscape);
-    document.addEventListener("keydown", handleFocusTrap);
-    document.body.style.overflow = "hidden";
+    document.addEventListener('keydown', handleEscape);
+    document.addEventListener('keydown', handleFocusTrap);
+    document.body.style.overflow = 'hidden';
     return () => {
-      document.removeEventListener("keydown", handleEscape);
-      document.removeEventListener("keydown", handleFocusTrap);
-      document.body.style.overflow = "";
+      document.removeEventListener('keydown', handleEscape);
+      document.removeEventListener('keydown', handleFocusTrap);
+      document.body.style.overflow = '';
     };
   }, [mounted, handleEscape, handleFocusTrap]);
 
@@ -138,8 +137,8 @@ export function Dialog({ open, onClose, children, size = "md" }: DialogProps) {
     >
       <div
         className={cn(
-          "fixed inset-0 bg-black/70 backdrop-blur-md",
-          closing ? "animate-overlay-out" : "animate-overlay-in",
+          'fixed inset-0 bg-black/70 backdrop-blur-md',
+          closing ? 'animate-overlay-out' : 'animate-overlay-in',
         )}
         aria-hidden="true"
         onClick={onClose}
@@ -148,14 +147,12 @@ export function Dialog({ open, onClose, children, size = "md" }: DialogProps) {
         ref={contentRef}
         onAnimationEnd={onContentAnimEnd}
         className={cn(
-          "relative z-50 w-full mx-4",
+          'relative z-50 w-full mx-4',
           SIZE_CLASS[size],
-          closing ? "animate-pop-out" : "animate-fade-in",
+          closing ? 'animate-pop-out' : 'animate-fade-in',
         )}
       >
-        <DialogTitleIdContext.Provider value={titleId}>
-          {children}
-        </DialogTitleIdContext.Provider>
+        <DialogTitleIdContext.Provider value={titleId}>{children}</DialogTitleIdContext.Provider>
       </div>
     </div>
   );
@@ -172,8 +169,8 @@ export function DialogContent({
   return (
     <div
       className={cn(
-        "rounded-[10px] border border-border bg-card/80 backdrop-blur-xl p-6 shadow-2xl shadow-black/40",
-        className
+        'rounded-[10px] border border-border bg-card/80 backdrop-blur-xl p-6 shadow-2xl shadow-black/40',
+        className,
       )}
       onClick={(e: MouseEvent) => e.stopPropagation()}
       {...props}
@@ -187,28 +184,15 @@ export function DialogHeader({ children }: { children: ReactNode }) {
   return <div className="mb-5">{children}</div>;
 }
 
-export function DialogTitle({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
+export function DialogTitle({ children, className }: { children: ReactNode; className?: string }) {
   const id = useContext(DialogTitleIdContext);
   return (
-    <h2
-      id={id}
-      className={cn("text-lg font-semibold text-foreground", className)}
-    >
+    <h2 id={id} className={cn('text-lg font-semibold text-foreground', className)}>
       {children}
     </h2>
   );
 }
 
-export function DialogDescription({
-  children,
-}: {
-  children: ReactNode;
-}) {
+export function DialogDescription({ children }: { children: ReactNode }) {
   return <p className="text-sm text-muted-foreground mt-1.5">{children}</p>;
 }

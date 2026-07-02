@@ -1,32 +1,31 @@
-import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
-import { api } from "@/api/client";
-import type { PipelineRun, PipelineVariable } from "@/api/models";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
-import { Spinner } from "@/components/ui/spinner";
-import { Link } from "@/components/ui/link";
-import { Pagination } from "@/components/ui/pagination";
-import { useConfirm } from "@/components/ui/confirm-context";
-import { navigate } from "@/hooks/useNavigate";
-import { StatusBadge } from "@/components/ui/status-badge";
-import { formatDuration } from "@/lib/utils";
-import { isPipelineRunInFlight, pipelineRunStatus } from "@/lib/status";
-import { GitBranch, Play, ArrowLeft, ChevronRight, Plus, Pencil, Trash2, Lock } from "lucide-react";
-
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { api } from '@/api/client';
+import type { PipelineRun, PipelineVariable } from '@/api/models';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
+import { Spinner } from '@/components/ui/spinner';
+import { Link } from '@/components/ui/link';
+import { Pagination } from '@/components/ui/pagination';
+import { useConfirm } from '@/components/ui/confirm-context';
+import { navigate } from '@/hooks/useNavigate';
+import { StatusBadge } from '@/components/ui/status-badge';
+import { formatDuration } from '@/lib/utils';
+import { isPipelineRunInFlight, pipelineRunStatus } from '@/lib/status';
+import { GitBranch, Play, ArrowLeft, ChevronRight, Plus, Pencil, Trash2, Lock } from 'lucide-react';
 
 export function PipelineDetail({ pipelineId }: { pipelineId: string }) {
-  const [tab, setTab] = useState<"stages" | "variables" | "runs">("stages");
+  const [tab, setTab] = useState<'stages' | 'variables' | 'runs'>('stages');
   const [page, setPage] = useState(1);
   const queryClient = useQueryClient();
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["pipeline", pipelineId],
+    queryKey: ['pipeline', pipelineId],
     queryFn: async () => {
-      const { data, error } = await api.GET("/pipelines/{pipelineId}", {
+      const { data, error } = await api.GET('/pipelines/{pipelineId}', {
         params: { path: { pipelineId } },
       });
       if (error) throw error;
@@ -35,26 +34,24 @@ export function PipelineDetail({ pipelineId }: { pipelineId: string }) {
   });
 
   const { data: runsData } = useQuery({
-    queryKey: ["pipeline-runs", pipelineId, page],
+    queryKey: ['pipeline-runs', pipelineId, page],
     queryFn: async () => {
-      const { data, error } = await api.GET("/pipelines/{pipelineId}/runs", {
+      const { data, error } = await api.GET('/pipelines/{pipelineId}/runs', {
         params: { path: { pipelineId }, query: { page, per_page: 20 } },
       });
       if (error) throw error;
       return data!;
     },
-    enabled: tab === "runs",
+    enabled: tab === 'runs',
     // Keep the runs list live while any pipeline run is still advancing, so a
     // run started here progresses through its stages without a manual refresh.
     refetchInterval: (query) =>
-      query.state.data?.data?.some((r) => isPipelineRunInFlight(r.status))
-        ? 3000
-        : false,
+      query.state.data?.data?.some((r) => isPipelineRunInFlight(r.status)) ? 3000 : false,
   });
 
   const startRunMutation = useMutation({
     mutationFn: async () => {
-      const { data, error } = await api.POST("/pipelines/{pipelineId}/runs", {
+      const { data, error } = await api.POST('/pipelines/{pipelineId}/runs', {
         params: { path: { pipelineId } },
       });
       if (error) throw error;
@@ -62,12 +59,12 @@ export function PipelineDetail({ pipelineId }: { pipelineId: string }) {
     },
     onSuccess: (pr) => {
       queryClient.invalidateQueries({
-        queryKey: ["pipeline-runs", pipelineId],
+        queryKey: ['pipeline-runs', pipelineId],
       });
-      toast.success("Pipeline run started");
+      toast.success('Pipeline run started');
       navigate(`/pipelines/${pipelineId}/runs/${pr.id}`);
     },
-    onError: () => toast.error("Failed to start pipeline run"),
+    onError: () => toast.error('Failed to start pipeline run'),
   });
 
   if (isLoading) {
@@ -107,13 +104,9 @@ export function PipelineDetail({ pipelineId }: { pipelineId: string }) {
               <GitBranch className="w-4 h-4 text-primary" />
             </div>
             <div>
-              <h1 className="text-lg font-semibold tracking-tight">
-                {pipeline.name}
-              </h1>
+              <h1 className="text-lg font-semibold tracking-tight">{pipeline.name}</h1>
               {pipeline.description && (
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {pipeline.description}
-                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">{pipeline.description}</p>
               )}
             </div>
           </div>
@@ -123,14 +116,14 @@ export function PipelineDetail({ pipelineId }: { pipelineId: string }) {
             disabled={startRunMutation.isPending}
           >
             <Play className="w-3.5 h-3.5" />
-            {startRunMutation.isPending ? "Starting..." : "Run Pipeline"}
+            {startRunMutation.isPending ? 'Starting...' : 'Run Pipeline'}
           </Button>
         </div>
       </div>
 
       {/* Tabs */}
       <div className="flex gap-0.5 border-b border-border/50 mb-6" role="tablist">
-        {(["stages", "variables", "runs"] as const).map((t) => (
+        {(['stages', 'variables', 'runs'] as const).map((t) => (
           <button
             key={t}
             role="tab"
@@ -138,17 +131,21 @@ export function PipelineDetail({ pipelineId }: { pipelineId: string }) {
             onClick={() => setTab(t)}
             className={`px-4 py-2 text-xs font-medium border-b-2 transition-all duration-150 cursor-pointer ${
               tab === t
-                ? "border-primary text-foreground"
-                : "border-transparent text-muted-foreground hover:text-foreground"
+                ? 'border-primary text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
             }`}
           >
-            {t === "stages" ? `Stages (${stages.length})` : t === "variables" ? "Variables" : "Runs"}
+            {t === 'stages'
+              ? `Stages (${stages.length})`
+              : t === 'variables'
+                ? 'Variables'
+                : 'Runs'}
           </button>
         ))}
       </div>
 
       {/* Stages tab */}
-      {tab === "stages" && (
+      {tab === 'stages' && (
         <div className="relative">
           {/* Vertical connector line */}
           {stages.length > 1 && (
@@ -180,18 +177,10 @@ export function PipelineDetail({ pipelineId }: { pipelineId: string }) {
                       {stage.workspace_name}
                     </Link>
                     <div className="flex items-center gap-1.5">
-                      <Badge
-                        variant={stage.auto_apply ? "success" : "secondary"}
-                      >
-                        {stage.auto_apply ? "auto-apply" : "manual"}
+                      <Badge variant={stage.auto_apply ? 'success' : 'secondary'}>
+                        {stage.auto_apply ? 'auto-apply' : 'manual'}
                       </Badge>
-                      <Badge
-                        variant={
-                          stage.on_failure === "stop"
-                            ? "destructive"
-                            : "warning"
-                        }
-                      >
+                      <Badge variant={stage.on_failure === 'stop' ? 'destructive' : 'warning'}>
                         on fail: {stage.on_failure}
                       </Badge>
                     </div>
@@ -204,12 +193,10 @@ export function PipelineDetail({ pipelineId }: { pipelineId: string }) {
       )}
 
       {/* Variables tab */}
-      {tab === "variables" && (
-        <PipelineVariablesTab pipelineId={pipelineId} />
-      )}
+      {tab === 'variables' && <PipelineVariablesTab pipelineId={pipelineId} />}
 
       {/* Runs tab */}
-      {tab === "runs" && (
+      {tab === 'runs' && (
         <div>
           {runsData?.data && runsData.data.length === 0 ? (
             <div className="text-center py-16 text-muted-foreground text-xs animate-fade-up">
@@ -245,12 +232,7 @@ export function PipelineDetail({ pipelineId }: { pipelineId: string }) {
           )}
           {runsData && runsData.total > 20 && (
             <div className="mt-4">
-              <Pagination
-                page={page}
-                perPage={20}
-                total={runsData.total}
-                onPageChange={setPage}
-              />
+              <Pagination page={page} perPage={20} total={runsData.total} onPageChange={setPage} />
             </div>
           )}
         </div>
@@ -264,20 +246,20 @@ function PipelineVariablesTab({ pipelineId }: { pipelineId: string }) {
   const confirm = useConfirm();
   const [showForm, setShowForm] = useState(false);
   const [editTarget, setEditTarget] = useState<string | null>(null);
-  const [editValue, setEditValue] = useState("");
+  const [editValue, setEditValue] = useState('');
   const [editSensitive, setEditSensitive] = useState(false);
-  const [editDescription, setEditDescription] = useState("");
-  const [editCategory, setEditCategory] = useState<"terraform" | "env">("terraform");
-  const [newKey, setNewKey] = useState("");
-  const [newValue, setNewValue] = useState("");
+  const [editDescription, setEditDescription] = useState('');
+  const [editCategory, setEditCategory] = useState<'terraform' | 'env'>('terraform');
+  const [newKey, setNewKey] = useState('');
+  const [newValue, setNewValue] = useState('');
   const [newSensitive, setNewSensitive] = useState(false);
-  const [newCategory, setNewCategory] = useState<"terraform" | "env">("terraform");
-  const [newDescription, setNewDescription] = useState("");
+  const [newCategory, setNewCategory] = useState<'terraform' | 'env'>('terraform');
+  const [newDescription, setNewDescription] = useState('');
 
   const { data: variables } = useQuery({
-    queryKey: ["pipeline-variables", pipelineId],
+    queryKey: ['pipeline-variables', pipelineId],
     queryFn: async () => {
-      const { data, error } = await api.GET("/pipelines/{pipelineId}/variables", {
+      const { data, error } = await api.GET('/pipelines/{pipelineId}/variables', {
         params: { path: { pipelineId } },
       });
       if (error) throw error;
@@ -287,62 +269,75 @@ function PipelineVariablesTab({ pipelineId }: { pipelineId: string }) {
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      const { data, error } = await api.POST("/pipelines/{pipelineId}/variables", {
+      const { data, error } = await api.POST('/pipelines/{pipelineId}/variables', {
         params: { path: { pipelineId } },
-        body: { key: newKey, value: newValue, sensitive: newSensitive, category: newCategory, description: newDescription },
-      });
-      if (error) throw error;
-      return data!;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["pipeline-variables", pipelineId] });
-      toast.success("Variable created");
-      setNewKey(""); setNewValue(""); setNewSensitive(false); setNewCategory("terraform"); setNewDescription("");
-      setShowForm(false);
-    },
-    onError: () => toast.error("Failed to create variable"),
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: async (variableId: string) => {
-      const { data, error } = await api.PUT("/pipelines/{pipelineId}/variables/{variableId}", {
-        params: { path: { pipelineId, variableId } },
         body: {
-          key: variables?.find((v: PipelineVariable) => v.id === variableId)?.key ?? "",
-          value: editValue, sensitive: editSensitive, category: editCategory, description: editDescription,
+          key: newKey,
+          value: newValue,
+          sensitive: newSensitive,
+          category: newCategory,
+          description: newDescription,
         },
       });
       if (error) throw error;
       return data!;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["pipeline-variables", pipelineId] });
-      toast.success("Variable updated");
+      queryClient.invalidateQueries({ queryKey: ['pipeline-variables', pipelineId] });
+      toast.success('Variable created');
+      setNewKey('');
+      setNewValue('');
+      setNewSensitive(false);
+      setNewCategory('terraform');
+      setNewDescription('');
+      setShowForm(false);
+    },
+    onError: () => toast.error('Failed to create variable'),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async (variableId: string) => {
+      const { data, error } = await api.PUT('/pipelines/{pipelineId}/variables/{variableId}', {
+        params: { path: { pipelineId, variableId } },
+        body: {
+          key: variables?.find((v: PipelineVariable) => v.id === variableId)?.key ?? '',
+          value: editValue,
+          sensitive: editSensitive,
+          category: editCategory,
+          description: editDescription,
+        },
+      });
+      if (error) throw error;
+      return data!;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pipeline-variables', pipelineId] });
+      toast.success('Variable updated');
       setEditTarget(null);
     },
-    onError: () => toast.error("Failed to update variable"),
+    onError: () => toast.error('Failed to update variable'),
   });
 
   const deleteMutation = useMutation({
     mutationFn: async (variableId: string) => {
-      const { error } = await api.DELETE("/pipelines/{pipelineId}/variables/{variableId}", {
+      const { error } = await api.DELETE('/pipelines/{pipelineId}/variables/{variableId}', {
         params: { path: { pipelineId, variableId } },
       });
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["pipeline-variables", pipelineId] });
-      toast.success("Variable deleted");
+      queryClient.invalidateQueries({ queryKey: ['pipeline-variables', pipelineId] });
+      toast.success('Variable deleted');
     },
-    onError: () => toast.error("Failed to delete variable"),
+    onError: () => toast.error('Failed to delete variable'),
   });
 
   const startEdit = (v: PipelineVariable) => {
     setEditTarget(v.id);
-    setEditValue(v.sensitive ? "" : v.value);
+    setEditValue(v.sensitive ? '' : v.value);
     setEditSensitive(v.sensitive);
     setEditDescription(v.description);
-    setEditCategory(v.category as "terraform" | "env");
+    setEditCategory(v.category as 'terraform' | 'env');
   };
 
   return (
@@ -361,22 +356,45 @@ function PipelineVariablesTab({ pipelineId }: { pipelineId: string }) {
         <div className="border border-border/60 rounded-lg p-4 mb-4 space-y-2 bg-accent/10 animate-fade-up">
           <div className="grid grid-cols-[1fr_auto] gap-2">
             <Input placeholder="Key" value={newKey} onChange={(e) => setNewKey(e.target.value)} />
-            <Select value={newCategory} onChange={(e) => setNewCategory(e.target.value as "terraform" | "env")}>
+            <Select
+              value={newCategory}
+              onChange={(e) => setNewCategory(e.target.value as 'terraform' | 'env')}
+            >
               <option value="terraform">Terraform</option>
               <option value="env">Environment</option>
             </Select>
           </div>
-          <Input placeholder="Value" type={newSensitive ? "password" : "text"} value={newValue} onChange={(e) => setNewValue(e.target.value)} />
-          <Input placeholder="Description (optional)" value={newDescription} onChange={(e) => setNewDescription(e.target.value)} />
+          <Input
+            placeholder="Value"
+            type={newSensitive ? 'password' : 'text'}
+            value={newValue}
+            onChange={(e) => setNewValue(e.target.value)}
+          />
+          <Input
+            placeholder="Description (optional)"
+            value={newDescription}
+            onChange={(e) => setNewDescription(e.target.value)}
+          />
           <div className="flex items-center gap-4">
             <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input type="checkbox" checked={newSensitive} onChange={(e) => setNewSensitive(e.target.checked)} className="rounded border-border" />
+              <input
+                type="checkbox"
+                checked={newSensitive}
+                onChange={(e) => setNewSensitive(e.target.checked)}
+                className="rounded border-border"
+              />
               Sensitive
             </label>
             <div className="flex-1" />
-            <Button size="sm" variant="ghost" onClick={() => setShowForm(false)}>Cancel</Button>
-            <Button size="sm" onClick={() => createMutation.mutate()} disabled={!newKey || createMutation.isPending}>
-              {createMutation.isPending ? <Spinner /> : "Create"}
+            <Button size="sm" variant="ghost" onClick={() => setShowForm(false)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => createMutation.mutate()}
+              disabled={!newKey || createMutation.isPending}
+            >
+              {createMutation.isPending ? <Spinner /> : 'Create'}
             </Button>
           </div>
         </div>
@@ -393,22 +411,45 @@ function PipelineVariablesTab({ pipelineId }: { pipelineId: string }) {
               <div key={v.id} className="px-4 py-3 space-y-2 bg-accent/20">
                 <code className="text-sm font-mono font-medium">{v.key}</code>
                 <div className="grid grid-cols-[1fr_auto] gap-2">
-                  <Input placeholder={v.sensitive ? "Enter new value" : "Value"} type={editSensitive ? "password" : "text"} value={editValue} onChange={(e) => setEditValue(e.target.value)} />
-                  <Select value={editCategory} onChange={(e) => setEditCategory(e.target.value as "terraform" | "env")}>
+                  <Input
+                    placeholder={v.sensitive ? 'Enter new value' : 'Value'}
+                    type={editSensitive ? 'password' : 'text'}
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                  />
+                  <Select
+                    value={editCategory}
+                    onChange={(e) => setEditCategory(e.target.value as 'terraform' | 'env')}
+                  >
                     <option value="terraform">Terraform</option>
                     <option value="env">Environment</option>
                   </Select>
                 </div>
-                <Input placeholder="Description (optional)" value={editDescription} onChange={(e) => setEditDescription(e.target.value)} />
+                <Input
+                  placeholder="Description (optional)"
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                />
                 <div className="flex items-center gap-4">
                   <label className="flex items-center gap-2 text-sm cursor-pointer">
-                    <input type="checkbox" checked={editSensitive} onChange={(e) => setEditSensitive(e.target.checked)} className="rounded border-border" />
+                    <input
+                      type="checkbox"
+                      checked={editSensitive}
+                      onChange={(e) => setEditSensitive(e.target.checked)}
+                      className="rounded border-border"
+                    />
                     Sensitive
                   </label>
                   <div className="flex-1" />
-                  <Button size="sm" variant="ghost" onClick={() => setEditTarget(null)}>Cancel</Button>
-                  <Button size="sm" onClick={() => updateMutation.mutate(v.id)} disabled={updateMutation.isPending}>
-                    {updateMutation.isPending ? <Spinner /> : "Save"}
+                  <Button size="sm" variant="ghost" onClick={() => setEditTarget(null)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => updateMutation.mutate(v.id)}
+                    disabled={updateMutation.isPending}
+                  >
+                    {updateMutation.isPending ? <Spinner /> : 'Save'}
                   </Button>
                 </div>
               </div>
@@ -417,24 +458,37 @@ function PipelineVariablesTab({ pipelineId }: { pipelineId: string }) {
                 <div>
                   <div className="flex items-center gap-3">
                     <code className="text-sm font-mono font-medium">{v.key}</code>
-                    <Badge variant="outline" className="text-xs">{v.category}</Badge>
+                    <Badge variant="outline" className="text-xs">
+                      {v.category}
+                    </Badge>
                     {v.sensitive && <Lock className="w-3.5 h-3.5 text-muted-foreground" />}
                   </div>
-                  {v.description && <p className="text-xs text-muted-foreground mt-0.5">{v.description}</p>}
+                  {v.description && (
+                    <p className="text-xs text-muted-foreground mt-0.5">{v.description}</p>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-mono text-muted-foreground break-all">
-                    {v.sensitive ? "***" : v.value}
+                    {v.sensitive ? '***' : v.value}
                   </span>
-                  <button onClick={() => startEdit(v)} className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors cursor-pointer">
+                  <button
+                    onClick={() => startEdit(v)}
+                    className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                  >
                     <Pencil className="w-3.5 h-3.5" />
                   </button>
-                  <button onClick={async () => { if (await confirm({ title: `Delete ${v.key}?`, confirmLabel: "Delete" })) deleteMutation.mutate(v.id); }} className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors cursor-pointer">
+                  <button
+                    onClick={async () => {
+                      if (await confirm({ title: `Delete ${v.key}?`, confirmLabel: 'Delete' }))
+                        deleteMutation.mutate(v.id);
+                    }}
+                    className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors cursor-pointer"
+                  >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
               </div>
-            )
+            ),
           )}
         </div>
       )}

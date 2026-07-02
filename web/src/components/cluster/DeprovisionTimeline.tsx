@@ -1,12 +1,12 @@
-import type { ClusterOperation } from "@/api/models";
-import { PhaseStepper } from "./PhaseStepper";
-import { timelineFrame, type Step } from "./timeline-frame";
+import type { ClusterOperation } from '@/api/models';
+import { PhaseStepper } from './PhaseStepper';
+import { timelineFrame, type Step } from './timeline-frame';
 
 const STEPS: readonly Step[] = [
-  { key: "queued", label: "Queued" },
-  { key: "committed", label: "Committed" },
-  { key: "deprovisioning", label: "Destroying" },
-  { key: "deprovisioned", label: "Removed" },
+  { key: 'queued', label: 'Queued' },
+  { key: 'committed', label: 'Committed' },
+  { key: 'deprovisioning', label: 'Destroying' },
+  { key: 'deprovisioned', label: 'Removed' },
 ];
 
 // Compact stepper for a deprovision teardown — the mirror of VendTimeline. After
@@ -18,15 +18,15 @@ const STEPS: readonly Step[] = [
 // portal-side commit failure only.
 export function DeprovisionTimeline({ op }: { op: ClusterOperation }) {
   const phases = op.vend_phases ?? {};
-  const failed = op.status === "failed" || "failed" in phases;
-  const done = op.status === "deprovisioned" || "deprovisioned" in phases;
+  const failed = op.status === 'failed' || 'failed' in phases;
+  const done = op.status === 'deprovisioned' || 'deprovisioned' in phases;
   const frame = timelineFrame(
     STEPS,
     (key) => {
-      if (key === "queued") return true;
+      if (key === 'queued') return true;
       // committed is implied once teardown finished, even if its phase row is absent.
-      if (key === "committed") return op.status === "committed" || done || "committed" in phases;
-      if (key === "deprovisioned") return done;
+      if (key === 'committed') return op.status === 'committed' || done || 'committed' in phases;
+      if (key === 'deprovisioned') return done;
       return key in phases;
     },
     failed,
@@ -34,13 +34,8 @@ export function DeprovisionTimeline({ op }: { op: ClusterOperation }) {
 
   const destroyErr = phases.deprovisioning?.detail;
   const issue = frame.inFlight && !!destroyErr;
-  const label = failed
-    ? "Failed"
-    : issue
-      ? destroyErr || ""
-      : STEPS[frame.lastReached].label;
-  const tooltip =
-    (failed ? op.error || phases.failed?.detail : destroyErr) || undefined;
+  const label = failed ? 'Failed' : issue ? destroyErr || '' : STEPS[frame.lastReached].label;
+  const tooltip = (failed ? op.error || phases.failed?.detail : destroyErr) || undefined;
 
   return (
     <PhaseStepper

@@ -1,12 +1,12 @@
-import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
-import { api } from "@/api/client";
-import { navigate } from "@/hooks/useNavigate";
-import type { Account, ClusterOperation } from "@/api/models";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { api } from '@/api/client';
+import { navigate } from '@/hooks/useNavigate';
+import type { Account, ClusterOperation } from '@/api/models';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import {
   Drawer,
   DrawerHeader,
@@ -14,10 +14,10 @@ import {
   DrawerDescription,
   DrawerBody,
   DrawerFooter,
-} from "@/components/ui/drawer";
-import { cn } from "@/lib/utils";
-import { CIDR_RE, parseCidrList } from "@/lib/cidr";
-import { VendTimeline } from "./VendTimeline";
+} from '@/components/ui/drawer';
+import { cn } from '@/lib/utils';
+import { CIDR_RE, parseCidrList } from '@/lib/cidr';
+import { VendTimeline } from './VendTimeline';
 
 const AWS_REGION_RE = /^[a-z]{2}-[a-z]+-\d$/;
 const K8S_NAME_RE = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
@@ -38,33 +38,31 @@ export function ClusterProvisionDrawer({
   accounts: Account[];
 }) {
   const queryClient = useQueryClient();
-  const [accountID, setAccountID] = useState("");
-  const [name, setName] = useState("");
-  const [team, setTeam] = useState("");
-  const [environment, setEnvironment] = useState<
-    "dev" | "staging" | "production"
-  >("dev");
-  const [region, setRegion] = useState("");
-  const [clusterVersion, setClusterVersion] = useState("");
+  const [accountID, setAccountID] = useState('');
+  const [name, setName] = useState('');
+  const [team, setTeam] = useState('');
+  const [environment, setEnvironment] = useState<'dev' | 'staging' | 'production'>('dev');
+  const [region, setRegion] = useState('');
+  const [clusterVersion, setClusterVersion] = useState('');
   // Private-by-default: the fleet's Cluster XRD defaults endpointPublicAccess
   // to false, and its CEL rule rejects a public opt-in without a CIDR
   // allowlist. The form mirrors both so a bad order can't be placed.
   const [publicAccess, setPublicAccess] = useState(false);
-  const [publicCidrs, setPublicCidrs] = useState("");
+  const [publicCidrs, setPublicCidrs] = useState('');
   // Set on a successful order → the drawer switches to the live timeline view.
   const [orderedId, setOrderedId] = useState<string | null>(null);
 
   const selectedAccount = accounts.find((a) => a.id === accountID);
 
   const reset = () => {
-    setAccountID("");
-    setName("");
-    setTeam("");
-    setEnvironment("dev");
-    setRegion("");
-    setClusterVersion("");
+    setAccountID('');
+    setName('');
+    setTeam('');
+    setEnvironment('dev');
+    setRegion('');
+    setClusterVersion('');
     setPublicAccess(false);
-    setPublicCidrs("");
+    setPublicCidrs('');
     setOrderedId(null);
   };
 
@@ -73,13 +71,13 @@ export function ClusterProvisionDrawer({
   const onPickAccount = (id: string) => {
     setAccountID(id);
     const acct = accounts.find((a) => a.id === id);
-    if (acct && region === "") setRegion(acct.default_region);
+    if (acct && region === '') setRegion(acct.default_region);
   };
 
   const orderMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedAccount) throw new Error("Pick an account");
-      const { data, error } = await api.POST("/cluster-orders", {
+      if (!selectedAccount) throw new Error('Pick an account');
+      const { data, error } = await api.POST('/cluster-orders', {
         body: {
           name: name.trim(),
           account: selectedAccount.aws_account_id,
@@ -88,9 +86,7 @@ export function ClusterProvisionDrawer({
           environment,
           cluster_version: clusterVersion.trim() || undefined,
           endpoint_public_access: publicAccess,
-          endpoint_public_access_cidrs: publicAccess
-            ? parseCidrList(publicCidrs)
-            : undefined,
+          endpoint_public_access_cidrs: publicAccess ? parseCidrList(publicCidrs) : undefined,
         },
       });
       if (error) throw error;
@@ -101,22 +97,20 @@ export function ClusterProvisionDrawer({
       // op into that cache so it appears instantly (the old bug invalidated only
       // ['clusters'], so a fresh order didn't show until the next poll tick),
       // then invalidate the order surfaces to reconcile with the server.
-      queryClient.setQueryData<ClusterOperation[]>(
-        ["cluster-operations"],
-        (prev) => [op, ...(prev ?? []).filter((o) => o.id !== op.id)],
-      );
-      queryClient.invalidateQueries({ queryKey: ["cluster-operations"] });
-      queryClient.invalidateQueries({ queryKey: ["ops-feed"] });
-      queryClient.invalidateQueries({ queryKey: ["clusters"] });
+      queryClient.setQueryData<ClusterOperation[]>(['cluster-operations'], (prev) => [
+        op,
+        ...(prev ?? []).filter((o) => o.id !== op.id),
+      ]);
+      queryClient.invalidateQueries({ queryKey: ['cluster-operations'] });
+      queryClient.invalidateQueries({ queryKey: ['ops-feed'] });
+      queryClient.invalidateQueries({ queryKey: ['clusters'] });
       toast.success(`Provisioning ${name.trim()} · self-registers when ready`, {
-        action: { label: "Ops", onClick: () => navigate("/ops") },
+        action: { label: 'Ops', onClick: () => navigate('/ops') },
       });
       setOrderedId(op.id); // morph to the live view — don't close
     },
     onError: (e: unknown) => {
-      toast.error(
-        (e as { message?: string })?.message ?? "Failed to order cluster",
-      );
+      toast.error((e as { message?: string })?.message ?? 'Failed to order cluster');
     },
   });
 
@@ -126,9 +120,9 @@ export function ClusterProvisionDrawer({
   // drawer (don't lean on ClusterList being mounted). Self-limiting: stops once
   // the op reaches a terminal or a portal-side failure.
   const { data: ops } = useQuery({
-    queryKey: ["cluster-operations"],
+    queryKey: ['cluster-operations'],
     queryFn: async () => {
-      const { data, error } = await api.GET("/cluster-orders");
+      const { data, error } = await api.GET('/cluster-orders');
       if (error) throw error;
       return data?.data ?? [];
     },
@@ -137,9 +131,9 @@ export function ClusterProvisionDrawer({
       if (orderedId === null) return false;
       const op = query.state.data?.find((o) => o.id === orderedId);
       if (!op) return 3000; // just placed, not in cache yet — keep checking
-      if (op.status === "active" || op.status === "failed" || op.status === "deprovisioned")
+      if (op.status === 'active' || op.status === 'failed' || op.status === 'deprovisioned')
         return false;
-      if ("failed" in (op.vend_phases ?? {})) return false;
+      if ('failed' in (op.vend_phases ?? {})) return false;
       return 3000;
     },
   });
@@ -150,25 +144,24 @@ export function ClusterProvisionDrawer({
     onClose();
   };
 
-  const regionInvalid = region !== "" && !AWS_REGION_RE.test(region);
-  const teamInvalid = team !== "" && !K8S_NAME_RE.test(team);
-  const nameInvalid = name !== "" && !K8S_NAME_RE.test(name);
+  const regionInvalid = region !== '' && !AWS_REGION_RE.test(region);
+  const teamInvalid = team !== '' && !K8S_NAME_RE.test(team);
+  const nameInvalid = name !== '' && !K8S_NAME_RE.test(name);
   // Opting into a public endpoint makes the CIDR allowlist required — the
   // fleet's CEL rule rejects public-without-allowlist, so gate submit here.
   const cidrList = parseCidrList(publicCidrs);
   const cidrsMissing = publicAccess && cidrList.length === 0;
-  const cidrsMalformed =
-    publicAccess && cidrList.some((c) => !CIDR_RE.test(c));
+  const cidrsMalformed = publicAccess && cidrList.some((c) => !CIDR_RE.test(c));
   const cidrError = cidrsMissing
-    ? "Required to enable the public endpoint — comma-separated CIDRs, e.g. 203.0.113.0/24"
+    ? 'Required to enable the public endpoint — comma-separated CIDRs, e.g. 203.0.113.0/24'
     : cidrsMalformed
-      ? "Each entry must be a CIDR like 203.0.113.0/24"
+      ? 'Each entry must be a CIDR like 203.0.113.0/24'
       : null;
   const canSubmit =
-    accountID !== "" &&
-    name.trim() !== "" &&
+    accountID !== '' &&
+    name.trim() !== '' &&
     !nameInvalid &&
-    team.trim() !== "" &&
+    team.trim() !== '' &&
     !teamInvalid &&
     AWS_REGION_RE.test(region) &&
     !cidrsMissing &&
@@ -179,13 +172,11 @@ export function ClusterProvisionDrawer({
   return (
     <Drawer open={open} onClose={handleClose}>
       <DrawerHeader onClose={handleClose}>
-        <DrawerTitle>
-          {ordered ? `Provisioning ${name.trim()}` : "Provision Cluster"}
-        </DrawerTitle>
+        <DrawerTitle>{ordered ? `Provisioning ${name.trim()}` : 'Provision Cluster'}</DrawerTitle>
         <DrawerDescription>
           {ordered
-            ? "Portal committed the Cluster definition. Crossplane vends it; it registers here once its API is up."
-            : "Order a new EKS cluster. Portal commits a Cluster definition to the fleet; Crossplane vends it."}
+            ? 'Portal committed the Cluster definition. Crossplane vends it; it registers here once its API is up.'
+            : 'Order a new EKS cluster. Portal commits a Cluster definition to the fleet; Crossplane vends it.'}
         </DrawerDescription>
       </DrawerHeader>
 
@@ -195,29 +186,23 @@ export function ClusterProvisionDrawer({
             {liveOp ? (
               <VendTimeline op={liveOp} />
             ) : (
-              <div className="text-xs text-muted-foreground">
-                Committing the order…
-              </div>
+              <div className="text-xs text-muted-foreground">Committing the order…</div>
             )}
             <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-[12px]">
-              <Detail label="Account" value={selectedAccount?.name ?? "—"} />
+              <Detail label="Account" value={selectedAccount?.name ?? '—'} />
               <Detail label="Region" value={region} mono />
               <Detail label="Environment" value={environment} />
               <Detail label="Team" value={team.trim()} mono />
             </dl>
             <p className="text-[12px] leading-relaxed text-muted-foreground">
-              The full journey — commit → build → active — streams in{" "}
-              <span className="text-foreground">Ops</span>. You can close this and
-              it keeps going.
+              The full journey — commit → build → active — streams in{' '}
+              <span className="text-foreground">Ops</span>. You can close this and it keeps going.
             </p>
           </div>
         ) : (
           <div className="space-y-4">
             <Field label="Account">
-              <Select
-                value={accountID}
-                onChange={(e) => onPickAccount(e.target.value)}
-              >
+              <Select value={accountID} onChange={(e) => onPickAccount(e.target.value)}>
                 <option value="">Pick an account…</option>
                 {accounts.map((a) => (
                   <option key={a.id} value={a.id}>
@@ -229,9 +214,7 @@ export function ClusterProvisionDrawer({
 
             <Field
               label="Name"
-              error={
-                nameInvalid ? "Lowercase letters, digits, and dashes" : null
-              }
+              error={nameInvalid ? 'Lowercase letters, digits, and dashes' : null}
             >
               <Input
                 value={name}
@@ -243,11 +226,7 @@ export function ClusterProvisionDrawer({
 
             <Field
               label="Team"
-              error={
-                teamInvalid
-                  ? "Lowercase letters, digits, and dashes (k8s namespace)"
-                  : null
-              }
+              error={teamInvalid ? 'Lowercase letters, digits, and dashes (k8s namespace)' : null}
             >
               <Input
                 value={team}
@@ -260,11 +239,7 @@ export function ClusterProvisionDrawer({
             <Field label="Environment">
               <Select
                 value={environment}
-                onChange={(e) =>
-                  setEnvironment(
-                    e.target.value as "dev" | "staging" | "production",
-                  )
-                }
+                onChange={(e) => setEnvironment(e.target.value as 'dev' | 'staging' | 'production')}
               >
                 <option value="dev">dev</option>
                 <option value="staging">staging</option>
@@ -272,10 +247,7 @@ export function ClusterProvisionDrawer({
               </Select>
             </Field>
 
-            <Field
-              label="Region"
-              error={regionInvalid ? "Must look like us-west-2" : null}
-            >
+            <Field label="Region" error={regionInvalid ? 'Must look like us-west-2' : null}>
               <Input
                 value={region}
                 onChange={(e) => setRegion(e.target.value)}
@@ -304,9 +276,8 @@ export function ClusterProvisionDrawer({
                 Public API endpoint
               </label>
               <p className="text-[11px] leading-relaxed text-muted-foreground">
-                Clusters vend with a private API endpoint. Turning this on
-                exposes it publicly and requires a CIDR allowlist scoping who
-                can reach it.
+                Clusters vend with a private API endpoint. Turning this on exposes it publicly and
+                requires a CIDR allowlist scoping who can reach it.
               </p>
             </div>
 
@@ -333,7 +304,7 @@ export function ClusterProvisionDrawer({
             <Button
               size="sm"
               onClick={() => {
-                navigate("/ops");
+                navigate('/ops');
                 handleClose();
               }}
             >
@@ -350,7 +321,7 @@ export function ClusterProvisionDrawer({
               onClick={() => orderMutation.mutate()}
               disabled={!canSubmit || orderMutation.isPending}
             >
-              {orderMutation.isPending ? "Provisioning…" : "Provision Cluster"}
+              {orderMutation.isPending ? 'Provisioning…' : 'Provision Cluster'}
             </Button>
           </>
         )}
@@ -370,28 +341,18 @@ function Field({
 }) {
   return (
     <div>
-      <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
-        {label}
-      </label>
+      <label className="text-xs font-medium text-muted-foreground mb-1.5 block">{label}</label>
       {children}
       {error && <p className="text-[11px] text-destructive mt-1">{error}</p>}
     </div>
   );
 }
 
-function Detail({
-  label,
-  value,
-  mono,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
+function Detail({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <>
       <dt className="text-muted-foreground">{label}</dt>
-      <dd className={cn("text-foreground", mono && "font-mono")}>{value}</dd>
+      <dd className={cn('text-foreground', mono && 'font-mono')}>{value}</dd>
     </>
   );
 }

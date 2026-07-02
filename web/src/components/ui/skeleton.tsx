@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn } from '@/lib/utils';
 
 // A loading placeholder block: a muted base with the shimmer sweeping across it
 // (the same shimmer used elsewhere). Size it with className and compose a few
@@ -7,10 +7,7 @@ import { cn } from "@/lib/utils";
 export function Skeleton({ className }: { className?: string }) {
   return (
     <div
-      className={cn(
-        "relative overflow-hidden rounded-[6px] bg-muted/40",
-        className,
-      )}
+      className={cn('relative overflow-hidden rounded-[6px] bg-muted/40', className)}
       aria-hidden="true"
     >
       <div className="absolute inset-0 animate-shimmer" />

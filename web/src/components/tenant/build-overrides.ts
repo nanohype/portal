@@ -18,18 +18,14 @@ export function buildOverrides(
   const overrides: Record<string, unknown> = Object.create(null);
   for (const [path, value] of entries) {
     if (!allowedPaths.includes(path)) continue;
-    const segments = path.split(".");
-    if (
-      segments.some(
-        (s) => s === "__proto__" || s === "constructor" || s === "prototype",
-      )
-    ) {
+    const segments = path.split('.');
+    if (segments.some((s) => s === '__proto__' || s === 'constructor' || s === 'prototype')) {
       continue;
     }
     let cur = overrides;
     for (let i = 0; i < segments.length - 1; i++) {
       const seg = segments[i];
-      if (!(seg in cur) || typeof cur[seg] !== "object") {
+      if (!(seg in cur) || typeof cur[seg] !== 'object') {
         cur[seg] = Object.create(null) as Record<string, unknown>;
       }
       cur = cur[seg] as Record<string, unknown>;

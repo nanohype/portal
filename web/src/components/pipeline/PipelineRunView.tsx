@@ -1,18 +1,14 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
-import { api } from "@/api/client";
-import type { PipelineRunStage } from "@/api/models";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { StatusBadge } from "@/components/ui/status-badge";
-import {
-  isPipelineRunInFlight,
-  pipelineRunStatus,
-  pipelineStageStatus,
-} from "@/lib/status";
-import { Spinner } from "@/components/ui/spinner";
-import { Link } from "@/components/ui/link";
-import { formatDuration } from "@/lib/utils";
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { api } from '@/api/client';
+import type { PipelineRunStage } from '@/api/models';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { StatusBadge } from '@/components/ui/status-badge';
+import { isPipelineRunInFlight, pipelineRunStatus, pipelineStageStatus } from '@/lib/status';
+import { Spinner } from '@/components/ui/spinner';
+import { Link } from '@/components/ui/link';
+import { formatDuration } from '@/lib/utils';
 import {
   ArrowLeft,
   CheckCircle2,
@@ -26,24 +22,24 @@ import {
   ExternalLink,
   Check,
   X,
-} from "lucide-react";
+} from 'lucide-react';
 
 function stageStatusIcon(status: string) {
-  const base = "w-[18px] h-[18px]";
+  const base = 'w-[18px] h-[18px]';
   switch (status) {
-    case "completed":
+    case 'completed':
       return <CheckCircle2 className={`${base} text-success`} />;
-    case "errored":
+    case 'errored':
       return <XCircle className={`${base} text-destructive`} />;
-    case "running":
+    case 'running':
       return <Loader2 className={`${base} text-primary animate-spin`} />;
-    case "importing_outputs":
+    case 'importing_outputs':
       return <Import className={`${base} text-primary animate-pulse`} />;
-    case "awaiting_approval":
+    case 'awaiting_approval':
       return <Pause className={`${base} text-warning`} />;
-    case "cancelled":
+    case 'cancelled':
       return <Ban className={`${base} text-muted-foreground/60`} />;
-    case "skipped":
+    case 'skipped':
       return <SkipForward className={`${base} text-muted-foreground/60`} />;
     default:
       return <Clock className={`${base} text-muted-foreground/40`} />;
@@ -52,54 +48,47 @@ function stageStatusIcon(status: string) {
 
 function progressBarColor(status: string) {
   switch (status) {
-    case "completed":
-      return "bg-success";
-    case "running":
-    case "importing_outputs":
-      return "bg-primary animate-shimmer";
-    case "errored":
-      return "bg-destructive";
-    case "awaiting_approval":
-      return "bg-warning";
-    case "cancelled":
-      return "bg-muted-foreground/20";
+    case 'completed':
+      return 'bg-success';
+    case 'running':
+    case 'importing_outputs':
+      return 'bg-primary animate-shimmer';
+    case 'errored':
+      return 'bg-destructive';
+    case 'awaiting_approval':
+      return 'bg-warning';
+    case 'cancelled':
+      return 'bg-muted-foreground/20';
     default:
-      return "bg-border/40";
+      return 'bg-border/40';
   }
 }
 
 function stageBorderStyle(status: string) {
   switch (status) {
-    case "running":
-    case "importing_outputs":
-      return "border-primary/30 bg-primary/[0.03]";
-    case "completed":
-      return "border-success/20";
-    case "errored":
-      return "border-destructive/20";
-    case "awaiting_approval":
-      return "border-warning/20";
+    case 'running':
+    case 'importing_outputs':
+      return 'border-primary/30 bg-primary/[0.03]';
+    case 'completed':
+      return 'border-success/20';
+    case 'errored':
+      return 'border-destructive/20';
+    case 'awaiting_approval':
+      return 'border-warning/20';
     default:
-      return "border-border/50";
+      return 'border-border/50';
   }
 }
 
-export function PipelineRunView({
-  pipelineId,
-  runId,
-}: {
-  pipelineId: string;
-  runId: string;
-}) {
+export function PipelineRunView({ pipelineId, runId }: { pipelineId: string; runId: string }) {
   const queryClient = useQueryClient();
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["pipeline-run", pipelineId, runId],
+    queryKey: ['pipeline-run', pipelineId, runId],
     queryFn: async () => {
-      const { data, error } = await api.GET(
-        "/pipelines/{pipelineId}/runs/{runId}",
-        { params: { path: { pipelineId, runId } } }
-      );
+      const { data, error } = await api.GET('/pipelines/{pipelineId}/runs/{runId}', {
+        params: { path: { pipelineId, runId } },
+      });
       if (error) throw error;
       return data!;
     },
@@ -111,20 +100,19 @@ export function PipelineRunView({
 
   const cancelMutation = useMutation({
     mutationFn: async () => {
-      const { data, error } = await api.POST(
-        "/pipelines/{pipelineId}/runs/{runId}/cancel",
-        { params: { path: { pipelineId, runId } } }
-      );
+      const { data, error } = await api.POST('/pipelines/{pipelineId}/runs/{runId}/cancel', {
+        params: { path: { pipelineId, runId } },
+      });
       if (error) throw error;
       return data!;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["pipeline-run", pipelineId, runId],
+        queryKey: ['pipeline-run', pipelineId, runId],
       });
-      toast.success("Pipeline run cancelled");
+      toast.success('Pipeline run cancelled');
     },
-    onError: () => toast.error("Failed to cancel pipeline run"),
+    onError: () => toast.error('Failed to cancel pipeline run'),
   });
 
   // Inline approve/reject for stages parked in awaiting_approval. Hits the
@@ -137,27 +125,22 @@ export function PipelineRunView({
     }: {
       workspaceId: string;
       stageRunId: string;
-      status: "approved" | "rejected";
+      status: 'approved' | 'rejected';
     }) => {
-      const { data, error } = await api.POST(
-        "/workspaces/{workspaceId}/runs/{runId}/approvals",
-        {
-          params: { path: { workspaceId, runId: stageRunId } },
-          body: { status, comment: "" },
-        }
-      );
+      const { data, error } = await api.POST('/workspaces/{workspaceId}/runs/{runId}/approvals', {
+        params: { path: { workspaceId, runId: stageRunId } },
+        body: { status, comment: '' },
+      });
       if (error) throw error;
       return data;
     },
     onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({
-        queryKey: ["pipeline-run", pipelineId, runId],
+        queryKey: ['pipeline-run', pipelineId, runId],
       });
-      toast.success(
-        vars.status === "approved" ? "Stage approved" : "Stage rejected"
-      );
+      toast.success(vars.status === 'approved' ? 'Stage approved' : 'Stage rejected');
     },
-    onError: () => toast.error("Failed to submit approval"),
+    onError: () => toast.error('Failed to submit approval'),
   });
 
   if (isLoading) {
@@ -179,7 +162,7 @@ export function PipelineRunView({
   }
 
   const { pipeline_run: pr, stages } = data;
-  const isRunning = pr.status === "running";
+  const isRunning = pr.status === 'running';
 
   return (
     <div className="p-6 animate-fade-up">
@@ -195,9 +178,7 @@ export function PipelineRunView({
 
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <h1 className="text-lg font-semibold tracking-tight">
-              Pipeline Run
-            </h1>
+            <h1 className="text-lg font-semibold tracking-tight">Pipeline Run</h1>
             <StatusBadge visual={pipelineRunStatus(pr.status)} />
           </div>
           <div className="flex items-center gap-3">
@@ -228,9 +209,7 @@ export function PipelineRunView({
           {pr.finished_at && (
             <>
               <span className="text-border">|</span>
-              <span>
-                Finished {new Date(pr.finished_at).toLocaleString()}
-              </span>
+              <span>Finished {new Date(pr.finished_at).toLocaleString()}</span>
             </>
           )}
         </div>
@@ -259,14 +238,10 @@ export function PipelineRunView({
         )}
         <div className="space-y-2">
           {stages.map((stage: PipelineRunStage, i: number) => {
-            const isActive =
-              stage.status === "running" ||
-              stage.status === "importing_outputs";
-            const isAwaitingApproval =
-              stage.status === "awaiting_approval" && !!stage.run_id;
+            const isActive = stage.status === 'running' || stage.status === 'importing_outputs';
+            const isAwaitingApproval = stage.status === 'awaiting_approval' && !!stage.run_id;
             const isPending =
-              approveMutation.isPending &&
-              approveMutation.variables?.stageRunId === stage.run_id;
+              approveMutation.isPending && approveMutation.variables?.stageRunId === stage.run_id;
             return (
               <div
                 key={stage.id}
@@ -276,13 +251,13 @@ export function PipelineRunView({
                 {/* Status dot */}
                 <div
                   className={`w-10 h-10 rounded-full border-2 bg-card flex items-center justify-center z-10 shrink-0 transition-all duration-300 ${
-                    stage.status === "completed"
-                      ? "border-success/40"
+                    stage.status === 'completed'
+                      ? 'border-success/40'
                       : isActive
-                      ? "border-primary/50"
-                      : stage.status === "errored"
-                      ? "border-destructive/40"
-                      : "border-border/50"
+                        ? 'border-primary/50'
+                        : stage.status === 'errored'
+                          ? 'border-destructive/40'
+                          : 'border-border/50'
                   }`}
                 >
                   {stageStatusIcon(stage.status)}
@@ -290,14 +265,12 @@ export function PipelineRunView({
 
                 {/* Card */}
                 <div
-                  className={`flex-1 border rounded-lg px-4 py-3 transition-all duration-200 ${stageBorderStyle(stage.status)} ${isActive ? "animate-glow-pulse" : ""}`}
+                  className={`flex-1 border rounded-lg px-4 py-3 transition-all duration-200 ${stageBorderStyle(stage.status)} ${isActive ? 'animate-glow-pulse' : ''}`}
                 >
                   <div className="flex items-center justify-between">
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium">
-                          {stage.workspace_name}
-                        </span>
+                        <span className="text-sm font-medium">{stage.workspace_name}</span>
                         <StatusBadge visual={pipelineStageStatus(stage.status)} />
                       </div>
                       {stage.started_at && (
@@ -307,10 +280,8 @@ export function PipelineRunView({
                       )}
                     </div>
                     <div className="flex items-center gap-2">
-                      <Badge
-                        variant={stage.auto_apply ? "success" : "secondary"}
-                      >
-                        {stage.auto_apply ? "auto" : "manual"}
+                      <Badge variant={stage.auto_apply ? 'success' : 'secondary'}>
+                        {stage.auto_apply ? 'auto' : 'manual'}
                       </Badge>
                       {isAwaitingApproval && (
                         <>
@@ -321,7 +292,7 @@ export function PipelineRunView({
                               approveMutation.mutate({
                                 workspaceId: stage.workspace_id,
                                 stageRunId: stage.run_id!,
-                                status: "approved",
+                                status: 'approved',
                               })
                             }
                             disabled={isPending}
@@ -337,7 +308,7 @@ export function PipelineRunView({
                               approveMutation.mutate({
                                 workspaceId: stage.workspace_id,
                                 stageRunId: stage.run_id!,
-                                status: "rejected",
+                                status: 'rejected',
                               })
                             }
                             disabled={isPending}

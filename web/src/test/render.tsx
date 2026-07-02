@@ -1,6 +1,6 @@
-import type { ReactElement } from "react";
-import { render } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactElement } from 'react';
+import { render } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // Render a tree against a fresh QueryClient with retries off, so error and
 // empty states resolve deterministically instead of looping through retries.

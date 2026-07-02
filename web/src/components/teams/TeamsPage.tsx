@@ -1,32 +1,31 @@
-import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/api/client";
-import type { Team, TeamMember, User } from "@/api/models";
-import { Select } from "@/components/ui/select";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Spinner } from "@/components/ui/spinner";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { formatRelativeTime } from "@/lib/utils";
-import { Plus, Users, Trash2, ChevronRight, X, Pencil, Check } from "lucide-react";
-import { toast } from "sonner";
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { api } from '@/api/client';
+import type { Team, TeamMember, User } from '@/api/models';
+import { Select } from '@/components/ui/select';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Spinner } from '@/components/ui/spinner';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { formatRelativeTime } from '@/lib/utils';
+import { Plus, Users, Trash2, ChevronRight, X, Pencil, Check } from 'lucide-react';
+import { toast } from 'sonner';
 
 export function TeamsPage() {
   const queryClient = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
-  const [teamName, setTeamName] = useState("");
+  const [teamName, setTeamName] = useState('');
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
 
-  const { data: teams, isLoading, isError } = useQuery({
-    queryKey: ["teams"],
+  const {
+    data: teams,
+    isLoading,
+    isError,
+  } = useQuery({
+    queryKey: ['teams'],
     queryFn: async () => {
-      const { data, error } = await api.GET("/teams");
+      const { data, error } = await api.GET('/teams');
       if (error) throw error;
       return data?.data ?? [];
     },
@@ -34,34 +33,34 @@ export function TeamsPage() {
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      const { data, error } = await api.POST("/teams", {
+      const { data, error } = await api.POST('/teams', {
         body: { name: teamName },
       });
       if (error) throw error;
       return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["teams"] });
-      setTeamName("");
+      queryClient.invalidateQueries({ queryKey: ['teams'] });
+      setTeamName('');
       setShowCreate(false);
-      toast.success("Team created");
+      toast.success('Team created');
     },
-    onError: () => toast.error("Failed to create team"),
+    onError: () => toast.error('Failed to create team'),
   });
 
   const deleteMutation = useMutation({
     mutationFn: async (teamId: string) => {
-      const { error } = await api.DELETE("/teams/{teamId}", {
+      const { error } = await api.DELETE('/teams/{teamId}', {
         params: { path: { teamId } },
       });
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["teams"] });
+      queryClient.invalidateQueries({ queryKey: ['teams'] });
       setSelectedTeam(null);
-      toast.success("Team deleted");
+      toast.success('Team deleted');
     },
-    onError: () => toast.error("Failed to delete team"),
+    onError: () => toast.error('Failed to delete team'),
   });
 
   return (
@@ -100,7 +99,7 @@ export function TeamsPage() {
                 onClick={() => createMutation.mutate()}
                 disabled={!teamName || createMutation.isPending}
               >
-                {createMutation.isPending ? <Spinner /> : "Create"}
+                {createMutation.isPending ? <Spinner /> : 'Create'}
               </Button>
             </div>
           </div>
@@ -160,8 +159,7 @@ export function TeamsPage() {
                 <div>
                   <div className="font-medium text-sm">{team.name}</div>
                   <div className="text-xs text-muted-foreground">
-                    @{team.slug} &middot; Created{" "}
-                    {formatRelativeTime(team.created_at)}
+                    @{team.slug} &middot; Created {formatRelativeTime(team.created_at)}
                   </div>
                 </div>
               </div>
@@ -174,19 +172,13 @@ export function TeamsPage() {
   );
 }
 
-function TeamDetail({
-  team,
-  onDelete,
-}: {
-  team: Team;
-  onDelete: () => void;
-}) {
+function TeamDetail({ team, onDelete }: { team: Team; onDelete: () => void }) {
   const queryClient = useQueryClient();
 
   const { data: members, isLoading } = useQuery({
-    queryKey: ["team-members", team.id],
+    queryKey: ['team-members', team.id],
     queryFn: async () => {
-      const { data, error } = await api.GET("/teams/{teamId}/members", {
+      const { data, error } = await api.GET('/teams/{teamId}/members', {
         params: { path: { teamId: team.id } },
       });
       if (error) throw error;
@@ -195,19 +187,19 @@ function TeamDetail({
   });
 
   const [showAddMember, setShowAddMember] = useState(false);
-  const [addMemberUserId, setAddMemberUserId] = useState("");
-  const [addMemberRole, setAddMemberRole] = useState("viewer");
-  const [addMemberIdentity, setAddMemberArn] = useState("");
+  const [addMemberUserId, setAddMemberUserId] = useState('');
+  const [addMemberRole, setAddMemberRole] = useState('viewer');
+  const [addMemberIdentity, setAddMemberArn] = useState('');
 
   // Edit state
   const [editMemberId, setEditMemberId] = useState<string | null>(null);
-  const [editRole, setEditRole] = useState("");
-  const [editIdentity, setEditArn] = useState("");
+  const [editRole, setEditRole] = useState('');
+  const [editIdentity, setEditArn] = useState('');
 
   const { data: users } = useQuery({
-    queryKey: ["users"],
+    queryKey: ['users'],
     queryFn: async () => {
-      const { data, error } = await api.GET("/users");
+      const { data, error } = await api.GET('/users');
       if (error) throw error;
       return data?.data ?? [];
     },
@@ -216,7 +208,7 @@ function TeamDetail({
 
   const addMemberMutation = useMutation({
     mutationFn: async () => {
-      const { data, error } = await api.POST("/teams/{teamId}/members", {
+      const { data, error } = await api.POST('/teams/{teamId}/members', {
         params: { path: { teamId: team.id } },
         body: { user_id: addMemberUserId, role: addMemberRole, cloud_identity: addMemberIdentity },
       });
@@ -224,19 +216,19 @@ function TeamDetail({
       return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["team-members", team.id] });
+      queryClient.invalidateQueries({ queryKey: ['team-members', team.id] });
       setShowAddMember(false);
-      setAddMemberUserId("");
-      setAddMemberRole("viewer");
-      setAddMemberArn("");
-      toast.success("Member added");
+      setAddMemberUserId('');
+      setAddMemberRole('viewer');
+      setAddMemberArn('');
+      toast.success('Member added');
     },
-    onError: () => toast.error("Failed to add member"),
+    onError: () => toast.error('Failed to add member'),
   });
 
   const updateMemberMutation = useMutation({
     mutationFn: async (userId: string) => {
-      const { data, error } = await api.PUT("/teams/{teamId}/members/{userId}", {
+      const { data, error } = await api.PUT('/teams/{teamId}/members/{userId}', {
         params: { path: { teamId: team.id, userId } },
         body: { role: editRole, cloud_identity: editIdentity },
       });
@@ -244,31 +236,31 @@ function TeamDetail({
       return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["team-members", team.id] });
+      queryClient.invalidateQueries({ queryKey: ['team-members', team.id] });
       setEditMemberId(null);
-      toast.success("Member updated");
+      toast.success('Member updated');
     },
-    onError: () => toast.error("Failed to update member"),
+    onError: () => toast.error('Failed to update member'),
   });
 
   const removeMemberMutation = useMutation({
     mutationFn: async (userId: string) => {
-      const { error } = await api.DELETE("/teams/{teamId}/members/{userId}", {
+      const { error } = await api.DELETE('/teams/{teamId}/members/{userId}', {
         params: { path: { teamId: team.id, userId } },
       });
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["team-members", team.id] });
-      toast.success("Member removed");
+      queryClient.invalidateQueries({ queryKey: ['team-members', team.id] });
+      toast.success('Member removed');
     },
-    onError: () => toast.error("Failed to remove member"),
+    onError: () => toast.error('Failed to remove member'),
   });
 
   const startEdit = (m: TeamMember) => {
     setEditMemberId(m.user_id);
     setEditRole(m.role);
-    setEditArn(m.cloud_identity || "");
+    setEditArn(m.cloud_identity || '');
   };
 
   return (
@@ -292,9 +284,13 @@ function TeamDetail({
             <Select value={addMemberUserId} onChange={(e) => setAddMemberUserId(e.target.value)}>
               <option value="">Select user...</option>
               {(users || [])
-                .filter((u: User) => !(members as TeamMember[] || []).some((m) => m.user_id === u.id))
+                .filter(
+                  (u: User) => !((members as TeamMember[]) || []).some((m) => m.user_id === u.id),
+                )
                 .map((u: User) => (
-                  <option key={u.id} value={u.id}>{u.name} ({u.email})</option>
+                  <option key={u.id} value={u.id}>
+                    {u.name} ({u.email})
+                  </option>
                 ))}
             </Select>
             <div className="grid grid-cols-[auto_1fr] gap-2">
@@ -310,9 +306,15 @@ function TeamDetail({
               />
             </div>
             <div className="flex justify-end gap-2">
-              <Button size="sm" variant="ghost" onClick={() => setShowAddMember(false)}>Cancel</Button>
-              <Button size="sm" onClick={() => addMemberMutation.mutate()} disabled={!addMemberUserId || addMemberMutation.isPending}>
-                {addMemberMutation.isPending ? <Spinner /> : "Add"}
+              <Button size="sm" variant="ghost" onClick={() => setShowAddMember(false)}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => addMemberMutation.mutate()}
+                disabled={!addMemberUserId || addMemberMutation.isPending}
+              >
+                {addMemberMutation.isPending ? <Spinner /> : 'Add'}
               </Button>
             </div>
           </div>
@@ -325,13 +327,16 @@ function TeamDetail({
           <div className="space-y-2">
             {(members as TeamMember[]).map((m) =>
               editMemberId === m.user_id ? (
-                <div key={m.id} className="p-3 rounded-lg border border-primary/20 bg-accent/20 space-y-2">
+                <div
+                  key={m.id}
+                  className="p-3 rounded-lg border border-primary/20 bg-accent/20 space-y-2"
+                >
                   <div className="flex items-center gap-2">
                     {m.avatar_url ? (
                       <img src={m.avatar_url} alt="" className="w-6 h-6 rounded-full" />
                     ) : (
                       <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center text-xs">
-                        {(m.user_name || m.email || "?")[0]}
+                        {(m.user_name || m.email || '?')[0]}
                       </div>
                     )}
                     <span className="text-sm font-medium">{m.user_name || m.email}</span>
@@ -349,28 +354,35 @@ function TeamDetail({
                     />
                   </div>
                   <div className="flex justify-end gap-2">
-                    <Button size="sm" variant="ghost" onClick={() => setEditMemberId(null)}>Cancel</Button>
-                    <Button size="sm" onClick={() => updateMemberMutation.mutate(m.user_id)} disabled={updateMemberMutation.isPending}>
-                      {updateMemberMutation.isPending ? <Spinner /> : <><Check className="w-3 h-3" /> Save</>}
+                    <Button size="sm" variant="ghost" onClick={() => setEditMemberId(null)}>
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => updateMemberMutation.mutate(m.user_id)}
+                      disabled={updateMemberMutation.isPending}
+                    >
+                      {updateMemberMutation.isPending ? (
+                        <Spinner />
+                      ) : (
+                        <>
+                          <Check className="w-3 h-3" /> Save
+                        </>
+                      )}
                     </Button>
                   </div>
                 </div>
               ) : (
-                <div
-                  key={m.id}
-                  className="flex items-center gap-3 p-2 rounded bg-accent/30"
-                >
+                <div key={m.id} className="flex items-center gap-3 p-2 rounded bg-accent/30">
                   {m.avatar_url ? (
                     <img src={m.avatar_url} alt="" className="w-6 h-6 rounded-full" />
                   ) : (
                     <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center text-xs">
-                      {(m.user_name || m.email || "?")[0]}
+                      {(m.user_name || m.email || '?')[0]}
                     </div>
                   )}
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium">
-                      {m.user_name || m.email}
-                    </div>
+                    <div className="text-sm font-medium">{m.user_name || m.email}</div>
                     <div className="text-xs text-muted-foreground">{m.email}</div>
                     {m.cloud_identity && (
                       <div className="text-[11px] text-muted-foreground/70 font-mono break-all mt-0.5">
@@ -397,7 +409,7 @@ function TeamDetail({
                     <X className="w-3.5 h-3.5" />
                   </button>
                 </div>
-              )
+              ),
             )}
           </div>
         )}

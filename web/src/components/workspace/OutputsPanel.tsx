@@ -1,46 +1,49 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { toast } from "sonner";
-import { api } from "@/api/client";
-import type { StateOutput } from "@/api/models";
-import { Badge } from "@/components/ui/badge";
-import { Spinner } from "@/components/ui/spinner";
-import { Copy, ChevronDown, ChevronRight, Lock } from "lucide-react";
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { api } from '@/api/client';
+import type { StateOutput } from '@/api/models';
+import { Badge } from '@/components/ui/badge';
+import { Spinner } from '@/components/ui/spinner';
+import { Copy, ChevronDown, ChevronRight, Lock } from 'lucide-react';
 
 interface Props {
   workspaceId: string;
 }
 
 function isComplexValue(value: unknown): boolean {
-  return typeof value === "object" && value !== null;
+  return typeof value === 'object' && value !== null;
 }
 
 function formatValue(value: unknown): string {
-  if (value === null || value === undefined) return "";
-  if (typeof value === "string") return value;
-  if (typeof value === "boolean") return value ? "true" : "false";
-  if (typeof value === "number") return String(value);
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  if (typeof value === 'number') return String(value);
   return JSON.stringify(value, null, 2);
 }
 
 function formatInlineValue(value: unknown): string {
-  if (value === null || value === undefined) return "";
-  if (typeof value === "string") return value;
-  if (typeof value === "boolean") return value ? "true" : "false";
-  if (typeof value === "number") return String(value);
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  if (typeof value === 'number') return String(value);
   return JSON.stringify(value);
 }
 
 export function OutputsPanel({ workspaceId }: Props) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
-  const { data: outputs, isLoading, isError } = useQuery({
-    queryKey: ["outputs", workspaceId],
+  const {
+    data: outputs,
+    isLoading,
+    isError,
+  } = useQuery({
+    queryKey: ['outputs', workspaceId],
     queryFn: async () => {
-      const { data, error } = await api.GET(
-        "/workspaces/{workspaceId}/state/current/outputs",
-        { params: { path: { workspaceId } } }
-      );
+      const { data, error } = await api.GET('/workspaces/{workspaceId}/state/current/outputs', {
+        params: { path: { workspaceId } },
+      });
       if (error) throw error;
       return data;
     },
@@ -49,9 +52,9 @@ export function OutputsPanel({ workspaceId }: Props) {
   const copyToClipboard = async (value: unknown) => {
     try {
       await navigator.clipboard.writeText(formatValue(value));
-      toast.success("Copied to clipboard");
+      toast.success('Copied to clipboard');
     } catch {
-      toast.error("Failed to copy to clipboard");
+      toast.error('Failed to copy to clipboard');
     }
   };
 
@@ -76,7 +79,7 @@ export function OutputsPanel({ workspaceId }: Props) {
   }
 
   const sorted = [...(outputs ?? [])].sort((a: StateOutput, b: StateOutput) =>
-    a.name.localeCompare(b.name)
+    a.name.localeCompare(b.name),
   );
 
   return (
@@ -114,8 +117,12 @@ export function OutputsPanel({ workspaceId }: Props) {
                       <div className="w-4.5" />
                     )}
                     <code className="text-sm font-mono font-medium">{output.name}</code>
-                    <Badge variant="outline" className="text-xs shrink-0">{output.type}</Badge>
-                    {output.sensitive && <Lock className="w-3.5 h-3.5 text-muted-foreground shrink-0" />}
+                    <Badge variant="outline" className="text-xs shrink-0">
+                      {output.type}
+                    </Badge>
+                    {output.sensitive && (
+                      <Lock className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                    )}
                   </div>
                   <div className="flex items-center gap-2 shrink-0 ml-4">
                     {output.sensitive ? (

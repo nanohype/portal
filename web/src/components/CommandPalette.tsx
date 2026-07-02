@@ -1,9 +1,9 @@
-import { useEffect } from "react";
-import { Command } from "cmdk";
-import { Search } from "lucide-react";
-import { navCategories } from "@/lib/nav";
-import { navigate } from "@/hooks/useNavigate";
-import { useAuth } from "@/hooks/useAuth";
+import { useEffect } from 'react';
+import { Command } from 'cmdk';
+import { Search } from 'lucide-react';
+import { navCategories } from '@/lib/nav';
+import { navigate } from '@/hooks/useNavigate';
+import { useAuth } from '@/hooks/useAuth';
 
 export function CommandPalette({
   open,
@@ -13,16 +13,16 @@ export function CommandPalette({
   onOpenChange: (open: boolean) => void;
 }) {
   const { user } = useAuth();
-  const isAdmin = user?.role === "admin" || user?.role === "owner";
+  const isAdmin = user?.role === 'admin' || user?.role === 'owner';
 
   // Close on Escape
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onOpenChange(false);
+      if (e.key === 'Escape') onOpenChange(false);
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, [open, onOpenChange]);
 
   if (!open) return null;

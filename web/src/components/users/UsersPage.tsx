@@ -1,38 +1,42 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
-import { api } from "@/api/client";
-import type { User } from "@/api/models";
-import { Badge } from "@/components/ui/badge";
-import { Select } from "@/components/ui/select";
-import { Spinner } from "@/components/ui/spinner";
-import { useAuth } from "@/hooks/useAuth";
-import { formatRelativeTime } from "@/lib/utils";
-import { UserCog } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { api } from '@/api/client';
+import type { User } from '@/api/models';
+import { Badge } from '@/components/ui/badge';
+import { Select } from '@/components/ui/select';
+import { Spinner } from '@/components/ui/spinner';
+import { useAuth } from '@/hooks/useAuth';
+import { formatRelativeTime } from '@/lib/utils';
+import { UserCog } from 'lucide-react';
 
-const ROLES = ["owner", "admin", "operator", "viewer"] as const;
+const ROLES = ['owner', 'admin', 'operator', 'viewer'] as const;
 
 const roleColor = (role: string) => {
   switch (role) {
-    case "owner":
-      return "text-destructive border-destructive/30";
-    case "admin":
-      return "text-orange-500 border-orange-500/30";
-    case "operator":
-      return "text-blue-500 border-blue-500/30";
+    case 'owner':
+      return 'text-destructive border-destructive/30';
+    case 'admin':
+      return 'text-orange-500 border-orange-500/30';
+    case 'operator':
+      return 'text-blue-500 border-blue-500/30';
     default:
-      return "text-muted-foreground border-border";
+      return 'text-muted-foreground border-border';
   }
 };
 
 export function UsersPage() {
   const queryClient = useQueryClient();
   const { user: currentUser } = useAuth();
-  const isOwner = currentUser?.role === "owner";
+  const isOwner = currentUser?.role === 'owner';
 
-  const { data: users, isLoading, isError } = useQuery({
-    queryKey: ["users"],
+  const {
+    data: users,
+    isLoading,
+    isError,
+  } = useQuery({
+    queryKey: ['users'],
     queryFn: async () => {
-      const { data, error } = await api.GET("/users");
+      const { data, error } = await api.GET('/users');
       if (error) throw error;
       return data?.data ?? [];
     },
@@ -40,18 +44,18 @@ export function UsersPage() {
 
   const updateRoleMutation = useMutation({
     mutationFn: async ({ userId, role }: { userId: string; role: string }) => {
-      const { data, error } = await api.PUT("/users/{userId}/role", {
+      const { data, error } = await api.PUT('/users/{userId}/role', {
         params: { path: { userId } },
-        body: { role: role as "owner" | "admin" | "operator" | "viewer" },
+        body: { role: role as 'owner' | 'admin' | 'operator' | 'viewer' },
       });
       if (error) throw error;
       return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["users"] });
-      toast.success("Role updated");
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      toast.success('Role updated');
     },
-    onError: () => toast.error("Failed to update role"),
+    onError: () => toast.error('Failed to update role'),
   });
 
   return (
@@ -86,27 +90,19 @@ export function UsersPage() {
       ) : (
         <div className="rounded-lg border border-border divide-y divide-border">
           {(users as User[]).map((u) => (
-            <div
-              key={u.id}
-              className="flex items-center justify-between px-4 py-3"
-            >
+            <div key={u.id} className="flex items-center justify-between px-4 py-3">
               <div className="flex items-center gap-3">
                 {u.avatar_url ? (
-                  <img
-                    src={u.avatar_url}
-                    alt={u.name}
-                    className="w-8 h-8 rounded-full"
-                  />
+                  <img src={u.avatar_url} alt={u.name} className="w-8 h-8 rounded-full" />
                 ) : (
                   <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-sm font-medium">
-                    {u.name?.[0] ?? "?"}
+                    {u.name?.[0] ?? '?'}
                   </div>
                 )}
                 <div>
                   <div className="text-sm font-medium">{u.name}</div>
                   <div className="text-xs text-muted-foreground">
-                    {u.email} &middot; Joined{" "}
-                    {formatRelativeTime(u.created_at)}
+                    {u.email} &middot; Joined {formatRelativeTime(u.created_at)}
                   </div>
                 </div>
               </div>

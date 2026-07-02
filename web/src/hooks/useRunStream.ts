@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState } from "react";
+import { useEffect, useRef, useCallback, useState } from 'react';
 
 interface UseRunStreamOptions {
   runId: string;
@@ -9,12 +9,7 @@ interface UseRunStreamOptions {
 
 const MAX_RETRIES = 5;
 
-export function useRunStream({
-  runId,
-  workspaceId,
-  enabled = true,
-  onData,
-}: UseRunStreamOptions) {
+export function useRunStream({ runId, workspaceId, enabled = true, onData }: UseRunStreamOptions) {
   const wsRef = useRef<WebSocket | null>(null);
   const retriesRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -25,17 +20,17 @@ export function useRunStream({
   const connect = useCallback(() => {
     if (!enabled || !runId) return;
 
-    const token = localStorage.getItem("portal_token");
+    const token = localStorage.getItem('portal_token');
     if (!token) return;
 
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
     const url = `${protocol}//${host}/api/v1/workspaces/${workspaceId}/runs/${runId}/logs/ws`;
 
     // The browser WebSocket API can't set an Authorization header, so the JWT
     // rides in the Sec-WebSocket-Protocol list; the server validates it and
     // selects "bearer" as the subprotocol.
-    const ws = new WebSocket(url, ["bearer", token]);
+    const ws = new WebSocket(url, ['bearer', token]);
     wsRef.current = ws;
 
     ws.onopen = () => {

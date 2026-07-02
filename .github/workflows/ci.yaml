@@ -58,6 +58,11 @@ jobs:
         working-directory: web
       - run: npm run lint
         working-directory: web
+      # Fail the build on unformatted web sources — the prettier counterpart to
+      # the gofmt gate above. src/api/types.ts is prettier-ignored (generated;
+      # its byte-identity with the generator is asserted by the drift step below).
+      - run: npm run format:check
+        working-directory: web
       # The API contract is generated: api/openapi.yaml is the source of truth
       # and web/src/api/types.ts must match it. Regenerate + diff fails the
       # build on drift (same pattern as nanohype's verify:catalog).

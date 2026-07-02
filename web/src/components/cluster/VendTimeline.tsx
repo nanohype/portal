@@ -1,12 +1,12 @@
-import type { ClusterOperation } from "@/api/models";
-import { PhaseStepper } from "./PhaseStepper";
-import { timelineFrame, type Step } from "./timeline-frame";
+import type { ClusterOperation } from '@/api/models';
+import { PhaseStepper } from './PhaseStepper';
+import { timelineFrame, type Step } from './timeline-frame';
 
 const STEPS: readonly Step[] = [
-  { key: "queued", label: "Queued" },
-  { key: "committed", label: "Committed" },
-  { key: "tofu_running", label: "Building" },
-  { key: "active", label: "Active" },
+  { key: 'queued', label: 'Queued' },
+  { key: 'committed', label: 'Committed' },
+  { key: 'tofu_running', label: 'Building' },
+  { key: 'active', label: 'Active' },
 ];
 
 // Compact stepper projecting a provision vend's journey from its phase map.
@@ -18,12 +18,12 @@ const STEPS: readonly Step[] = [
 // reserved for a portal-side commit failure (op.status / the "failed" phase).
 export function VendTimeline({ op }: { op: ClusterOperation }) {
   const phases = op.vend_phases ?? {};
-  const failed = op.status === "failed" || "failed" in phases;
+  const failed = op.status === 'failed' || 'failed' in phases;
   const frame = timelineFrame(
     STEPS,
     (key) => {
-      if (key === "queued") return true;
-      if (key === "active") return op.status === "active" || "active" in phases;
+      if (key === 'queued') return true;
+      if (key === 'active') return op.status === 'active' || 'active' in phases;
       return key in phases;
     },
     failed,
@@ -31,13 +31,8 @@ export function VendTimeline({ op }: { op: ClusterOperation }) {
 
   const tofuErr = phases.tofu_running?.detail;
   const issue = frame.inFlight && !!tofuErr;
-  const label = failed
-    ? "Failed"
-    : issue
-      ? tofuErr || ""
-      : STEPS[frame.lastReached].label;
-  const tooltip =
-    (failed ? op.error || phases.failed?.detail : tofuErr) || undefined;
+  const label = failed ? 'Failed' : issue ? tofuErr || '' : STEPS[frame.lastReached].label;
+  const tooltip = (failed ? op.error || phases.failed?.detail : tofuErr) || undefined;
 
   return (
     <PhaseStepper
