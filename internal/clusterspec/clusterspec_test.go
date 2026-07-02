@@ -163,8 +163,8 @@ func TestValidate_EndpointPosture(t *testing.T) {
 	base := Input{Name: "ok", Account: "111111111111", Region: "us-west-2", Team: "platform"}
 	no, yes := false, true
 	cases := map[string]func(*Input){
-		"private by omission":     func(i *Input) {},
-		"explicit private":        func(i *Input) { i.EndpointPublicAccess = &no },
+		"private by omission": func(i *Input) {},
+		"explicit private":    func(i *Input) { i.EndpointPublicAccess = &no },
 		"public with cidrs": func(i *Input) {
 			i.EndpointPublicAccess = &yes
 			i.EndpointPublicAccessCidrs = []string{"203.0.113.0/24", "198.51.100.7/32"}
