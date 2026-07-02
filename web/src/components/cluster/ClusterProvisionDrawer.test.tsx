@@ -5,10 +5,8 @@ import type { UserEvent } from "@testing-library/user-event";
 import { renderWithClient } from "@/test/render";
 import { useAuthStore } from "@/stores/auth";
 import type { Account, User } from "@/api/models";
-import {
-  ClusterProvisionDrawer,
-  parseCidrList,
-} from "./ClusterProvisionDrawer";
+import { ClusterProvisionDrawer } from "./ClusterProvisionDrawer";
+import { parseCidrList } from "@/lib/cidr";
 
 // Mock the api client at the module boundary (openapi-fetch binds fetch at
 // import, so network-level interception is brittle).

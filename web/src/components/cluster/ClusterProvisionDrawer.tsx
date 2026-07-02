@@ -16,19 +16,11 @@ import {
   DrawerFooter,
 } from "@/components/ui/drawer";
 import { cn } from "@/lib/utils";
+import { CIDR_RE, parseCidrList } from "@/lib/cidr";
 import { VendTimeline } from "./VendTimeline";
 
 const AWS_REGION_RE = /^[a-z]{2}-[a-z]+-\d$/;
 const K8S_NAME_RE = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
-const CIDR_RE = /^\d{1,3}(\.\d{1,3}){3}\/\d{1,2}$/;
-
-// "203.0.113.0/24, 198.51.100.7/32" → ["203.0.113.0/24", "198.51.100.7/32"]
-export function parseCidrList(raw: string): string[] {
-  return raw
-    .split(",")
-    .map((s) => s.trim())
-    .filter((s) => s !== "");
-}
 
 // The vend "order desk" as a slide-over: it produces an eks-fleet Cluster CR
 // (committed to the clusters GitOps repo) rather than registering an existing
