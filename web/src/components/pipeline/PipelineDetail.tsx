@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/api/client';
@@ -242,6 +242,7 @@ export function PipelineDetail({ pipelineId }: { pipelineId: string }) {
 }
 
 function PipelineVariablesTab({ pipelineId }: { pipelineId: string }) {
+  const uid = useId();
   const queryClient = useQueryClient();
   const confirm = useConfirm();
   const [showForm, setShowForm] = useState(false);
@@ -376,8 +377,12 @@ function PipelineVariablesTab({ pipelineId }: { pipelineId: string }) {
             onChange={(e) => setNewDescription(e.target.value)}
           />
           <div className="flex items-center gap-4">
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <label
+              htmlFor={`${uid}-new-sensitive`}
+              className="flex items-center gap-2 text-sm cursor-pointer"
+            >
               <input
+                id={`${uid}-new-sensitive`}
                 type="checkbox"
                 checked={newSensitive}
                 onChange={(e) => setNewSensitive(e.target.checked)}
@@ -431,8 +436,12 @@ function PipelineVariablesTab({ pipelineId }: { pipelineId: string }) {
                   onChange={(e) => setEditDescription(e.target.value)}
                 />
                 <div className="flex items-center gap-4">
-                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <label
+                    htmlFor={`${uid}-edit-sensitive`}
+                    className="flex items-center gap-2 text-sm cursor-pointer"
+                  >
                     <input
+                      id={`${uid}-edit-sensitive`}
                       type="checkbox"
                       checked={editSensitive}
                       onChange={(e) => setEditSensitive(e.target.checked)}

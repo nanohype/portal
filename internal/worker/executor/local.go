@@ -75,7 +75,7 @@ func (e *LocalExecutor) Execute(ctx context.Context, params ExecuteParams) (*Exe
 	}
 
 	// Restore previous state if available. Skipped in terragrunt mode —
-	// terragrunt's state lives in the remote backend (S3/GCS/Azure), so a
+	// terragrunt's state lives in the remote backend (S3), so a
 	// local terraform.tfstate file is meaningless and can actively confuse
 	// `tofu init` (e.g. when the cached blob was encrypted by a prior
 	// portal state-encryption run that has since been disabled, init

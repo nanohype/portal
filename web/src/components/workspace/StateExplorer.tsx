@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/api/client';
@@ -38,6 +38,7 @@ async function downloadState(workspaceId: string, stateId: string) {
 }
 
 export function StateExplorer({ workspaceId }: Props) {
+  const uid = useId();
   const [showResources, setShowResources] = useState(false);
   const [compareMode, setCompareMode] = useState(false);
   const [fromSerial, setFromSerial] = useState<number | ''>('');
@@ -183,8 +184,11 @@ export function StateExplorer({ workspaceId }: Props) {
         <div className="mt-4">
           <div className="flex items-center gap-3 mb-3">
             <div className="flex items-center gap-2">
-              <label className="text-sm text-muted-foreground">From serial:</label>
+              <label htmlFor={`${uid}-from-serial`} className="text-sm text-muted-foreground">
+                From serial:
+              </label>
               <Select
+                id={`${uid}-from-serial`}
                 value={String(fromSerial)}
                 onChange={(e) => setFromSerial(Number(e.target.value))}
                 placeholder="Select..."
@@ -199,8 +203,11 @@ export function StateExplorer({ workspaceId }: Props) {
             </div>
             <span className="text-muted-foreground">→</span>
             <div className="flex items-center gap-2">
-              <label className="text-sm text-muted-foreground">To serial:</label>
+              <label htmlFor={`${uid}-to-serial`} className="text-sm text-muted-foreground">
+                To serial:
+              </label>
               <Select
+                id={`${uid}-to-serial`}
                 value={String(toSerial)}
                 onChange={(e) => setToSerial(Number(e.target.value))}
                 placeholder="Select..."

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/api/client';
@@ -14,6 +14,7 @@ import { Pencil, Trash2, Plus, Lock, Eye, EyeOff, Settings } from 'lucide-react'
 export function OrgSettings() {
   const queryClient = useQueryClient();
   const confirm = useConfirm();
+  const uid = useId();
   const [showForm, setShowForm] = useState(false);
   const [editTarget, setEditTarget] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -189,8 +190,12 @@ export function OrgSettings() {
             onChange={(e) => setNewDescription(e.target.value)}
           />
           <div className="flex items-center gap-4">
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <label
+              htmlFor={`${uid}-new-sensitive`}
+              className="flex items-center gap-2 text-sm cursor-pointer"
+            >
               <input
+                id={`${uid}-new-sensitive`}
                 type="checkbox"
                 checked={newSensitive}
                 onChange={(e) => setNewSensitive(e.target.checked)}
@@ -245,8 +250,12 @@ export function OrgSettings() {
                   onChange={(e) => setEditDescription(e.target.value)}
                 />
                 <div className="flex items-center gap-4">
-                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <label
+                    htmlFor={`${uid}-edit-sensitive`}
+                    className="flex items-center gap-2 text-sm cursor-pointer"
+                  >
                     <input
+                      id={`${uid}-edit-sensitive`}
                       type="checkbox"
                       checked={editSensitive}
                       onChange={(e) => setEditSensitive(e.target.checked)}

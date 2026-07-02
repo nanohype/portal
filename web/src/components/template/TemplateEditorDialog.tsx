@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useId } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/api/client';
@@ -57,6 +57,7 @@ export function TemplateEditorDialog({
   existing: Template | null;
 }) {
   const queryClient = useQueryClient();
+  const uid = useId();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [persona, setPersona] = useState('generic');
@@ -167,8 +168,9 @@ export function TemplateEditorDialog({
         </DialogHeader>
 
         <div className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2">
-          <Field label="Name">
+          <Field label="Name" htmlFor={`${uid}-name`}>
             <Input
+              id={`${uid}-name`}
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="marketing-team"
@@ -176,8 +178,12 @@ export function TemplateEditorDialog({
             />
           </Field>
 
-          <Field label="Persona">
-            <Select value={persona} onChange={(e) => setPersona(e.target.value)}>
+          <Field label="Persona" htmlFor={`${uid}-persona`}>
+            <Select
+              id={`${uid}-persona`}
+              value={persona}
+              onChange={(e) => setPersona(e.target.value)}
+            >
               {PERSONAS.map((p) => (
                 <option key={p} value={p}>
                   {p}
@@ -186,16 +192,18 @@ export function TemplateEditorDialog({
             </Select>
           </Field>
 
-          <Field label="Description" className="sm:col-span-2">
+          <Field label="Description" htmlFor={`${uid}-description`} className="sm:col-span-2">
             <Input
+              id={`${uid}-description`}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="What's this template for?"
             />
           </Field>
 
-          <Field label="Max budget / mo (USD)" hint="0 = no cap">
+          <Field label="Max budget / mo (USD)" htmlFor={`${uid}-max-budget`} hint="0 = no cap">
             <Input
+              id={`${uid}-max-budget`}
               type="number"
               min={0}
               value={maxBudget}
@@ -255,11 +263,13 @@ export function TemplateEditorDialog({
 
           <Field
             label="Default values (JSON)"
+            htmlFor={`${uid}-default-values`}
             error={defaultsErr ?? null}
             hint="The baseline helm values for every tenant from this template."
             className="sm:col-span-2"
           >
             <textarea
+              id={`${uid}-default-values`}
               value={defaultValuesYaml}
               onChange={(e) => setDefaultValuesYaml(e.target.value)}
               rows={7}
@@ -391,6 +401,7 @@ function TemplateAccessSection({ templateID }: { templateID: string }) {
         {ungranted.length > 0 && (
           <div className="px-4 py-2 bg-background/40 flex items-center gap-2">
             <select
+              aria-label="Grant access to a team"
               value={picker}
               onChange={(e) => setPicker(e.target.value)}
               className="text-xs border border-border/60 rounded-md bg-background px-2 py-1.5 flex-1"
@@ -418,12 +429,14 @@ function TemplateAccessSection({ templateID }: { templateID: string }) {
 
 function Field({
   label,
+  htmlFor,
   hint,
   error,
   className,
   children,
 }: {
   label: string;
+  htmlFor?: string;
   hint?: string;
   error?: string | null;
   className?: string;
@@ -431,7 +444,9 @@ function Field({
 }) {
   return (
     <div className={className}>
-      <label className="text-xs font-medium text-muted-foreground mb-1.5 block">{label}</label>
+      <label htmlFor={htmlFor} className="text-xs font-medium text-muted-foreground mb-1.5 block">
+        {label}
+      </label>
       {children}
       {error ? (
         <p className="text-[11px] text-destructive mt-1">{error}</p>

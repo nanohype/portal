@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useId } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/api/client';
@@ -27,6 +27,7 @@ import { DeprovisionTimeline } from './DeprovisionTimeline';
 import { UnwedgeTimeline } from './UnwedgeTimeline';
 
 export function ClusterDetail({ clusterId }: { clusterId: string }) {
+  const uid = useId();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin' || user?.role === 'owner';
   const isOwner = user?.role === 'owner';
@@ -408,12 +409,18 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
       )}
 
       <div className="space-y-5">
-        <FormRow label="Name">
-          <Input value={name} onChange={(e) => setName(e.target.value)} disabled={!isAdmin} />
+        <FormRow label="Name" htmlFor={`${uid}-name`}>
+          <Input
+            id={`${uid}-name`}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            disabled={!isAdmin}
+          />
         </FormRow>
 
-        <FormRow label="Description">
+        <FormRow label="Description" htmlFor={`${uid}-description`}>
           <Input
+            id={`${uid}-description`}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             disabled={!isAdmin}
@@ -421,15 +428,20 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
           />
         </FormRow>
 
-        <FormRow label="Account" hint="Immutable. A cluster lives in exactly one account.">
+        <FormRow
+          label="Account"
+          htmlFor={`${uid}-account`}
+          hint="Immutable. A cluster lives in exactly one account."
+        >
           <div className="flex items-center gap-2">
-            <Input value={data.account_id} disabled className="font-mono" />
+            <Input id={`${uid}-account`} value={data.account_id} disabled className="font-mono" />
             <Lock className="w-3.5 h-3.5 text-muted-foreground/50" />
           </div>
         </FormRow>
 
-        <FormRow label="API Endpoint">
+        <FormRow label="API Endpoint" htmlFor={`${uid}-api-endpoint`}>
           <Input
+            id={`${uid}-api-endpoint`}
             value={apiEndpoint}
             onChange={(e) => setApiEndpoint(e.target.value)}
             disabled={!isAdmin}
@@ -437,8 +449,9 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
           />
         </FormRow>
 
-        <FormRow label="Region">
+        <FormRow label="Region" htmlFor={`${uid}-region`}>
           <Input
+            id={`${uid}-region`}
             value={region}
             onChange={(e) => setRegion(e.target.value)}
             disabled={!isAdmin}
@@ -461,11 +474,13 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
 
         <FormRow
           label="Credentials"
+          htmlFor={editingCreds ? `${uid}-ca-bundle` : undefined}
           hint="CA bundle + service-account token. Stored encrypted; replace below if they rotate."
         >
           {editingCreds ? (
             <div className="space-y-2">
               <textarea
+                id={`${uid}-ca-bundle`}
                 value={caBundle}
                 onChange={(e) => setCaBundle(e.target.value)}
                 placeholder="-----BEGIN CERTIFICATE----- (paste new CA, leave empty to keep)"
@@ -474,6 +489,7 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
               />
               <Input
                 type="password"
+                aria-label="Service account token"
                 value={saToken}
                 onChange={(e) => setSaToken(e.target.value)}
                 placeholder="New SA token (leave empty to keep)"
@@ -554,16 +570,20 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
 
 function FormRow({
   label,
+  htmlFor,
   hint,
   children,
 }: {
   label: string;
+  htmlFor?: string;
   hint?: string;
   children: React.ReactNode;
 }) {
   return (
     <div>
-      <label className="text-xs font-medium text-muted-foreground mb-1.5 block">{label}</label>
+      <label htmlFor={htmlFor} className="text-xs font-medium text-muted-foreground mb-1.5 block">
+        {label}
+      </label>
       {children}
       {hint && <p className="text-[11px] text-muted-foreground/70 mt-1">{hint}</p>}
     </div>

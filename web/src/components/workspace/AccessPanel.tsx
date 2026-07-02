@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/api/client';
@@ -14,6 +14,7 @@ interface Props {
 }
 
 export function AccessPanel({ workspaceId }: Props) {
+  const uid = useId();
   const queryClient = useQueryClient();
   const [showForm, setShowForm] = useState(false);
   const [selectedTeamId, setSelectedTeamId] = useState('');
@@ -119,8 +120,17 @@ export function AccessPanel({ workspaceId }: Props) {
         <div className="rounded-lg border border-border p-4 mb-4 space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">Team</label>
-              <Select value={selectedTeamId} onChange={(e) => setSelectedTeamId(e.target.value)}>
+              <label
+                htmlFor={`${uid}-team`}
+                className="text-xs font-medium text-muted-foreground mb-1 block"
+              >
+                Team
+              </label>
+              <Select
+                id={`${uid}-team`}
+                value={selectedTeamId}
+                onChange={(e) => setSelectedTeamId(e.target.value)}
+              >
                 <option value="">Select a team</option>
                 {availableTeams?.map((team) => (
                   <option key={team.id} value={team.id}>
@@ -130,8 +140,17 @@ export function AccessPanel({ workspaceId }: Props) {
               </Select>
             </div>
             <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">Role</label>
-              <Select value={selectedRole} onChange={(e) => setSelectedRole(e.target.value)}>
+              <label
+                htmlFor={`${uid}-role`}
+                className="text-xs font-medium text-muted-foreground mb-1 block"
+              >
+                Role
+              </label>
+              <Select
+                id={`${uid}-role`}
+                value={selectedRole}
+                onChange={(e) => setSelectedRole(e.target.value)}
+              >
                 <option value="viewer">Viewer</option>
                 <option value="operator">Operator</option>
                 <option value="admin">Admin</option>

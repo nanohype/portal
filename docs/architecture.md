@@ -68,7 +68,7 @@ Credentials follow one of two paths:
 - **IRSA / default chain** — leave `S3_ACCESS_KEY` / `S3_SECRET_KEY` empty and the SDK's default credential chain supplies them (env → EKS IRSA web-identity → EC2/ECS). This is the hub path: the worker's IRSA role grants S3 access and no long-lived key sits at rest.
 - **Static keys** — set the keys for dev (minio/SeaweedFS) or any S3-compatible store, with a custom `S3_ENDPOINT`. Path-style addressing works against both self-hosted stores and AWS S3, so portal never depends on per-bucket virtual-host DNS.
 
-Config lives in the `objectStore` Helm block / the `S3_*` env. Any S3-compatible store works (AWS S3, GCS with S3 compatibility, etc).
+Config lives in the `objectStore` Helm block / the `S3_*` env. Any S3-compatible store works (AWS S3, MinIO, SeaweedFS, etc).
 
 ## Executor Model
 
@@ -157,10 +157,7 @@ See [variables.md](variables.md) for details.
 
 ## Team Cloud Identities
 
-Team members have an optional `cloud_identity` field for mapping portal users to cloud provider principals:
-- AWS: IAM Role ARN
-- GCP: Service account email
-- Azure: Principal ID
+Team members have an optional `cloud_identity` field for mapping portal users to AWS principals (IAM role ARNs).
 
 This is a data field on the team member record — portal stores it but doesn't automatically inject it into runs. Use it as reference when building access entry variables for your cluster workspaces.
 

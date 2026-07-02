@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useId, useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/api/client';
@@ -148,6 +148,7 @@ export function PipelineList() {
 }
 
 function CreatePipelineDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const uid = useId();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [stages, setStages] = useState<CreatePipelineStageInput[]>([]);
@@ -264,8 +265,14 @@ function CreatePipelineDialog({ open, onClose }: { open: boolean; onClose: () =>
 
         <div className="space-y-4">
           <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Name</label>
+            <label
+              htmlFor={`${uid}-name`}
+              className="text-xs font-medium text-muted-foreground mb-1.5 block"
+            >
+              Name
+            </label>
             <Input
+              id={`${uid}-name`}
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. landing-zone"
@@ -273,10 +280,14 @@ function CreatePipelineDialog({ open, onClose }: { open: boolean; onClose: () =>
           </div>
 
           <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+            <label
+              htmlFor={`${uid}-description`}
+              className="text-xs font-medium text-muted-foreground mb-1.5 block"
+            >
               Description
             </label>
             <Input
+              id={`${uid}-description`}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Optional description"
@@ -284,7 +295,7 @@ function CreatePipelineDialog({ open, onClose }: { open: boolean; onClose: () =>
           </div>
 
           <div>
-            <label className="text-xs font-medium text-muted-foreground mb-2 block">Stages</label>
+            <span className="text-xs font-medium text-muted-foreground mb-2 block">Stages</span>
 
             {stages.length > 0 && (
               <div className="space-y-1 mb-3">
@@ -346,6 +357,7 @@ function CreatePipelineDialog({ open, onClose }: { open: boolean; onClose: () =>
             {availableWorkspaces && availableWorkspaces.length > 0 && (
               <Select
                 value=""
+                aria-label="Add workspace stage"
                 placeholder="Add workspace stage..."
                 onChange={(e) => {
                   if (e.target.value) addStage(e.target.value);

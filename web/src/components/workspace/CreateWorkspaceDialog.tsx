@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useForm, useWatch, type Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -48,6 +48,7 @@ interface Props {
 }
 
 export function CreateWorkspaceDialog({ open, onClose, onSubmit, isLoading }: Props) {
+  const uid = useId();
   const [source, setSource] = useState<'vcs' | 'upload'>('vcs');
 
   const schema = source === 'vcs' ? vcsSchema : uploadSchema;
@@ -141,24 +142,43 @@ export function CreateWorkspaceDialog({ open, onClose, onSubmit, isLoading }: Pr
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium mb-1.5">Name</label>
-              <Input {...register('name')} placeholder="my-infrastructure" autoFocus />
+              <label htmlFor={`${uid}-name`} className="block text-sm font-medium mb-1.5">
+                Name
+              </label>
+              <Input
+                id={`${uid}-name`}
+                {...register('name')}
+                placeholder="my-infrastructure"
+                autoFocus
+              />
               {errors.name && (
                 <p className="text-xs text-destructive mt-1">{errors.name.message}</p>
               )}
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1.5">Description</label>
-              <Input {...register('description')} placeholder="Production AWS infrastructure" />
+              <label htmlFor={`${uid}-description`} className="block text-sm font-medium mb-1.5">
+                Description
+              </label>
+              <Input
+                id={`${uid}-description`}
+                {...register('description')}
+                placeholder="Production AWS infrastructure"
+              />
             </div>
           </div>
 
           {source === 'vcs' && (
             <>
               <div>
-                <label className="block text-sm font-medium mb-1.5">Repository URL</label>
-                <Input {...register('repo_url')} placeholder="https://github.com/org/repo" />
+                <label htmlFor={`${uid}-repo-url`} className="block text-sm font-medium mb-1.5">
+                  Repository URL
+                </label>
+                <Input
+                  id={`${uid}-repo-url`}
+                  {...register('repo_url')}
+                  placeholder="https://github.com/org/repo"
+                />
                 {errors.repo_url && (
                   <p className="text-xs text-destructive mt-1">{errors.repo_url.message}</p>
                 )}
@@ -166,12 +186,26 @@ export function CreateWorkspaceDialog({ open, onClose, onSubmit, isLoading }: Pr
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium mb-1.5">Branch</label>
-                  <Input {...register('repo_branch')} placeholder="main" />
+                  <label
+                    htmlFor={`${uid}-repo-branch`}
+                    className="block text-sm font-medium mb-1.5"
+                  >
+                    Branch
+                  </label>
+                  <Input
+                    id={`${uid}-repo-branch`}
+                    {...register('repo_branch')}
+                    placeholder="main"
+                  />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1.5">Working directory</label>
-                  <Input {...register('working_dir')} placeholder="." />
+                  <label
+                    htmlFor={`${uid}-working-dir`}
+                    className="block text-sm font-medium mb-1.5"
+                  >
+                    Working directory
+                  </label>
+                  <Input id={`${uid}-working-dir`} {...register('working_dir')} placeholder="." />
                 </div>
               </div>
             </>
@@ -179,8 +213,17 @@ export function CreateWorkspaceDialog({ open, onClose, onSubmit, isLoading }: Pr
 
           {source === 'upload' && (
             <div>
-              <label className="block text-sm font-medium mb-1.5">Working directory</label>
-              <Input {...register('working_dir')} placeholder="." />
+              <label
+                htmlFor={`${uid}-upload-working-dir`}
+                className="block text-sm font-medium mb-1.5"
+              >
+                Working directory
+              </label>
+              <Input
+                id={`${uid}-upload-working-dir`}
+                {...register('working_dir')}
+                placeholder="."
+              />
               <p className="text-xs text-muted-foreground mt-1">
                 Subdirectory within the uploaded archive to run tofu in.
               </p>
@@ -189,12 +232,21 @@ export function CreateWorkspaceDialog({ open, onClose, onSubmit, isLoading }: Pr
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium mb-1.5">OpenTofu version</label>
-              <Input {...register('tofu_version')} placeholder="1.11.0" />
+              <label htmlFor={`${uid}-tofu-version`} className="block text-sm font-medium mb-1.5">
+                OpenTofu version
+              </label>
+              <Input
+                id={`${uid}-tofu-version`}
+                {...register('tofu_version')}
+                placeholder="1.11.0"
+              />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1.5">Environment</label>
+              <label htmlFor={`${uid}-environment`} className="block text-sm font-medium mb-1.5">
+                Environment
+              </label>
               <Select
+                id={`${uid}-environment`}
                 value={environment}
                 onChange={(e) =>
                   setValue('environment', e.target.value as CreateWorkspaceRequest['environment'])
@@ -209,8 +261,9 @@ export function CreateWorkspaceDialog({ open, onClose, onSubmit, isLoading }: Pr
 
           <div className="space-y-3 pt-2 border-t border-border">
             <p className="text-sm font-medium">Workflow</p>
-            <label className="flex items-center gap-3 cursor-pointer">
+            <label htmlFor={`${uid}-auto-apply`} className="flex items-center gap-3 cursor-pointer">
               <input
+                id={`${uid}-auto-apply`}
                 type="checkbox"
                 {...register('auto_apply')}
                 className="w-4 h-4 rounded border-border"
@@ -222,8 +275,12 @@ export function CreateWorkspaceDialog({ open, onClose, onSubmit, isLoading }: Pr
                 </div>
               </div>
             </label>
-            <label className="flex items-center gap-3 cursor-pointer">
+            <label
+              htmlFor={`${uid}-requires-approval`}
+              className="flex items-center gap-3 cursor-pointer"
+            >
               <input
+                id={`${uid}-requires-approval`}
                 type="checkbox"
                 {...register('requires_approval')}
                 className="w-4 h-4 rounded border-border"

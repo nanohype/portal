@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useId } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/api/client';
@@ -58,6 +58,7 @@ export function TenantCreateModal({
   clusters: Cluster[];
 }) {
   const queryClient = useQueryClient();
+  const uid = useId();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin' || user?.role === 'owner';
 
@@ -245,9 +246,10 @@ export function TenantCreateModal({
 
         <div className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2">
           {templates && templates.length > 0 && (
-            <Field label="Template" className="sm:col-span-2">
+            <Field label="Template" htmlFor={`${uid}-template`} className="sm:col-span-2">
               <div className="flex items-center gap-2">
                 <Select
+                  id={`${uid}-template`}
                   value={templateID}
                   onChange={(e) => {
                     setTemplateID(e.target.value);
@@ -302,6 +304,7 @@ export function TenantCreateModal({
           {pickableTeams && pickableTeams.length > 0 && (
             <Field
               label={isAdmin ? 'Owning team (optional)' : 'Owning team'}
+              htmlFor={`${uid}-owning-team`}
               hint={
                 isAdmin
                   ? 'Leave blank for admin-only visibility.'
@@ -310,7 +313,11 @@ export function TenantCreateModal({
                     : undefined
               }
             >
-              <Select value={owningTeamID} onChange={(e) => setOwningTeamID(e.target.value)}>
+              <Select
+                id={`${uid}-owning-team`}
+                value={owningTeamID}
+                onChange={(e) => setOwningTeamID(e.target.value)}
+              >
                 {isAdmin && <option value="">(no team — admin only)</option>}
                 {pickableTeams.map((t) => (
                   <option key={t.id} value={t.id}>
@@ -321,8 +328,12 @@ export function TenantCreateModal({
             </Field>
           )}
 
-          <Field label="Cluster">
-            <Select value={clusterID} onChange={(e) => setClusterID(e.target.value)}>
+          <Field label="Cluster" htmlFor={`${uid}-cluster`}>
+            <Select
+              id={`${uid}-cluster`}
+              value={clusterID}
+              onChange={(e) => setClusterID(e.target.value)}
+            >
               <option value="">Pick a cluster…</option>
               {clusters
                 .filter((c) => c.connection_status === 'connected')
@@ -341,6 +352,7 @@ export function TenantCreateModal({
 
           <Field
             label="Platform name (k8s name)"
+            htmlFor={`${uid}-name`}
             error={
               nameInvalid
                 ? 'Lowercase alphanumeric + hyphen, 1-63 chars, must start/end alphanumeric'
@@ -348,6 +360,7 @@ export function TenantCreateModal({
             }
           >
             <Input
+              id={`${uid}-name`}
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="marketing-team"
@@ -355,8 +368,13 @@ export function TenantCreateModal({
             />
           </Field>
 
-          <Field label="Display name (optional)" locked={!allowed(FIELD_PATHS.displayName)}>
+          <Field
+            label="Display name (optional)"
+            htmlFor={`${uid}-display-name`}
+            locked={!allowed(FIELD_PATHS.displayName)}
+          >
             <Input
+              id={`${uid}-display-name`}
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
               placeholder="Marketing Team"
@@ -366,9 +384,11 @@ export function TenantCreateModal({
 
           <Field
             label="Parent Tenant (defaults to platform name)"
+            htmlFor={`${uid}-tenant`}
             locked={!allowed(FIELD_PATHS.tenant)}
           >
             <Input
+              id={`${uid}-tenant`}
               value={tenant}
               onChange={(e) => setTenant(e.target.value)}
               placeholder="leave blank to use platform name"
@@ -377,8 +397,9 @@ export function TenantCreateModal({
             />
           </Field>
 
-          <Field label="Persona" locked={!allowed(FIELD_PATHS.persona)}>
+          <Field label="Persona" htmlFor={`${uid}-persona`} locked={!allowed(FIELD_PATHS.persona)}>
             <Select
+              id={`${uid}-persona`}
               value={persona}
               onChange={(e) => setPersona(e.target.value as (typeof PERSONAS)[number])}
               disabled={!allowed(FIELD_PATHS.persona)}
@@ -393,6 +414,7 @@ export function TenantCreateModal({
 
           <Field
             label="Monthly Budget (USD)"
+            htmlFor={`${uid}-monthly-usd`}
             locked={!allowed(FIELD_PATHS.monthlyUsd)}
             error={budgetOverCap ? `Exceeds template cap of $${selected!.max_budget_usd}` : null}
             hint={
@@ -402,6 +424,7 @@ export function TenantCreateModal({
             }
           >
             <Input
+              id={`${uid}-monthly-usd`}
               type="number"
               min={1}
               value={monthlyUsd}
@@ -413,8 +436,12 @@ export function TenantCreateModal({
 
           <Field label="Compliance">
             <div className="flex items-center gap-4 text-xs">
-              <label className="inline-flex items-center gap-2 cursor-pointer">
+              <label
+                htmlFor={`${uid}-soc2`}
+                className="inline-flex items-center gap-2 cursor-pointer"
+              >
                 <input
+                  id={`${uid}-soc2`}
                   type="checkbox"
                   checked={soc2}
                   onChange={(e) => setSoc2(e.target.checked)}
@@ -425,8 +452,12 @@ export function TenantCreateModal({
                   <Badge variant="warning">required</Badge>
                 )}
               </label>
-              <label className="inline-flex items-center gap-2 cursor-pointer">
+              <label
+                htmlFor={`${uid}-hipaa`}
+                className="inline-flex items-center gap-2 cursor-pointer"
+              >
                 <input
+                  id={`${uid}-hipaa`}
                   type="checkbox"
                   checked={hipaa}
                   onChange={(e) => setHipaa(e.target.checked)}
@@ -456,6 +487,7 @@ export function TenantCreateModal({
 
 function Field({
   label,
+  htmlFor,
   hint,
   error,
   locked,
@@ -463,6 +495,7 @@ function Field({
   children,
 }: {
   label: string;
+  htmlFor?: string;
   hint?: string;
   error?: string | null;
   locked?: boolean;
@@ -471,7 +504,10 @@ function Field({
 }) {
   return (
     <div className={className}>
-      <label className="text-xs font-medium text-muted-foreground mb-1.5 flex items-center gap-1.5">
+      <label
+        htmlFor={htmlFor}
+        className="text-xs font-medium text-muted-foreground mb-1.5 flex items-center gap-1.5"
+      >
         {label}
         {locked && (
           <span className="text-[10px] text-muted-foreground/60 font-normal">

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/api/client';
@@ -68,6 +68,7 @@ function parseEnvFormat(text: string): { key: string; value: string }[] {
 }
 
 export function VariablesPanel({ workspaceId }: Props) {
+  const uid = useId();
   const queryClient = useQueryClient();
   const [showForm, setShowForm] = useState(false);
   const [newKey, setNewKey] = useState('');
@@ -584,8 +585,12 @@ export function VariablesPanel({ workspaceId }: Props) {
               <option value="terraform">Terraform</option>
               <option value="env">Environment</option>
             </Select>
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <label
+              htmlFor={`${uid}-new-sensitive`}
+              className="flex items-center gap-2 text-sm cursor-pointer"
+            >
               <input
+                id={`${uid}-new-sensitive`}
                 type="checkbox"
                 checked={newSensitive}
                 onChange={(e) => setNewSensitive(e.target.checked)}
@@ -696,8 +701,12 @@ export function VariablesPanel({ workspaceId }: Props) {
                   onChange={(e) => setEditDescription(e.target.value)}
                 />
                 <div className="flex items-center gap-4">
-                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <label
+                    htmlFor={`${uid}-edit-sensitive`}
+                    className="flex items-center gap-2 text-sm cursor-pointer"
+                  >
                     <input
+                      id={`${uid}-edit-sensitive`}
                       type="checkbox"
                       checked={editSensitive}
                       onChange={(e) => setEditSensitive(e.target.checked)}
@@ -938,8 +947,12 @@ export function VariablesPanel({ workspaceId }: Props) {
                   <option value="terraform">Terraform</option>
                   <option value="env">Environment</option>
                 </Select>
-                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <label
+                  htmlFor={`${uid}-bulk-sensitive`}
+                  className="flex items-center gap-2 text-sm cursor-pointer"
+                >
                   <input
+                    id={`${uid}-bulk-sensitive`}
                     type="checkbox"
                     checked={bulkSensitive}
                     onChange={(e) => setBulkSensitive(e.target.checked)}

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/api/client';
@@ -38,6 +38,7 @@ export function ClusterProvisionDrawer({
   accounts: Account[];
 }) {
   const queryClient = useQueryClient();
+  const uid = useId();
   const [accountID, setAccountID] = useState('');
   const [name, setName] = useState('');
   const [team, setTeam] = useState('');
@@ -201,8 +202,12 @@ export function ClusterProvisionDrawer({
           </div>
         ) : (
           <div className="space-y-4">
-            <Field label="Account">
-              <Select value={accountID} onChange={(e) => onPickAccount(e.target.value)}>
+            <Field label="Account" htmlFor={`${uid}-account`}>
+              <Select
+                id={`${uid}-account`}
+                value={accountID}
+                onChange={(e) => onPickAccount(e.target.value)}
+              >
                 <option value="">Pick an account…</option>
                 {accounts.map((a) => (
                   <option key={a.id} value={a.id}>
@@ -214,9 +219,11 @@ export function ClusterProvisionDrawer({
 
             <Field
               label="Name"
+              htmlFor={`${uid}-name`}
               error={nameInvalid ? 'Lowercase letters, digits, and dashes' : null}
             >
               <Input
+                id={`${uid}-name`}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="eks"
@@ -226,9 +233,11 @@ export function ClusterProvisionDrawer({
 
             <Field
               label="Team"
+              htmlFor={`${uid}-team`}
               error={teamInvalid ? 'Lowercase letters, digits, and dashes (k8s namespace)' : null}
             >
               <Input
+                id={`${uid}-team`}
                 value={team}
                 onChange={(e) => setTeam(e.target.value)}
                 placeholder="platform"
@@ -236,8 +245,9 @@ export function ClusterProvisionDrawer({
               />
             </Field>
 
-            <Field label="Environment">
+            <Field label="Environment" htmlFor={`${uid}-environment`}>
               <Select
+                id={`${uid}-environment`}
                 value={environment}
                 onChange={(e) => setEnvironment(e.target.value as 'dev' | 'staging' | 'production')}
               >
@@ -247,8 +257,13 @@ export function ClusterProvisionDrawer({
               </Select>
             </Field>
 
-            <Field label="Region" error={regionInvalid ? 'Must look like us-west-2' : null}>
+            <Field
+              label="Region"
+              htmlFor={`${uid}-region`}
+              error={regionInvalid ? 'Must look like us-west-2' : null}
+            >
               <Input
+                id={`${uid}-region`}
                 value={region}
                 onChange={(e) => setRegion(e.target.value)}
                 placeholder="us-west-2"
@@ -256,8 +271,9 @@ export function ClusterProvisionDrawer({
               />
             </Field>
 
-            <Field label="Kubernetes Version (optional)">
+            <Field label="Kubernetes Version (optional)" htmlFor={`${uid}-cluster-version`}>
               <Input
+                id={`${uid}-cluster-version`}
                 value={clusterVersion}
                 onChange={(e) => setClusterVersion(e.target.value)}
                 placeholder="Defaults to the fleet default (e.g. 1.36)"
@@ -266,8 +282,12 @@ export function ClusterProvisionDrawer({
             </Field>
 
             <div className="space-y-2">
-              <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+              <label
+                htmlFor={`${uid}-public-access`}
+                className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer"
+              >
                 <input
+                  id={`${uid}-public-access`}
                   type="checkbox"
                   checked={publicAccess}
                   onChange={(e) => setPublicAccess(e.target.checked)}
@@ -282,8 +302,9 @@ export function ClusterProvisionDrawer({
             </div>
 
             {publicAccess && (
-              <Field label="Allowed CIDRs" error={cidrError}>
+              <Field label="Allowed CIDRs" htmlFor={`${uid}-public-cidrs`} error={cidrError}>
                 <Input
+                  id={`${uid}-public-cidrs`}
                   value={publicCidrs}
                   onChange={(e) => setPublicCidrs(e.target.value)}
                   placeholder="203.0.113.0/24, 198.51.100.7/32"
@@ -332,16 +353,20 @@ export function ClusterProvisionDrawer({
 
 function Field({
   label,
+  htmlFor,
   error,
   children,
 }: {
   label: string;
+  htmlFor: string;
   error?: string | null;
   children: React.ReactNode;
 }) {
   return (
     <div>
-      <label className="text-xs font-medium text-muted-foreground mb-1.5 block">{label}</label>
+      <label htmlFor={htmlFor} className="text-xs font-medium text-muted-foreground mb-1.5 block">
+        {label}
+      </label>
       {children}
       {error && <p className="text-[11px] text-destructive mt-1">{error}</p>}
     </div>

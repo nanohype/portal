@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/api/client';
@@ -67,6 +67,7 @@ function getTabFromURL(): Tab {
 }
 
 export function WorkspaceDetail({ workspaceId }: Props) {
+  const uid = useId();
   const queryClient = useQueryClient();
   const confirm = useConfirm();
   const [tab, setTab] = useState<Tab>(getTabFromURL);
@@ -604,10 +605,11 @@ export function WorkspaceDetail({ workspaceId }: Props) {
             </div>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-1">
+                <label htmlFor={`${uid}-clone-name`} className="block text-sm font-medium mb-1">
                   Name <span className="text-destructive">*</span>
                 </label>
                 <input
+                  id={`${uid}-clone-name`}
                   type="text"
                   value={cloneName}
                   onChange={(e) => setCloneName(e.target.value)}
@@ -618,8 +620,14 @@ export function WorkspaceDetail({ workspaceId }: Props) {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Description</label>
+                <label
+                  htmlFor={`${uid}-clone-description`}
+                  className="block text-sm font-medium mb-1"
+                >
+                  Description
+                </label>
                 <textarea
+                  id={`${uid}-clone-description`}
                   value={cloneDescription}
                   onChange={(e) => setCloneDescription(e.target.value)}
                   rows={3}
@@ -628,8 +636,14 @@ export function WorkspaceDetail({ workspaceId }: Props) {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Environment</label>
+                <label
+                  htmlFor={`${uid}-clone-environment`}
+                  className="block text-sm font-medium mb-1"
+                >
+                  Environment
+                </label>
                 <Select
+                  id={`${uid}-clone-environment`}
                   value={cloneEnvironment}
                   onChange={(e) => setCloneEnvironment(e.target.value)}
                 >

@@ -9,12 +9,14 @@ export interface SelectOption {
 }
 
 interface SelectProps {
+  id?: string;
   value?: string;
   onChange?: (e: { target: { value: string } }) => void;
   children?: ReactNode;
   className?: string;
   placeholder?: string;
   disabled?: boolean;
+  'aria-label'?: string;
 }
 
 /**
@@ -27,12 +29,14 @@ interface SelectProps {
  * The onChange signature matches native select: `(e: { target: { value } }) => void`
  */
 export function Select({
+  id,
   value,
   onChange,
   children,
   className,
   placeholder,
   disabled,
+  'aria-label': ariaLabel,
 }: SelectProps) {
   const [open, setOpen] = useState(false);
   const [highlightIndex, setHighlightIndex] = useState(-1);
@@ -130,8 +134,10 @@ export function Select({
   return (
     <div ref={containerRef} className={cn('relative', className)}>
       <button
+        id={id}
         type="button"
         role="combobox"
+        aria-label={ariaLabel}
         aria-expanded={open}
         aria-haspopup="listbox"
         disabled={disabled}

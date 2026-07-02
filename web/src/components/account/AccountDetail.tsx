@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useId } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/api/client';
@@ -16,6 +16,7 @@ const AWS_ROLE_ARN_RE = /^arn:aws[a-z-]*:iam::(\d{12}):role\/.+$/;
 const AWS_REGION_RE = /^[a-z]{2}-[a-z]+-\d$/;
 
 export function AccountDetail({ accountId }: { accountId: string }) {
+  const uid = useId();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin' || user?.role === 'owner';
   const queryClient = useQueryClient();
@@ -171,12 +172,18 @@ export function AccountDetail({ accountId }: { accountId: string }) {
       </div>
 
       <div className="space-y-5">
-        <FormRow label="Name">
-          <Input value={name} onChange={(e) => setName(e.target.value)} disabled={!isAdmin} />
+        <FormRow label="Name" htmlFor={`${uid}-name`}>
+          <Input
+            id={`${uid}-name`}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            disabled={!isAdmin}
+          />
         </FormRow>
 
-        <FormRow label="Description">
+        <FormRow label="Description" htmlFor={`${uid}-description`}>
           <Input
+            id={`${uid}-description`}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             disabled={!isAdmin}
@@ -186,16 +193,23 @@ export function AccountDetail({ accountId }: { accountId: string }) {
 
         <FormRow
           label="AWS Account ID"
+          htmlFor={`${uid}-aws-account-id`}
           hint="Immutable. The account ID identifies the AWS account itself."
         >
           <div className="flex items-center gap-2">
-            <Input value={data.aws_account_id} disabled className="font-mono" />
+            <Input
+              id={`${uid}-aws-account-id`}
+              value={data.aws_account_id}
+              disabled
+              className="font-mono"
+            />
             <Lock className="w-3.5 h-3.5 text-muted-foreground/50" />
           </div>
         </FormRow>
 
         <FormRow
           label="Assume Role ARN"
+          htmlFor={`${uid}-assume-role-arn`}
           error={
             arnInvalid
               ? 'Must look like arn:aws:iam::<account>:role/<name>'
@@ -205,6 +219,7 @@ export function AccountDetail({ accountId }: { accountId: string }) {
           }
         >
           <Input
+            id={`${uid}-assume-role-arn`}
             value={assumeRoleARN}
             onChange={(e) => setAssumeRoleARN(e.target.value)}
             disabled={!isAdmin}
@@ -212,8 +227,13 @@ export function AccountDetail({ accountId }: { accountId: string }) {
           />
         </FormRow>
 
-        <FormRow label="Default Region" error={regionInvalid ? 'Must look like us-west-2' : null}>
+        <FormRow
+          label="Default Region"
+          htmlFor={`${uid}-default-region`}
+          error={regionInvalid ? 'Must look like us-west-2' : null}
+        >
           <Input
+            id={`${uid}-default-region`}
             value={defaultRegion}
             onChange={(e) => setDefaultRegion(e.target.value)}
             disabled={!isAdmin}
@@ -223,11 +243,13 @@ export function AccountDetail({ accountId }: { accountId: string }) {
 
         <FormRow
           label="External ID"
+          htmlFor={editingExternalID ? `${uid}-external-id` : undefined}
           hint="Shared secret used in the role's trust policy. Stored encrypted; never displayed."
         >
           {editingExternalID ? (
             <div className="flex items-center gap-2">
               <Input
+                id={`${uid}-external-id`}
                 type="password"
                 value={externalID}
                 onChange={(e) => setExternalID(e.target.value)}
@@ -286,18 +308,22 @@ export function AccountDetail({ accountId }: { accountId: string }) {
 
 function FormRow({
   label,
+  htmlFor,
   hint,
   error,
   children,
 }: {
   label: string;
+  htmlFor?: string;
   hint?: string;
   error?: string | null;
   children: React.ReactNode;
 }) {
   return (
     <div>
-      <label className="text-xs font-medium text-muted-foreground mb-1.5 block">{label}</label>
+      <label htmlFor={htmlFor} className="text-xs font-medium text-muted-foreground mb-1.5 block">
+        {label}
+      </label>
       {children}
       {error ? (
         <p className="text-[11px] text-destructive mt-1">{error}</p>

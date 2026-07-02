@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useId, useRef, useState, type ReactNode } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './dialog';
 import { Button } from './button';
 import { Input } from './input';
@@ -12,6 +12,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const [typed, setTyped] = useState('');
   const resolveRef = useRef<((value: boolean) => void) | null>(null);
+  const confirmInputId = useId();
 
   const confirm = useCallback<ConfirmFn>(
     (options) =>
@@ -44,11 +45,15 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
             </DialogHeader>
             {opts.requireText && (
               <div className="mt-4">
-                <label className="text-[11px] text-muted-foreground mb-1.5 block">
+                <label
+                  htmlFor={confirmInputId}
+                  className="text-[11px] text-muted-foreground mb-1.5 block"
+                >
                   Type <span className="font-mono text-foreground">{opts.requireText}</span> to
                   confirm
                 </label>
                 <Input
+                  id={confirmInputId}
                   autoFocus
                   value={typed}
                   onChange={(e) => setTyped(e.target.value)}

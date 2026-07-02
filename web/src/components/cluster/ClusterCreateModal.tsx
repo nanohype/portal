@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/api/client';
@@ -26,6 +26,7 @@ export function ClusterCreateModal({
   accounts: Account[];
 }) {
   const queryClient = useQueryClient();
+  const uid = useId();
   const [accountID, setAccountID] = useState('');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -103,8 +104,12 @@ export function ClusterCreateModal({
         </DialogHeader>
 
         <div className="space-y-4">
-          <Field label="Account">
-            <Select value={accountID} onChange={(e) => setAccountID(e.target.value)}>
+          <Field label="Account" htmlFor={`${uid}-account`}>
+            <Select
+              id={`${uid}-account`}
+              value={accountID}
+              onChange={(e) => setAccountID(e.target.value)}
+            >
               <option value="">Pick an account…</option>
               {accounts.map((a) => (
                 <option key={a.id} value={a.id}>
@@ -114,24 +119,27 @@ export function ClusterCreateModal({
             </Select>
           </Field>
 
-          <Field label="Name">
+          <Field label="Name" htmlFor={`${uid}-name`}>
             <Input
+              id={`${uid}-name`}
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="production-eks"
             />
           </Field>
 
-          <Field label="Description (optional)">
+          <Field label="Description (optional)" htmlFor={`${uid}-description`}>
             <Input
+              id={`${uid}-description`}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Primary production cluster"
             />
           </Field>
 
-          <Field label="Environment">
+          <Field label="Environment" htmlFor={`${uid}-environment`}>
             <Select
+              id={`${uid}-environment`}
               value={environment}
               onChange={(e) =>
                 setEnvironment(e.target.value as 'development' | 'staging' | 'production')
@@ -145,9 +153,11 @@ export function ClusterCreateModal({
 
           <Field
             label="API Endpoint"
+            htmlFor={`${uid}-api-endpoint`}
             error={apiEndpointInvalid ? 'Must start with https://' : null}
           >
             <Input
+              id={`${uid}-api-endpoint`}
               value={apiEndpoint}
               onChange={(e) => setApiEndpoint(e.target.value)}
               placeholder="https://A1B2C3.gr7.us-west-2.eks.amazonaws.com"
@@ -157,11 +167,13 @@ export function ClusterCreateModal({
 
           <Field
             label="CA Bundle (PEM)"
+            htmlFor={`${uid}-ca-bundle`}
             error={
               caBundleInvalid ? 'Must be a PEM-encoded certificate (-----BEGIN…-----END)' : null
             }
           >
             <textarea
+              id={`${uid}-ca-bundle`}
               value={caBundle}
               onChange={(e) => setCaBundle(e.target.value)}
               placeholder="-----BEGIN CERTIFICATE-----&#10;MIID...&#10;-----END CERTIFICATE-----"
@@ -170,8 +182,9 @@ export function ClusterCreateModal({
             />
           </Field>
 
-          <Field label="Service Account Token">
+          <Field label="Service Account Token" htmlFor={`${uid}-sa-token`}>
             <Input
+              id={`${uid}-sa-token`}
               type="password"
               value={saToken}
               onChange={(e) => setSaToken(e.target.value)}
@@ -181,9 +194,11 @@ export function ClusterCreateModal({
 
           <Field
             label="Region (optional)"
+            htmlFor={`${uid}-region`}
             error={regionInvalid ? 'Must look like us-west-2' : null}
           >
             <Input
+              id={`${uid}-region`}
               value={region}
               onChange={(e) => setRegion(e.target.value)}
               placeholder="Defaults to parent account's region"
@@ -211,16 +226,20 @@ export function ClusterCreateModal({
 
 function Field({
   label,
+  htmlFor,
   error,
   children,
 }: {
   label: string;
+  htmlFor: string;
   error?: string | null;
   children: React.ReactNode;
 }) {
   return (
     <div>
-      <label className="text-xs font-medium text-muted-foreground mb-1.5 block">{label}</label>
+      <label htmlFor={htmlFor} className="text-xs font-medium text-muted-foreground mb-1.5 block">
+        {label}
+      </label>
       {children}
       {error && <p className="text-[11px] text-destructive mt-1">{error}</p>}
     </div>

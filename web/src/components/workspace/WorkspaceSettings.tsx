@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useForm, useWatch, type Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -43,6 +43,7 @@ interface Props {
 }
 
 function WebhookURLField() {
+  const inputId = useId();
   const [copied, setCopied] = useState(false);
   const webhookURL = `${window.location.origin}/api/v1/webhooks/github`;
 
@@ -54,7 +55,9 @@ function WebhookURLField() {
 
   return (
     <div className="rounded-lg border border-border bg-accent/30 p-4 space-y-2">
-      <label className="block text-sm font-medium">Webhook URL</label>
+      <label htmlFor={inputId} className="block text-sm font-medium">
+        Webhook URL
+      </label>
       <p className="text-xs text-muted-foreground">
         Add this URL as a webhook in your GitHub repository settings. Set the content type to{' '}
         <code className="text-xs">application/json</code> and select{' '}
@@ -62,6 +65,7 @@ function WebhookURLField() {
       </p>
       <div className="flex items-center gap-2">
         <Input
+          id={inputId}
           readOnly
           value={webhookURL}
           className="font-mono text-xs flex-1"
@@ -76,6 +80,7 @@ function WebhookURLField() {
 }
 
 export function WorkspaceSettings({ workspace }: Props) {
+  const uid = useId();
   const queryClient = useQueryClient();
   const [deleteConfirm, setDeleteConfirm] = useState('');
   const isUpload = workspace.source === 'upload';
@@ -144,20 +149,26 @@ export function WorkspaceSettings({ workspace }: Props) {
         <h3 className="text-lg font-semibold">General</h3>
 
         <div>
-          <label className="block text-sm font-medium mb-1.5">Name</label>
-          <Input {...register('name')} />
+          <label htmlFor={`${uid}-name`} className="block text-sm font-medium mb-1.5">
+            Name
+          </label>
+          <Input id={`${uid}-name`} {...register('name')} />
           {errors.name && <p className="text-xs text-destructive mt-1">{errors.name.message}</p>}
         </div>
 
         <div>
-          <label className="block text-sm font-medium mb-1.5">Description</label>
-          <Input {...register('description')} />
+          <label htmlFor={`${uid}-description`} className="block text-sm font-medium mb-1.5">
+            Description
+          </label>
+          <Input id={`${uid}-description`} {...register('description')} />
         </div>
 
         {!isUpload && (
           <div>
-            <label className="block text-sm font-medium mb-1.5">Repository URL</label>
-            <Input {...register('repo_url')} />
+            <label htmlFor={`${uid}-repo-url`} className="block text-sm font-medium mb-1.5">
+              Repository URL
+            </label>
+            <Input id={`${uid}-repo-url`} {...register('repo_url')} />
             {errors.repo_url && (
               <p className="text-xs text-destructive mt-1">{errors.repo_url.message}</p>
             )}
@@ -167,24 +178,33 @@ export function WorkspaceSettings({ workspace }: Props) {
         <div className={isUpload ? '' : 'grid grid-cols-2 gap-3'}>
           {!isUpload && (
             <div>
-              <label className="block text-sm font-medium mb-1.5">Branch</label>
-              <Input {...register('repo_branch')} />
+              <label htmlFor={`${uid}-repo-branch`} className="block text-sm font-medium mb-1.5">
+                Branch
+              </label>
+              <Input id={`${uid}-repo-branch`} {...register('repo_branch')} />
             </div>
           )}
           <div>
-            <label className="block text-sm font-medium mb-1.5">Working directory</label>
-            <Input {...register('working_dir')} />
+            <label htmlFor={`${uid}-working-dir`} className="block text-sm font-medium mb-1.5">
+              Working directory
+            </label>
+            <Input id={`${uid}-working-dir`} {...register('working_dir')} />
           </div>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-sm font-medium mb-1.5">OpenTofu version</label>
-            <Input {...register('tofu_version')} />
+            <label htmlFor={`${uid}-tofu-version`} className="block text-sm font-medium mb-1.5">
+              OpenTofu version
+            </label>
+            <Input id={`${uid}-tofu-version`} {...register('tofu_version')} />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1.5">Environment</label>
+            <label htmlFor={`${uid}-environment`} className="block text-sm font-medium mb-1.5">
+              Environment
+            </label>
             <Select
+              id={`${uid}-environment`}
               value={environment}
               onChange={(e) =>
                 setValue('environment', e.target.value as FormValues['environment'], {
@@ -201,8 +221,9 @@ export function WorkspaceSettings({ workspace }: Props) {
 
         <h3 className="text-lg font-semibold pt-4">Workflow</h3>
 
-        <label className="flex items-center gap-3 cursor-pointer">
+        <label htmlFor={`${uid}-auto-apply`} className="flex items-center gap-3 cursor-pointer">
           <input
+            id={`${uid}-auto-apply`}
             type="checkbox"
             {...register('auto_apply')}
             className="w-4 h-4 rounded border-border"
@@ -215,8 +236,12 @@ export function WorkspaceSettings({ workspace }: Props) {
           </div>
         </label>
 
-        <label className="flex items-center gap-3 cursor-pointer">
+        <label
+          htmlFor={`${uid}-requires-approval`}
+          className="flex items-center gap-3 cursor-pointer"
+        >
           <input
+            id={`${uid}-requires-approval`}
             type="checkbox"
             {...register('requires_approval')}
             className="w-4 h-4 rounded border-border"
@@ -233,8 +258,12 @@ export function WorkspaceSettings({ workspace }: Props) {
           <>
             <h3 className="text-lg font-semibold pt-4">VCS Integration</h3>
 
-            <label className="flex items-center gap-3 cursor-pointer">
+            <label
+              htmlFor={`${uid}-vcs-trigger`}
+              className="flex items-center gap-3 cursor-pointer"
+            >
               <input
+                id={`${uid}-vcs-trigger`}
                 type="checkbox"
                 {...register('vcs_trigger_enabled')}
                 className="w-4 h-4 rounded border-border"
@@ -267,10 +296,11 @@ export function WorkspaceSettings({ workspace }: Props) {
           variables will be lost.
         </p>
         <div>
-          <label className="block text-sm font-medium mb-1.5">
+          <label htmlFor={`${uid}-delete-confirm`} className="block text-sm font-medium mb-1.5">
             Type <span className="font-mono text-destructive">{workspace.name}</span> to confirm
           </label>
           <Input
+            id={`${uid}-delete-confirm`}
             value={deleteConfirm}
             onChange={(e) => setDeleteConfirm(e.target.value)}
             placeholder={workspace.name}

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/api/client';
@@ -19,6 +19,7 @@ const AWS_REGION_RE = /^[a-z]{2}-[a-z]+-\d$/;
 
 export function AccountCreateModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const queryClient = useQueryClient();
+  const uid = useId();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [awsAccountID, setAwsAccountID] = useState('');
@@ -107,8 +108,9 @@ export function AccountCreateModal({ open, onClose }: { open: boolean; onClose: 
         </DialogHeader>
 
         <div className="space-y-4">
-          <Field label="Name" error={touched('name', name, errors.name)}>
+          <Field label="Name" htmlFor={`${uid}-name`} error={touched('name', name, errors.name)}>
             <Input
+              id={`${uid}-name`}
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. production"
@@ -116,8 +118,9 @@ export function AccountCreateModal({ open, onClose }: { open: boolean; onClose: 
             />
           </Field>
 
-          <Field label="Description (optional)">
+          <Field label="Description (optional)" htmlFor={`${uid}-description`}>
             <Input
+              id={`${uid}-description`}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="What lives in this account?"
@@ -126,9 +129,11 @@ export function AccountCreateModal({ open, onClose }: { open: boolean; onClose: 
 
           <Field
             label="AWS Account ID"
+            htmlFor={`${uid}-aws-account-id`}
             error={touched('awsAccountID', awsAccountID, errors.awsAccountID)}
           >
             <Input
+              id={`${uid}-aws-account-id`}
               value={awsAccountID}
               onChange={(e) => setAwsAccountID(e.target.value)}
               placeholder="123456789012"
@@ -138,9 +143,11 @@ export function AccountCreateModal({ open, onClose }: { open: boolean; onClose: 
 
           <Field
             label="Assume Role ARN"
+            htmlFor={`${uid}-assume-role-arn`}
             error={touched('assumeRoleARN', assumeRoleARN, errors.assumeRoleARN)}
           >
             <Input
+              id={`${uid}-assume-role-arn`}
               value={assumeRoleARN}
               onChange={(e) => setAssumeRoleARN(e.target.value)}
               placeholder="arn:aws:iam::123456789012:role/portal-cross-account"
@@ -150,9 +157,11 @@ export function AccountCreateModal({ open, onClose }: { open: boolean; onClose: 
 
           <Field
             label="Default Region"
+            htmlFor={`${uid}-default-region`}
             error={touched('defaultRegion', defaultRegion, errors.defaultRegion)}
           >
             <Input
+              id={`${uid}-default-region`}
               value={defaultRegion}
               onChange={(e) => setDefaultRegion(e.target.value)}
               placeholder="us-west-2"
@@ -177,6 +186,7 @@ export function AccountCreateModal({ open, onClose }: { open: boolean; onClose: 
               <div className="mt-2">
                 <Input
                   type="password"
+                  aria-label="External ID"
                   value={externalID}
                   onChange={(e) => setExternalID(e.target.value)}
                   placeholder="Shared secret used in the role's trust policy"
@@ -209,16 +219,20 @@ export function AccountCreateModal({ open, onClose }: { open: boolean; onClose: 
 
 function Field({
   label,
+  htmlFor,
   error,
   children,
 }: {
   label: string;
+  htmlFor: string;
   error?: string | null;
   children: React.ReactNode;
 }) {
   return (
     <div>
-      <label className="text-xs font-medium text-muted-foreground mb-1.5 block">{label}</label>
+      <label htmlFor={htmlFor} className="text-xs font-medium text-muted-foreground mb-1.5 block">
+        {label}
+      </label>
       {children}
       {error && <p className="text-[11px] text-destructive mt-1">{error}</p>}
     </div>
