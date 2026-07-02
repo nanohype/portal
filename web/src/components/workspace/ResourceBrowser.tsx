@@ -1,9 +1,9 @@
-import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { api } from "@/api/client";
-import type { StateResource } from "@/api/models";
-import { Spinner } from "@/components/ui/spinner";
-import { ChevronDown, ChevronRight, Search } from "lucide-react";
+import { useState, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/api/client';
+import type { StateResource } from '@/api/models';
+import { Spinner } from '@/components/ui/spinner';
+import { ChevronDown, ChevronRight, Search } from 'lucide-react';
 
 interface Props {
   workspaceId: string;
@@ -12,9 +12,7 @@ interface Props {
 
 function ResourceRow({ resource }: { resource: StateResource }) {
   const [expanded, setExpanded] = useState(false);
-  const attrEntries = Object.entries(resource.attributes).sort(([a], [b]) =>
-    a.localeCompare(b)
-  );
+  const attrEntries = Object.entries(resource.attributes).sort(([a], [b]) => a.localeCompare(b));
 
   return (
     <div className="border-b border-border last:border-b-0">
@@ -31,26 +29,18 @@ function ResourceRow({ resource }: { resource: StateResource }) {
           {resource.type}.{resource.name}
         </span>
         {resource.module && (
-          <span className="text-xs text-muted-foreground">
-            ({resource.module})
-          </span>
+          <span className="text-xs text-muted-foreground">({resource.module})</span>
         )}
-        <span className="ml-auto text-xs text-muted-foreground">
-          {resource.provider}
-        </span>
+        <span className="ml-auto text-xs text-muted-foreground">{resource.provider}</span>
       </button>
       {expanded && attrEntries.length > 0 && (
         <div className="px-4 pb-3 pt-1">
           <div className="rounded border border-border divide-y divide-border text-xs font-mono">
             {attrEntries.map(([key, value]) => (
               <div key={key} className="flex px-3 py-1.5">
-                <span className="text-muted-foreground w-48 shrink-0">
-                  {key}
-                </span>
+                <span className="text-muted-foreground w-48 shrink-0">{key}</span>
                 <span className="text-foreground/80 break-all">
-                  {typeof value === "object"
-                    ? JSON.stringify(value)
-                    : String(value ?? "null")}
+                  {typeof value === 'object' ? JSON.stringify(value) : String(value ?? 'null')}
                 </span>
               </div>
             ))}
@@ -62,19 +52,18 @@ function ResourceRow({ resource }: { resource: StateResource }) {
 }
 
 export function ResourceBrowser({ workspaceId, enabled }: Props) {
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState('');
 
   const {
     data: resources,
     isLoading,
     isError,
   } = useQuery({
-    queryKey: ["state-resources", workspaceId],
+    queryKey: ['state-resources', workspaceId],
     queryFn: async () => {
-      const { data, error } = await api.GET(
-        "/workspaces/{workspaceId}/state/current/resources",
-        { params: { path: { workspaceId } } }
-      );
+      const { data, error } = await api.GET('/workspaces/{workspaceId}/state/current/resources', {
+        params: { path: { workspaceId } },
+      });
       if (error) throw error;
       return data as StateResource[];
     },
@@ -90,7 +79,7 @@ export function ResourceBrowser({ workspaceId, enabled }: Props) {
         r.type.toLowerCase().includes(q) ||
         r.name.toLowerCase().includes(q) ||
         r.module.toLowerCase().includes(q) ||
-        r.provider.toLowerCase().includes(q)
+        r.provider.toLowerCase().includes(q),
     );
   }, [resources, search]);
 
@@ -130,22 +119,19 @@ export function ResourceBrowser({ workspaceId, enabled }: Props) {
       {filtered.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-6 text-center">
           <p className="text-sm text-muted-foreground">
-            {resources?.length ? "No resources match your filter." : "No resources in state."}
+            {resources?.length ? 'No resources match your filter.' : 'No resources in state.'}
           </p>
         </div>
       ) : (
         <div className="rounded-lg border border-border">
           <div className="px-4 py-2 bg-accent/30 text-xs text-muted-foreground font-medium border-b border-border">
-            {filtered.length} resource{filtered.length !== 1 ? "s" : ""}
+            {filtered.length} resource{filtered.length !== 1 ? 's' : ''}
             {search && resources && filtered.length !== resources.length && (
               <span> (of {resources.length} total)</span>
             )}
           </div>
           {filtered.map((r, i) => (
-            <ResourceRow
-              key={`${r.module}.${r.type}.${r.name}-${i}`}
-              resource={r}
-            />
+            <ResourceRow key={`${r.module}.${r.type}.${r.name}-${i}`} resource={r} />
           ))}
         </div>
       )}

@@ -1,31 +1,31 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { api } from "@/api/client";
-import { useAuth } from "@/hooks/useAuth";
-import { Button } from "@/components/ui/button";
-import { StatusBadge } from "@/components/ui/status-badge";
-import { clusterConnection, argo } from "@/lib/status";
-import { SkeletonRows } from "@/components/ui/skeleton";
-import { Link } from "@/components/ui/link";
-import { formatRelativeTime } from "@/lib/utils";
-import type { Account, Cluster, ClusterOperation } from "@/api/models";
-import { Server, Plus, Cloud } from "lucide-react";
-import { ClusterCreateModal } from "./ClusterCreateModal";
-import { ClusterProvisionDrawer } from "./ClusterProvisionDrawer";
-import { VendTimeline } from "./VendTimeline";
-import { DeprovisionTimeline } from "./DeprovisionTimeline";
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/api/client';
+import { useAuth } from '@/hooks/useAuth';
+import { Button } from '@/components/ui/button';
+import { StatusBadge } from '@/components/ui/status-badge';
+import { clusterConnection, argo } from '@/lib/status';
+import { SkeletonRows } from '@/components/ui/skeleton';
+import { Link } from '@/components/ui/link';
+import { formatRelativeTime } from '@/lib/utils';
+import type { Account, Cluster, ClusterOperation } from '@/api/models';
+import { Server, Plus, Cloud } from 'lucide-react';
+import { ClusterCreateModal } from './ClusterCreateModal';
+import { ClusterProvisionDrawer } from './ClusterProvisionDrawer';
+import { VendTimeline } from './VendTimeline';
+import { DeprovisionTimeline } from './DeprovisionTimeline';
 
 export function ClusterList() {
   const { user } = useAuth();
-  const isAdmin = user?.role === "admin" || user?.role === "owner";
+  const isAdmin = user?.role === 'admin' || user?.role === 'owner';
   const [showCreate, setShowCreate] = useState(false);
   const [showOrder, setShowOrder] = useState(false);
   const [opsPage, setOpsPage] = useState(1);
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["clusters"],
+    queryKey: ['clusters'],
     queryFn: async () => {
-      const { data, error } = await api.GET("/clusters", {
+      const { data, error } = await api.GET('/clusters', {
         params: { query: { per_page: 100 } },
       });
       if (error) throw error;
@@ -38,11 +38,11 @@ export function ClusterList() {
       if (!clusters) return false;
       const transitional = clusters.some(
         (c: Cluster) =>
-          c.connection_status === "pending" ||
-          c.connection_status === "connecting" ||
-          c.argocd_health_status === "Progressing" ||
-          c.control_plane_status === "UPDATING" ||
-          c.control_plane_status === "CREATING",
+          c.connection_status === 'pending' ||
+          c.connection_status === 'connecting' ||
+          c.argocd_health_status === 'Progressing' ||
+          c.control_plane_status === 'UPDATING' ||
+          c.control_plane_status === 'CREATING',
       );
       return transitional ? 3000 : false;
     },
@@ -53,9 +53,9 @@ export function ClusterList() {
   // this page's accounts.find()/.length and crash on rapid navigation. The
   // ["accounts"] prefix still matches account invalidations.
   const { data: accounts } = useQuery({
-    queryKey: ["accounts", "list"],
+    queryKey: ['accounts', 'list'],
     queryFn: async () => {
-      const { data, error } = await api.GET("/accounts", {
+      const { data, error } = await api.GET('/accounts', {
         params: { query: { per_page: 100 } },
       });
       if (error) throw error;
@@ -67,9 +67,9 @@ export function ClusterList() {
   // an order is visible the moment it's placed, even before it registers as a
   // connected cluster. Polls while the worker is still committing one.
   const { data: operations } = useQuery({
-    queryKey: ["cluster-operations"],
+    queryKey: ['cluster-operations'],
     queryFn: async () => {
-      const { data, error } = await api.GET("/cluster-orders");
+      const { data, error } = await api.GET('/cluster-orders');
       if (error) throw error;
       return data?.data ?? [];
     },
@@ -83,11 +83,11 @@ export function ClusterList() {
     // off, order abandoned) can't poll forever.
     refetchInterval: (query) =>
       query.state.data?.some((o: ClusterOperation) => {
-        if (o.status === "pending") return true;
-        if (o.status === "active" || o.status === "failed" || o.status === "deprovisioned")
+        if (o.status === 'pending') return true;
+        if (o.status === 'active' || o.status === 'failed' || o.status === 'deprovisioned')
           return false;
         const p = o.vend_phases ?? {};
-        if ("failed" in p) return false;
+        if ('failed' in p) return false;
         const ageMs = Date.now() - new Date(o.created_at).getTime();
         return ageMs < 60 * 60 * 1000;
       })
@@ -102,15 +102,14 @@ export function ClusterList() {
   if (opsPage > maxOpsPage) setOpsPage(maxOpsPage);
 
   const clusters = data?.data ?? [];
-  const accountName = (id: string) =>
-    accounts?.find((a: Account) => a.id === id)?.name ?? id;
+  const accountName = (id: string) => accounts?.find((a: Account) => a.id === id)?.name ?? id;
 
   // The "Recent orders" section below always renders when orders exist (e.g. a
   // vend in flight before its cluster registers). When it does, the sparse
   // states top-align (py-16) so they don't greedily center and shove the orders
   // below the fold; with nothing below, they center in the full height.
   const hasOrders = !!operations && operations.length > 0;
-  const sparseLayout = hasOrders ? "py-16" : "flex-1";
+  const sparseLayout = hasOrders ? 'py-16' : 'flex-1';
 
   return (
     <div className="p-6 flex flex-col flex-1">
@@ -153,15 +152,17 @@ export function ClusterList() {
           </div>
         </div>
       ) : clusters.length === 0 ? (
-        <div className={`${sparseLayout} flex flex-col items-center justify-center text-center animate-fade-up`}>
+        <div
+          className={`${sparseLayout} flex flex-col items-center justify-center text-center animate-fade-up`}
+        >
           <div className="w-12 h-12 rounded-lg bg-primary/8 flex items-center justify-center mb-4">
             <Server className="w-5 h-5 text-primary/60" />
           </div>
           <h2 className="text-sm font-semibold mb-1">No clusters yet</h2>
           <p className="text-xs text-muted-foreground mb-5 max-w-[320px]">
             {!accounts || accounts.length === 0
-              ? "Add an Account first — every cluster belongs to one."
-              : "Register a Kubernetes cluster so portal can watch its workloads."}
+              ? 'Add an Account first — every cluster belongs to one.'
+              : 'Register a Kubernetes cluster so portal can watch its workloads.'}
           </p>
           {isAdmin && accounts && accounts.length > 0 && (
             <Button size="sm" onClick={() => setShowCreate(true)}>
@@ -170,10 +171,7 @@ export function ClusterList() {
             </Button>
           )}
           {(!accounts || accounts.length === 0) && (
-            <Link
-              href="/accounts"
-              className="text-xs text-primary hover:underline"
-            >
+            <Link href="/accounts" className="text-xs text-primary hover:underline">
               Go to Accounts
             </Link>
           )}
@@ -198,12 +196,7 @@ export function ClusterList() {
                         {c.name}
                       </span>
                       <StatusBadge visual={clusterConnection(c.connection_status)} />
-                      <StatusBadge
-                        visual={argo(
-                          c.argocd_sync_status,
-                          c.argocd_health_status,
-                        )}
-                      />
+                      <StatusBadge visual={argo(c.argocd_sync_status, c.argocd_health_status)} />
                     </div>
                     <p className="text-[11px] text-muted-foreground/70 mt-0.5">
                       {accountName(c.account_id)} · {c.region}
@@ -214,12 +207,10 @@ export function ClusterList() {
                 <div className="flex items-center gap-3 shrink-0 text-[11px] text-muted-foreground/70">
                   {c.node_count > 0 && (
                     <span>
-                      {c.node_count} node{c.node_count === 1 ? "" : "s"}
+                      {c.node_count} node{c.node_count === 1 ? '' : 's'}
                     </span>
                   )}
-                  {c.last_connected_at && (
-                    <span>{formatRelativeTime(c.last_connected_at)}</span>
-                  )}
+                  {c.last_connected_at && <span>{formatRelativeTime(c.last_connected_at)}</span>}
                 </div>
               </div>
             </Link>
@@ -234,17 +225,14 @@ export function ClusterList() {
           </h2>
           <div className="space-y-1.5">
             {operations.slice((opsPage - 1) * 5, opsPage * 5).map((op) => (
-              <div
-                key={op.id}
-                className="border border-border/60 rounded-lg px-4 py-2.5"
-              >
+              <div key={op.id} className="border border-border/60 rounded-lg px-4 py-2.5">
                 <div className="flex items-center gap-3 text-sm">
                   <Cloud className="w-3.5 h-3.5 text-primary/60 shrink-0" />
                   <span className="font-medium">{op.name}</span>
                   <span className="text-[11px] text-muted-foreground/70">
                     {op.environment} · {op.operation}
                   </span>
-                  {op.operation === "provision" ? (
+                  {op.operation === 'provision' ? (
                     <VendTimeline op={op} />
                   ) : (
                     <DeprovisionTimeline op={op} />
@@ -256,7 +244,7 @@ export function ClusterList() {
                     <span>{formatRelativeTime(op.created_at)}</span>
                   </div>
                 </div>
-                {op.status === "failed" && op.error && (
+                {op.status === 'failed' && op.error && (
                   <p className="text-[11px] text-destructive/90 mt-1.5 font-mono break-all">
                     {op.error}
                   </p>
@@ -274,13 +262,11 @@ export function ClusterList() {
                 Previous
               </button>
               <span>
-                {(opsPage - 1) * 5 + 1}–{Math.min(opsPage * 5, operations.length)} of{" "}
+                {(opsPage - 1) * 5 + 1}–{Math.min(opsPage * 5, operations.length)} of{' '}
                 {operations.length}
               </span>
               <button
-                onClick={() =>
-                  setOpsPage((p) => (p * 5 < operations.length ? p + 1 : p))
-                }
+                onClick={() => setOpsPage((p) => (p * 5 < operations.length ? p + 1 : p))}
                 disabled={opsPage * 5 >= operations.length}
                 className="hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
               >

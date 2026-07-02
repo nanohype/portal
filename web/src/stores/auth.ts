@@ -1,5 +1,5 @@
-import { create } from "zustand";
-import type { User } from "@/api/models";
+import { create } from 'zustand';
+import type { User } from '@/api/models';
 
 interface AuthState {
   token: string | null;
@@ -11,12 +11,12 @@ interface AuthState {
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
-  token: localStorage.getItem("portal_token"),
+  token: localStorage.getItem('portal_token'),
   user: null,
-  isAuthenticated: !!localStorage.getItem("portal_token"),
+  isAuthenticated: !!localStorage.getItem('portal_token'),
 
   setAuth: (token, user) => {
-    localStorage.setItem("portal_token", token);
+    localStorage.setItem('portal_token', token);
     set({ token, user, isAuthenticated: true });
   },
 
@@ -25,7 +25,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   logout: () => {
-    localStorage.removeItem("portal_token");
+    localStorage.removeItem('portal_token');
     set({ token: null, user: null, isAuthenticated: false });
   },
 }));

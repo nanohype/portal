@@ -1,4 +1,4 @@
-import type { AnyRouter } from "@tanstack/react-router";
+import type { AnyRouter } from '@tanstack/react-router';
 
 // The standalone navigate() helper needs the router instance, but importing the
 // router module directly from the nav primitives would create a cycle
@@ -11,6 +11,6 @@ export function registerRouter(router: AnyRouter) {
 }
 
 export function getRouter(): AnyRouter {
-  if (!registered) throw new Error("router accessed before registration");
+  if (!registered) throw new Error('router accessed before registration');
   return registered;
 }

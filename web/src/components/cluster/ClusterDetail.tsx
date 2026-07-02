@@ -1,22 +1,17 @@
-import { useState, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
-import { api } from "@/api/client";
-import { useAuth } from "@/hooks/useAuth";
-import { navigate } from "@/hooks/useNavigate";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Spinner } from "@/components/ui/spinner";
-import { Link } from "@/components/ui/link";
-import { useConfirm } from "@/components/ui/confirm-context";
-import { formatRelativeTime } from "@/lib/utils";
-import { StatusBadge } from "@/components/ui/status-badge";
-import {
-  clusterConnection,
-  argo,
-  controlPlane,
-  tenantPhase,
-} from "@/lib/status";
+import { useState, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { api } from '@/api/client';
+import { useAuth } from '@/hooks/useAuth';
+import { navigate } from '@/hooks/useNavigate';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Spinner } from '@/components/ui/spinner';
+import { Link } from '@/components/ui/link';
+import { useConfirm } from '@/components/ui/confirm-context';
+import { formatRelativeTime } from '@/lib/utils';
+import { StatusBadge } from '@/components/ui/status-badge';
+import { clusterConnection, argo, controlPlane, tenantPhase } from '@/lib/status';
 import {
   ArrowLeft,
   Server,
@@ -27,21 +22,21 @@ import {
   Layers,
   CloudOff,
   Wrench,
-} from "lucide-react";
-import { DeprovisionTimeline } from "./DeprovisionTimeline";
-import { UnwedgeTimeline } from "./UnwedgeTimeline";
+} from 'lucide-react';
+import { DeprovisionTimeline } from './DeprovisionTimeline';
+import { UnwedgeTimeline } from './UnwedgeTimeline';
 
 export function ClusterDetail({ clusterId }: { clusterId: string }) {
   const { user } = useAuth();
-  const isAdmin = user?.role === "admin" || user?.role === "owner";
-  const isOwner = user?.role === "owner";
+  const isAdmin = user?.role === 'admin' || user?.role === 'owner';
+  const isOwner = user?.role === 'owner';
   const queryClient = useQueryClient();
   const confirm = useConfirm();
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["cluster", clusterId],
+    queryKey: ['cluster', clusterId],
     queryFn: async () => {
-      const { data, error } = await api.GET("/clusters/{clusterId}", {
+      const { data, error } = await api.GET('/clusters/{clusterId}', {
         params: { path: { clusterId } },
       });
       if (error) throw error;
@@ -54,12 +49,11 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
     refetchInterval: (query) => {
       const c = query.state.data;
       if (!c) return false;
-      if (c.connection_status === "pending" || c.connection_status === "connecting")
-        return 2000;
+      if (c.connection_status === 'pending' || c.connection_status === 'connecting') return 2000;
       const transitional =
-        c.argocd_health_status === "Progressing" ||
-        c.control_plane_status === "UPDATING" ||
-        c.control_plane_status === "CREATING";
+        c.argocd_health_status === 'Progressing' ||
+        c.control_plane_status === 'UPDATING' ||
+        c.control_plane_status === 'CREATING';
       return transitional ? 15000 : false;
     },
   });
@@ -68,9 +62,9 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
   // view of what's actually running here (distinct key from TenantList's paged
   // query: this is a bare, cluster-scoped lookup).
   const { data: tenants } = useQuery({
-    queryKey: ["cluster-tenants", clusterId],
+    queryKey: ['cluster-tenants', clusterId],
     queryFn: async () => {
-      const { data, error } = await api.GET("/tenants", {
+      const { data, error } = await api.GET('/tenants', {
         params: { query: { cluster_id: clusterId, per_page: 100 } },
       });
       if (error) throw error;
@@ -78,19 +72,19 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
     },
   });
 
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [apiEndpoint, setApiEndpoint] = useState("");
-  const [region, setRegion] = useState("");
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [apiEndpoint, setApiEndpoint] = useState('');
+  const [region, setRegion] = useState('');
   const [editingCreds, setEditingCreds] = useState(false);
-  const [caBundle, setCaBundle] = useState("");
-  const [saToken, setSaToken] = useState("");
+  const [caBundle, setCaBundle] = useState('');
+  const [saToken, setSaToken] = useState('');
 
   useEffect(() => {
     if (!data) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional one-time sync of editable form fields from fetched data
     setName(data.name);
-    setDescription(data.description ?? "");
+    setDescription(data.description ?? '');
     setApiEndpoint(data.api_endpoint);
     setRegion(data.region);
   }, [data]);
@@ -100,73 +94,70 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
       const body: Record<string, string> = {};
       if (data) {
         if (name !== data.name) body.name = name.trim();
-        if (description !== (data.description ?? ""))
-          body.description = description.trim();
-        if (apiEndpoint !== data.api_endpoint)
-          body.api_endpoint = apiEndpoint.trim();
+        if (description !== (data.description ?? '')) body.description = description.trim();
+        if (apiEndpoint !== data.api_endpoint) body.api_endpoint = apiEndpoint.trim();
         if (region !== data.region) body.region = region.trim();
       }
       if (editingCreds) {
-        if (caBundle.trim() !== "") body.ca_bundle = caBundle;
-        if (saToken.trim() !== "") body.sa_token = saToken;
+        if (caBundle.trim() !== '') body.ca_bundle = caBundle;
+        if (saToken.trim() !== '') body.sa_token = saToken;
       }
-      const { data: updated, error } = await api.PUT(
-        "/clusters/{clusterId}",
-        { params: { path: { clusterId } }, body },
-      );
+      const { data: updated, error } = await api.PUT('/clusters/{clusterId}', {
+        params: { path: { clusterId } },
+        body,
+      });
       if (error) throw error;
       return updated!;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["cluster", clusterId] });
-      queryClient.invalidateQueries({ queryKey: ["clusters"] });
-      toast.success("Cluster updated");
+      queryClient.invalidateQueries({ queryKey: ['cluster', clusterId] });
+      queryClient.invalidateQueries({ queryKey: ['clusters'] });
+      toast.success('Cluster updated');
       setEditingCreds(false);
-      setCaBundle("");
-      setSaToken("");
+      setCaBundle('');
+      setSaToken('');
     },
-    onError: () => toast.error("Failed to update cluster"),
+    onError: () => toast.error('Failed to update cluster'),
   });
 
   const deleteMutation = useMutation({
     mutationFn: async () => {
-      const { error } = await api.DELETE("/clusters/{clusterId}", {
+      const { error } = await api.DELETE('/clusters/{clusterId}', {
         params: { path: { clusterId } },
       });
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["clusters"] });
-      toast.success("Removed from portal");
-      navigate("/clusters");
+      queryClient.invalidateQueries({ queryKey: ['clusters'] });
+      toast.success('Removed from portal');
+      navigate('/clusters');
     },
-    onError: () => toast.error("Failed to remove cluster from portal"),
+    onError: () => toast.error('Failed to remove cluster from portal'),
   });
 
   const testMutation = useMutation({
     mutationFn: async () => {
-      const { data, error } = await api.POST(
-        "/clusters/{clusterId}/test-connection",
-        { params: { path: { clusterId } } },
-      );
+      const { data, error } = await api.POST('/clusters/{clusterId}/test-connection', {
+        params: { path: { clusterId } },
+      });
       if (error) throw error;
       return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["cluster", clusterId] });
-      toast.success("Connection test enqueued");
+      queryClient.invalidateQueries({ queryKey: ['cluster', clusterId] });
+      toast.success('Connection test enqueued');
     },
-    onError: () => toast.error("Failed to enqueue connection test"),
+    onError: () => toast.error('Failed to enqueue connection test'),
   });
 
   // The cluster's vend order history — gives us the originating provision op
   // (its `team` is the Cluster CR namespace, needed to deprovision) and any
   // in-flight teardown to surface as a timeline. Polls while one is moving.
   const { data: clusterOps } = useQuery({
-    queryKey: ["cluster-ops", data?.environment, data?.name],
+    queryKey: ['cluster-ops', data?.environment, data?.name],
     queryFn: async () => {
       const { data: ops, error } = await api.GET(
-        "/cluster-orders/{environment}/{name}/operations",
+        '/cluster-orders/{environment}/{name}/operations',
         {
           params: { path: { environment: data!.environment, name: data!.name } },
         },
@@ -178,9 +169,9 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
     refetchInterval: (query) =>
       (query.state.data ?? []).some(
         (o) =>
-          (o.operation === "deprovision" || o.operation === "unwedge") &&
-          o.status !== "deprovisioned" &&
-          o.status !== "failed",
+          (o.operation === 'deprovision' || o.operation === 'unwedge') &&
+          o.status !== 'deprovisioned' &&
+          o.status !== 'failed',
       )
         ? 5000
         : false,
@@ -191,9 +182,9 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
   // "Remove from portal" delete, which only drops portal's read-model row.
   const deprovisionMutation = useMutation({
     mutationFn: async () => {
-      const team = clusterOps?.find((o) => o.operation === "provision")?.team;
-      if (!data || !team) throw new Error("no provision record for this cluster");
-      const { error } = await api.DELETE("/cluster-orders/{environment}/{name}", {
+      const team = clusterOps?.find((o) => o.operation === 'provision')?.team;
+      if (!data || !team) throw new Error('no provision record for this cluster');
+      const { error } = await api.DELETE('/cluster-orders/{environment}/{name}', {
         params: {
           path: { environment: data.environment, name: data.name },
           query: { team },
@@ -202,11 +193,11 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["cluster-ops"] });
-      queryClient.invalidateQueries({ queryKey: ["clusters"] });
-      toast.success("Cluster teardown enqueued");
+      queryClient.invalidateQueries({ queryKey: ['cluster-ops'] });
+      queryClient.invalidateQueries({ queryKey: ['clusters'] });
+      toast.success('Cluster teardown enqueued');
     },
-    onError: () => toast.error("Failed to enqueue cluster teardown"),
+    onError: () => toast.error('Failed to enqueue cluster teardown'),
   });
 
   // Unwedge = break-glass for a teardown stuck on a provider-opentofu Workspace
@@ -216,24 +207,21 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
   // genuinely wedged + already condemned.
   const unwedgeMutation = useMutation({
     mutationFn: async () => {
-      const team = clusterOps?.find((o) => o.operation === "provision")?.team;
-      if (!data || !team) throw new Error("no provision record for this cluster");
-      const { error } = await api.POST(
-        "/cluster-orders/{environment}/{name}/unwedge",
-        {
-          params: {
-            path: { environment: data.environment, name: data.name },
-            query: { team },
-          },
+      const team = clusterOps?.find((o) => o.operation === 'provision')?.team;
+      if (!data || !team) throw new Error('no provision record for this cluster');
+      const { error } = await api.POST('/cluster-orders/{environment}/{name}/unwedge', {
+        params: {
+          path: { environment: data.environment, name: data.name },
+          query: { team },
         },
-      );
+      });
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["cluster-ops"] });
-      toast.success("Unwedge enqueued");
+      queryClient.invalidateQueries({ queryKey: ['cluster-ops'] });
+      toast.success('Unwedge enqueued');
     },
-    onError: () => toast.error("Failed to enqueue unwedge"),
+    onError: () => toast.error('Failed to enqueue unwedge'),
   });
 
   if (isLoading) {
@@ -256,26 +244,20 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
 
   const hasChanges =
     name !== data.name ||
-    description !== (data.description ?? "") ||
+    description !== (data.description ?? '') ||
     apiEndpoint !== data.api_endpoint ||
     region !== data.region ||
-    (editingCreds && (caBundle.trim() !== "" || saToken.trim() !== ""));
+    (editingCreds && (caBundle.trim() !== '' || saToken.trim() !== ''));
 
   // Only clusters vended through the order desk (i.e. with a provision op, whose
   // team is the CR namespace) can be deprovisioned; hand-registered ones can't.
-  const provisionOp = clusterOps?.find((o) => o.operation === "provision");
+  const provisionOp = clusterOps?.find((o) => o.operation === 'provision');
   const canDeprovision = isAdmin && !!provisionOp;
   const activeDeprovision = clusterOps?.find(
-    (o) =>
-      o.operation === "deprovision" &&
-      o.status !== "deprovisioned" &&
-      o.status !== "failed",
+    (o) => o.operation === 'deprovision' && o.status !== 'deprovisioned' && o.status !== 'failed',
   );
   const activeUnwedge = clusterOps?.find(
-    (o) =>
-      o.operation === "unwedge" &&
-      o.status !== "deprovisioned" &&
-      o.status !== "failed",
+    (o) => o.operation === 'unwedge' && o.status !== 'deprovisioned' && o.status !== 'failed',
   );
   // Unwedge is only relevant while a teardown is in flight (its Workspace can be
   // stuck). Owner-only, and needs the provision op to resolve the CR namespace.
@@ -298,22 +280,15 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-lg font-semibold tracking-tight">
-                {data.name}
-              </h1>
+              <h1 className="text-lg font-semibold tracking-tight">{data.name}</h1>
               <StatusBadge visual={clusterConnection(data.connection_status)} />
-              <StatusBadge
-                visual={argo(
-                  data.argocd_sync_status,
-                  data.argocd_health_status,
-                )}
-              />
+              <StatusBadge visual={argo(data.argocd_sync_status, data.argocd_health_status)} />
             </div>
             <p className="text-[12px] text-muted-foreground mt-0.5">
               {data.region}
               {data.k8s_version && ` · ${data.k8s_version}`}
               {data.node_count > 0 &&
-                ` · ${data.node_count} node${data.node_count === 1 ? "" : "s"}`}
+                ` · ${data.node_count} node${data.node_count === 1 ? '' : 's'}`}
             </p>
           </div>
         </div>
@@ -339,7 +314,7 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
                     title: `Deprovision "${data.name}"?`,
                     message:
                       "Removes the cluster's CR and Crossplane destroys the EKS cluster and everything running on it. This cannot be undone.",
-                    confirmLabel: "Deprovision",
+                    confirmLabel: 'Deprovision',
                   })
                 ) {
                   deprovisionMutation.mutate();
@@ -362,7 +337,7 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
                     title: `Unwedge "${data.name}"?`,
                     message:
                       "Break-glass: the teardown is stuck on a Workspace that won't delete. This deletes the spoke's tagged AWS resources directly through the fleet-unwedge role, then releases the Workspace so Crossplane can finish. Use only when a deprovision is wedged.",
-                    confirmLabel: "Unwedge",
+                    confirmLabel: 'Unwedge',
                     requireText: data.name,
                   })
                 ) {
@@ -386,7 +361,7 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
                     title: `Remove "${data.name}" from portal?`,
                     message:
                       "Drops portal's record of this cluster. The EKS cluster itself keeps running — use Deprovision to tear it down.",
-                    confirmLabel: "Remove",
+                    confirmLabel: 'Remove',
                     destructive: false,
                   })
                 ) {
@@ -420,10 +395,9 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
         </div>
       )}
 
-      {data.connection_status === "failed" && data.connection_error && (
+      {data.connection_status === 'failed' && data.connection_error && (
         <div className="bg-destructive/8 text-destructive border border-destructive/15 rounded-lg p-3 text-xs mb-4 break-words">
-          <span className="font-semibold">Connection error:</span>{" "}
-          {data.connection_error}
+          <span className="font-semibold">Connection error:</span> {data.connection_error}
         </div>
       )}
 
@@ -435,11 +409,7 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
 
       <div className="space-y-5">
         <FormRow label="Name">
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            disabled={!isAdmin}
-          />
+          <Input value={name} onChange={(e) => setName(e.target.value)} disabled={!isAdmin} />
         </FormRow>
 
         <FormRow label="Description">
@@ -451,10 +421,7 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
           />
         </FormRow>
 
-        <FormRow
-          label="Account"
-          hint="Immutable. A cluster lives in exactly one account."
-        >
+        <FormRow label="Account" hint="Immutable. A cluster lives in exactly one account.">
           <div className="flex items-center gap-2">
             <Input value={data.account_id} disabled className="font-mono" />
             <Lock className="w-3.5 h-3.5 text-muted-foreground/50" />
@@ -480,10 +447,7 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
         </FormRow>
 
         {data.control_plane_status && (
-          <FormRow
-            label="Control plane"
-            hint="EKS control-plane lifecycle, observed from AWS."
-          >
+          <FormRow label="Control plane" hint="EKS control-plane lifecycle, observed from AWS.">
             <div className="flex items-center gap-2">
               <StatusBadge visual={controlPlane(data.control_plane_status)} />
               {data.platform_version && (
@@ -519,8 +483,8 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
                 size="sm"
                 onClick={() => {
                   setEditingCreds(false);
-                  setCaBundle("");
-                  setSaToken("");
+                  setCaBundle('');
+                  setSaToken('');
                 }}
               >
                 Cancel
@@ -528,11 +492,7 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
             </div>
           ) : (
             isAdmin && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setEditingCreds(true)}
-              >
+              <Button variant="ghost" size="sm" onClick={() => setEditingCreds(true)}>
                 Replace credentials
               </Button>
             )
@@ -544,12 +504,10 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
             <Button
               size="sm"
               onClick={() => updateMutation.mutate()}
-              disabled={
-                !hasChanges || updateMutation.isPending || name.trim() === ""
-              }
+              disabled={!hasChanges || updateMutation.isPending || name.trim() === ''}
             >
               <Save className="w-3 h-3" />
-              {updateMutation.isPending ? "Saving..." : "Save changes"}
+              {updateMutation.isPending ? 'Saving...' : 'Save changes'}
             </Button>
           </div>
         )}
@@ -564,8 +522,8 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
         </div>
         {!tenants || tenants.length === 0 ? (
           <p className="text-xs text-muted-foreground/70">
-            No tenants observed here yet. The in-cluster watcher reconciles this
-            from the cluster&apos;s Tenant resources.
+            No tenants observed here yet. The in-cluster watcher reconciles this from the
+            cluster&apos;s Tenant resources.
           </p>
         ) : (
           <div className="space-y-1.5">
@@ -605,13 +563,9 @@ function FormRow({
 }) {
   return (
     <div>
-      <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
-        {label}
-      </label>
+      <label className="text-xs font-medium text-muted-foreground mb-1.5 block">{label}</label>
       {children}
-      {hint && (
-        <p className="text-[11px] text-muted-foreground/70 mt-1">{hint}</p>
-      )}
+      {hint && <p className="text-[11px] text-muted-foreground/70 mt-1">{hint}</p>}
     </div>
   );
 }

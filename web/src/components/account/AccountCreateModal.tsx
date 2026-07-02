@@ -1,51 +1,45 @@
-import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
-import { api } from "@/api/client";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { api } from '@/api/client';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogDescription,
-} from "@/components/ui/dialog";
-import { ChevronDown, ChevronRight } from "lucide-react";
+} from '@/components/ui/dialog';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 
 const AWS_ACCOUNT_RE = /^\d{12}$/;
 const AWS_ROLE_ARN_RE = /^arn:aws[a-z-]*:iam::(\d{12}):role\/.+$/;
 const AWS_REGION_RE = /^[a-z]{2}-[a-z]+-\d$/;
 
-export function AccountCreateModal({
-  open,
-  onClose,
-}: {
-  open: boolean;
-  onClose: () => void;
-}) {
+export function AccountCreateModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const queryClient = useQueryClient();
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [awsAccountID, setAwsAccountID] = useState("");
-  const [assumeRoleARN, setAssumeRoleARN] = useState("");
-  const [externalID, setExternalID] = useState("");
-  const [defaultRegion, setDefaultRegion] = useState("");
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [awsAccountID, setAwsAccountID] = useState('');
+  const [assumeRoleARN, setAssumeRoleARN] = useState('');
+  const [externalID, setExternalID] = useState('');
+  const [defaultRegion, setDefaultRegion] = useState('');
   const [showExternalID, setShowExternalID] = useState(false);
 
   const reset = () => {
-    setName("");
-    setDescription("");
-    setAwsAccountID("");
-    setAssumeRoleARN("");
-    setExternalID("");
-    setDefaultRegion("");
+    setName('');
+    setDescription('');
+    setAwsAccountID('');
+    setAssumeRoleARN('');
+    setExternalID('');
+    setDefaultRegion('');
     setShowExternalID(false);
   };
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      const { data, error } = await api.POST("/accounts", {
+      const { data, error } = await api.POST('/accounts', {
         body: {
           name: name.trim(),
           description: description.trim() || undefined,
@@ -59,14 +53,13 @@ export function AccountCreateModal({
       return data!;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["accounts"] });
-      toast.success("Account created");
+      queryClient.invalidateQueries({ queryKey: ['accounts'] });
+      toast.success('Account created');
       reset();
       onClose();
     },
     onError: (e: unknown) => {
-      const msg =
-        (e as { message?: string })?.message ?? "Failed to create account";
+      const msg = (e as { message?: string })?.message ?? 'Failed to create account';
       toast.error(msg);
     },
   });
@@ -77,34 +70,31 @@ export function AccountCreateModal({
   })();
 
   const errors = {
-    name: !name.trim() ? "Required" : null,
+    name: !name.trim() ? 'Required' : null,
     awsAccountID:
       awsAccountID && !AWS_ACCOUNT_RE.test(awsAccountID.trim())
-        ? "Must be exactly 12 digits"
+        ? 'Must be exactly 12 digits'
         : !awsAccountID
-        ? "Required"
-        : null,
+          ? 'Required'
+          : null,
     assumeRoleARN:
       assumeRoleARN && !AWS_ROLE_ARN_RE.test(assumeRoleARN.trim())
-        ? "Must look like arn:aws:iam::<account>:role/<name>"
+        ? 'Must look like arn:aws:iam::<account>:role/<name>'
         : !assumeRoleARN
-        ? "Required"
-        : arnAccountMatch && arnAccountMatch !== awsAccountID.trim()
-        ? "Account in ARN does not match aws_account_id above"
-        : null,
+          ? 'Required'
+          : arnAccountMatch && arnAccountMatch !== awsAccountID.trim()
+            ? 'Account in ARN does not match aws_account_id above'
+            : null,
     defaultRegion:
       defaultRegion && !AWS_REGION_RE.test(defaultRegion.trim())
-        ? "Must look like us-west-2"
+        ? 'Must look like us-west-2'
         : !defaultRegion
-        ? "Required"
-        : null,
+          ? 'Required'
+          : null,
   };
 
   const canSubmit =
-    !errors.name &&
-    !errors.awsAccountID &&
-    !errors.assumeRoleARN &&
-    !errors.defaultRegion;
+    !errors.name && !errors.awsAccountID && !errors.assumeRoleARN && !errors.defaultRegion;
 
   return (
     <Dialog open={open} onClose={onClose}>
@@ -117,7 +107,7 @@ export function AccountCreateModal({
         </DialogHeader>
 
         <div className="space-y-4">
-          <Field label="Name" error={touched("name", name, errors.name)}>
+          <Field label="Name" error={touched('name', name, errors.name)}>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -136,7 +126,7 @@ export function AccountCreateModal({
 
           <Field
             label="AWS Account ID"
-            error={touched("awsAccountID", awsAccountID, errors.awsAccountID)}
+            error={touched('awsAccountID', awsAccountID, errors.awsAccountID)}
           >
             <Input
               value={awsAccountID}
@@ -148,7 +138,7 @@ export function AccountCreateModal({
 
           <Field
             label="Assume Role ARN"
-            error={touched("assumeRoleARN", assumeRoleARN, errors.assumeRoleARN)}
+            error={touched('assumeRoleARN', assumeRoleARN, errors.assumeRoleARN)}
           >
             <Input
               value={assumeRoleARN}
@@ -160,11 +150,7 @@ export function AccountCreateModal({
 
           <Field
             label="Default Region"
-            error={touched(
-              "defaultRegion",
-              defaultRegion,
-              errors.defaultRegion
-            )}
+            error={touched('defaultRegion', defaultRegion, errors.defaultRegion)}
           >
             <Input
               value={defaultRegion}
@@ -196,8 +182,7 @@ export function AccountCreateModal({
                   placeholder="Shared secret used in the role's trust policy"
                 />
                 <p className="text-[11px] text-muted-foreground/70 mt-1">
-                  Stored encrypted. Required only when the assume-role trust
-                  policy includes an{" "}
+                  Stored encrypted. Required only when the assume-role trust policy includes an{' '}
                   <span className="font-mono">sts:ExternalId</span> condition.
                 </p>
               </div>
@@ -213,7 +198,7 @@ export function AccountCreateModal({
               onClick={() => createMutation.mutate()}
               disabled={!canSubmit || createMutation.isPending}
             >
-              {createMutation.isPending ? "Creating..." : "Create Account"}
+              {createMutation.isPending ? 'Creating...' : 'Create Account'}
             </Button>
           </div>
         </div>
@@ -233,24 +218,16 @@ function Field({
 }) {
   return (
     <div>
-      <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
-        {label}
-      </label>
+      <label className="text-xs font-medium text-muted-foreground mb-1.5 block">{label}</label>
       {children}
-      {error && (
-        <p className="text-[11px] text-destructive mt-1">{error}</p>
-      )}
+      {error && <p className="text-[11px] text-destructive mt-1">{error}</p>}
     </div>
   );
 }
 
 // Only show validation errors after the user has touched the field
 // (empty + untouched should not render a red "Required").
-function touched(
-  _key: string,
-  value: string,
-  error: string | null,
-): string | null {
-  if (value === "") return null;
+function touched(_key: string, value: string, error: string | null): string | null {
+  if (value === '') return null;
   return error;
 }

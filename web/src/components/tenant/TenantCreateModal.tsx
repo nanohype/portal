@@ -1,33 +1,33 @@
-import { useState, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
-import { api } from "@/api/client";
-import { useAuth } from "@/hooks/useAuth";
-import type { Cluster, Template } from "@/api/models";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
+import { useState, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { api } from '@/api/client';
+import { useAuth } from '@/hooks/useAuth';
+import type { Cluster, Template } from '@/api/models';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogDescription,
-} from "@/components/ui/dialog";
-import { buildOverrides } from "./build-overrides";
+} from '@/components/ui/dialog';
+import { buildOverrides } from './build-overrides';
 
 // Maps a form-level state var to the dotted helm-values path it controls.
 // The handler uses this allowlist to decide whether a field is editable for
 // a template-driven submission: a field whose path isn't in
 // template.allowed_overrides is disabled and inherits the template default.
 const FIELD_PATHS = {
-  monthlyUsd: "budget.monthlyUsd",
-  persona: "platform.persona",
-  displayName: "platform.displayName",
-  tenant: "platform.tenant",
-  soc2: "platform.compliance.soc2",
-  hipaa: "platform.compliance.hipaa",
+  monthlyUsd: 'budget.monthlyUsd',
+  persona: 'platform.persona',
+  displayName: 'platform.displayName',
+  tenant: 'platform.tenant',
+  soc2: 'platform.compliance.soc2',
+  hipaa: 'platform.compliance.hipaa',
 } as const;
 
 const K8S_NAME_RE = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
@@ -37,15 +37,15 @@ const K8S_NAME_RE = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
 // freshness for form responsiveness; if eks-agent-platform adds a persona we update both
 // the chart and this list together.
 const PERSONAS = [
-  "generic",
-  "sales-ops",
-  "support",
-  "finance",
-  "ops",
-  "founder",
-  "eng",
-  "marketing",
-  "legal",
+  'generic',
+  'sales-ops',
+  'support',
+  'finance',
+  'ops',
+  'founder',
+  'eng',
+  'marketing',
+  'legal',
 ] as const;
 
 export function TenantCreateModal({
@@ -59,12 +59,12 @@ export function TenantCreateModal({
 }) {
   const queryClient = useQueryClient();
   const { user } = useAuth();
-  const isAdmin = user?.role === "admin" || user?.role === "owner";
+  const isAdmin = user?.role === 'admin' || user?.role === 'owner';
 
   const { data: templates } = useQuery({
-    queryKey: ["templates"],
+    queryKey: ['templates'],
     queryFn: async () => {
-      const { data, error } = await api.GET("/templates");
+      const { data, error } = await api.GET('/templates');
       if (error) throw error;
       return data?.data ?? [];
     },
@@ -75,10 +75,10 @@ export function TenantCreateModal({
   // see all org teams (optional pick = no ownership = admin-only visibility);
   // non-admins see only their own teams (server rejects bad picks anyway).
   const { data: pickableTeams } = useQuery({
-    queryKey: ["teams", isAdmin ? "all" : "mine"],
+    queryKey: ['teams', isAdmin ? 'all' : 'mine'],
     queryFn: async () => {
-      const { data, error } = await api.GET("/teams", {
-        params: isAdmin ? {} : { query: { member_of: "me" } },
+      const { data, error } = await api.GET('/teams', {
+        params: isAdmin ? {} : { query: { member_of: 'me' } },
       });
       if (error) throw error;
       return data?.data ?? [];
@@ -89,30 +89,29 @@ export function TenantCreateModal({
   // Mode: "template" (operators default) vs "scratch" (admin advanced).
   // When templates exist + user picks one, fields outside its
   // allowed_overrides are disabled and inherit template defaults.
-  const [templateID, setTemplateID] = useState<string>("");
+  const [templateID, setTemplateID] = useState<string>('');
   const [scratchMode, setScratchMode] = useState(false);
   const selected = templates?.find((t) => t.id === templateID);
 
-  const [owningTeamID, setOwningTeamID] = useState("");
-  const [clusterID, setClusterID] = useState("");
-  const [name, setName] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [tenant, setTenant] = useState("");
-  const [persona, setPersona] =
-    useState<(typeof PERSONAS)[number]>("generic");
+  const [owningTeamID, setOwningTeamID] = useState('');
+  const [clusterID, setClusterID] = useState('');
+  const [name, setName] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [tenant, setTenant] = useState('');
+  const [persona, setPersona] = useState<(typeof PERSONAS)[number]>('generic');
   const [monthlyUsd, setMonthlyUsd] = useState(500);
   const [hipaa, setHipaa] = useState(false);
   const [soc2, setSoc2] = useState(true);
 
   const reset = () => {
-    setTemplateID("");
+    setTemplateID('');
     setScratchMode(false);
-    setOwningTeamID("");
-    setClusterID("");
-    setName("");
-    setDisplayName("");
-    setTenant("");
-    setPersona("generic");
+    setOwningTeamID('');
+    setClusterID('');
+    setName('');
+    setDisplayName('');
+    setTenant('');
+    setPersona('generic');
     setMonthlyUsd(500);
     setHipaa(false);
     setSoc2(true);
@@ -128,17 +127,17 @@ export function TenantCreateModal({
     const platform = (d?.platform ?? {}) as Record<string, unknown>;
     const compliance = (platform.compliance ?? {}) as Record<string, unknown>;
     const budget = (d?.budget ?? {}) as Record<string, unknown>;
-    if (typeof platform.persona === "string") {
+    if (typeof platform.persona === 'string') {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional prefill of editable fields from the picked template's defaults
       setPersona(platform.persona as (typeof PERSONAS)[number]);
     } else {
       setPersona(selected.persona as (typeof PERSONAS)[number]);
     }
-    if (typeof platform.displayName === "string") setDisplayName(platform.displayName);
-    if (typeof platform.tenant === "string") setTenant(platform.tenant);
-    if (typeof budget.monthlyUsd === "number") setMonthlyUsd(budget.monthlyUsd);
-    if (typeof compliance.soc2 === "boolean") setSoc2(compliance.soc2);
-    if (typeof compliance.hipaa === "boolean") setHipaa(compliance.hipaa);
+    if (typeof platform.displayName === 'string') setDisplayName(platform.displayName);
+    if (typeof platform.tenant === 'string') setTenant(platform.tenant);
+    if (typeof budget.monthlyUsd === 'number') setMonthlyUsd(budget.monthlyUsd);
+    if (typeof compliance.soc2 === 'boolean') setSoc2(compliance.soc2);
+    if (typeof compliance.hipaa === 'boolean') setHipaa(compliance.hipaa);
   }, [selected]);
 
   const allowed = (path: string) => {
@@ -201,31 +200,30 @@ export function TenantCreateModal({
 
   const mutation = useMutation({
     mutationFn: async () => {
-      const { data, error } = await api.POST("/tenants", { body: buildBody() });
+      const { data, error } = await api.POST('/tenants', { body: buildBody() });
       if (error) throw error;
       return data!;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["tenants"] });
-      toast.success("Tenant create enqueued · ArgoCD will reconcile shortly");
+      queryClient.invalidateQueries({ queryKey: ['tenants'] });
+      toast.success('Tenant create enqueued · ArgoCD will reconcile shortly');
       reset();
       onClose();
     },
     onError: (e: unknown) => {
-      const msg =
-        (e as { message?: string })?.message ?? "Failed to enqueue tenant";
+      const msg = (e as { message?: string })?.message ?? 'Failed to enqueue tenant';
       toast.error(msg);
     },
   });
 
-  const nameInvalid = name !== "" && !K8S_NAME_RE.test(name);
+  const nameInvalid = name !== '' && !K8S_NAME_RE.test(name);
   const budgetOverCap =
     selected && selected.max_budget_usd > 0 && monthlyUsd > selected.max_budget_usd;
   const needsTeamPick =
-    !isAdmin && pickableTeams !== undefined && pickableTeams.length > 1 && owningTeamID === "";
+    !isAdmin && pickableTeams !== undefined && pickableTeams.length > 1 && owningTeamID === '';
   const noTeams = !isAdmin && pickableTeams !== undefined && pickableTeams.length === 0;
   const canSubmit =
-    clusterID !== "" &&
+    clusterID !== '' &&
     K8S_NAME_RE.test(name) &&
     monthlyUsd > 0 &&
     !budgetOverCap &&
@@ -240,9 +238,8 @@ export function TenantCreateModal({
         <DialogHeader>
           <DialogTitle>New Tenant</DialogTitle>
           <DialogDescription>
-            Renders the eks-agent-platform `charts/tenant` chart with these values and
-            commits to the tenants repo. ArgoCD reconciles the result onto
-            the chosen cluster.
+            Renders the eks-agent-platform `charts/tenant` chart with these values and commits to
+            the tenants repo. ArgoCD reconciles the result onto the chosen cluster.
           </DialogDescription>
         </DialogHeader>
 
@@ -262,7 +259,7 @@ export function TenantCreateModal({
                   {templates.map((t: Template) => (
                     <option key={t.id} value={t.id}>
                       {t.name} · {t.persona}
-                      {t.max_budget_usd > 0 ? ` · ≤ $${t.max_budget_usd}/mo` : ""}
+                      {t.max_budget_usd > 0 ? ` · ≤ $${t.max_budget_usd}/mo` : ''}
                     </option>
                   ))}
                 </Select>
@@ -271,19 +268,19 @@ export function TenantCreateModal({
                     type="button"
                     onClick={() => {
                       setScratchMode((s) => !s);
-                      setTemplateID("");
+                      setTemplateID('');
                     }}
                     className="text-[11px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer whitespace-nowrap"
                   >
-                    {scratchMode ? "use template" : "from scratch"}
+                    {scratchMode ? 'use template' : 'from scratch'}
                   </button>
                 )}
               </div>
               {selected && (
                 <p className="text-[11px] text-muted-foreground/70 mt-1">
-                  {selected.description || "Operator overrides limited to: "}
+                  {selected.description || 'Operator overrides limited to: '}
                   <span className="font-mono">
-                    {selected.allowed_overrides.join(", ") || "none"}
+                    {selected.allowed_overrides.join(', ') || 'none'}
                   </span>
                 </p>
               )}
@@ -298,26 +295,22 @@ export function TenantCreateModal({
 
           {noTeams && (
             <div className="sm:col-span-2 bg-warning/10 text-warning text-[11px] rounded-md px-3 py-2">
-              You must belong to a team before creating tenants. Ask an admin
-              to add you to one.
+              You must belong to a team before creating tenants. Ask an admin to add you to one.
             </div>
           )}
 
           {pickableTeams && pickableTeams.length > 0 && (
             <Field
-              label={isAdmin ? "Owning team (optional)" : "Owning team"}
+              label={isAdmin ? 'Owning team (optional)' : 'Owning team'}
               hint={
                 isAdmin
-                  ? "Leave blank for admin-only visibility."
+                  ? 'Leave blank for admin-only visibility.'
                   : pickableTeams.length === 1
-                  ? `Auto-assigned to your team: ${pickableTeams[0].name}`
-                  : undefined
+                    ? `Auto-assigned to your team: ${pickableTeams[0].name}`
+                    : undefined
               }
             >
-              <Select
-                value={owningTeamID}
-                onChange={(e) => setOwningTeamID(e.target.value)}
-              >
+              <Select value={owningTeamID} onChange={(e) => setOwningTeamID(e.target.value)}>
                 {isAdmin && <option value="">(no team — admin only)</option>}
                 {pickableTeams.map((t) => (
                   <option key={t.id} value={t.id}>
@@ -329,21 +322,17 @@ export function TenantCreateModal({
           )}
 
           <Field label="Cluster">
-            <Select
-              value={clusterID}
-              onChange={(e) => setClusterID(e.target.value)}
-            >
+            <Select value={clusterID} onChange={(e) => setClusterID(e.target.value)}>
               <option value="">Pick a cluster…</option>
               {clusters
-                .filter((c) => c.connection_status === "connected")
+                .filter((c) => c.connection_status === 'connected')
                 .map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name} ({c.region})
                   </option>
                 ))}
             </Select>
-            {clusters.filter((c) => c.connection_status === "connected")
-              .length === 0 && (
+            {clusters.filter((c) => c.connection_status === 'connected').length === 0 && (
               <p className="text-[11px] text-warning mt-1">
                 No clusters are currently connected. Register one first.
               </p>
@@ -354,7 +343,7 @@ export function TenantCreateModal({
             label="Platform name (k8s name)"
             error={
               nameInvalid
-                ? "Lowercase alphanumeric + hyphen, 1-63 chars, must start/end alphanumeric"
+                ? 'Lowercase alphanumeric + hyphen, 1-63 chars, must start/end alphanumeric'
                 : null
             }
           >
@@ -366,10 +355,7 @@ export function TenantCreateModal({
             />
           </Field>
 
-          <Field
-            label="Display name (optional)"
-            locked={!allowed(FIELD_PATHS.displayName)}
-          >
+          <Field label="Display name (optional)" locked={!allowed(FIELD_PATHS.displayName)}>
             <Input
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
@@ -394,9 +380,7 @@ export function TenantCreateModal({
           <Field label="Persona" locked={!allowed(FIELD_PATHS.persona)}>
             <Select
               value={persona}
-              onChange={(e) =>
-                setPersona(e.target.value as (typeof PERSONAS)[number])
-              }
+              onChange={(e) => setPersona(e.target.value as (typeof PERSONAS)[number])}
               disabled={!allowed(FIELD_PATHS.persona)}
             >
               {PERSONAS.map((p) => (
@@ -421,9 +405,7 @@ export function TenantCreateModal({
               type="number"
               min={1}
               value={monthlyUsd}
-              onChange={(e) =>
-                setMonthlyUsd(Math.max(0, Number(e.target.value) || 0))
-              }
+              onChange={(e) => setMonthlyUsd(Math.max(0, Number(e.target.value) || 0))}
               className="font-mono"
               disabled={!allowed(FIELD_PATHS.monthlyUsd)}
             />
@@ -439,7 +421,7 @@ export function TenantCreateModal({
                   disabled={!allowed(FIELD_PATHS.soc2)}
                 />
                 SOC 2
-                {selected?.required_compliance.includes("soc2") && (
+                {selected?.required_compliance.includes('soc2') && (
                   <Badge variant="warning">required</Badge>
                 )}
               </label>
@@ -451,7 +433,7 @@ export function TenantCreateModal({
                   disabled={!allowed(FIELD_PATHS.hipaa)}
                 />
                 HIPAA
-                {selected?.required_compliance.includes("hipaa") && (
+                {selected?.required_compliance.includes('hipaa') && (
                   <Badge variant="warning">required</Badge>
                 )}
               </label>
@@ -462,12 +444,8 @@ export function TenantCreateModal({
             <Button variant="ghost" size="sm" onClick={onClose}>
               Cancel
             </Button>
-            <Button
-              size="sm"
-              onClick={() => mutation.mutate()}
-              disabled={!canSubmit}
-            >
-              {mutation.isPending ? "Enqueueing..." : "Create Tenant"}
+            <Button size="sm" onClick={() => mutation.mutate()} disabled={!canSubmit}>
+              {mutation.isPending ? 'Enqueueing...' : 'Create Tenant'}
             </Button>
           </div>
         </div>

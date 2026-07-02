@@ -1,5 +1,5 @@
-import { type ClassValue, clsx } from "clsx";
-import { twMerge } from "tailwind-merge";
+import { type ClassValue, clsx } from 'clsx';
+import { twMerge } from 'tailwind-merge';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -10,14 +10,14 @@ export function formatRelativeTime(date: string | Date): string {
   const d = new Date(date);
   const seconds = Math.floor((now.getTime() - d.getTime()) / 1000);
 
-  if (seconds < 60) return "just now";
+  if (seconds < 60) return 'just now';
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
   return `${Math.floor(seconds / 86400)}d ago`;
 }
 
 export function formatDuration(startedAt?: string | null, finishedAt?: string | null): string {
-  if (!startedAt) return "";
+  if (!startedAt) return '';
   const start = new Date(startedAt).getTime();
   const end = finishedAt ? new Date(finishedAt).getTime() : Date.now();
   const seconds = Math.max(0, Math.floor((end - start) / 1000));
@@ -36,11 +36,11 @@ export function formatDuration(startedAt?: string | null, finishedAt?: string | 
 // (dev) as the neutral brand colour.
 export function getEnvironmentColor(env: string): string {
   switch (env) {
-    case "production":
-      return "bg-destructive/10 text-destructive border-destructive/20";
-    case "staging":
-      return "bg-warning/10 text-warning border-warning/20";
+    case 'production':
+      return 'bg-destructive/10 text-destructive border-destructive/20';
+    case 'staging':
+      return 'bg-warning/10 text-warning border-warning/20';
     default:
-      return "bg-primary/10 text-primary border-primary/20";
+      return 'bg-primary/10 text-primary border-primary/20';
   }
 }

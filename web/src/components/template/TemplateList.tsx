@@ -1,28 +1,28 @@
-import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
-import { api } from "@/api/client";
-import { useAuth } from "@/hooks/useAuth";
-import type { Template } from "@/api/models";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Spinner } from "@/components/ui/spinner";
-import { useConfirm } from "@/components/ui/confirm-context";
-import { TemplateEditorDialog } from "./TemplateEditorDialog";
-import { LayoutTemplate, Plus, Trash2, Pencil } from "lucide-react";
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { api } from '@/api/client';
+import { useAuth } from '@/hooks/useAuth';
+import type { Template } from '@/api/models';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Spinner } from '@/components/ui/spinner';
+import { useConfirm } from '@/components/ui/confirm-context';
+import { TemplateEditorDialog } from './TemplateEditorDialog';
+import { LayoutTemplate, Plus, Trash2, Pencil } from 'lucide-react';
 
 export function TemplateList() {
   const { user } = useAuth();
-  const isAdmin = user?.role === "admin" || user?.role === "owner";
+  const isAdmin = user?.role === 'admin' || user?.role === 'owner';
   const queryClient = useQueryClient();
   const confirm = useConfirm();
   const [editing, setEditing] = useState<Template | null>(null);
   const [creating, setCreating] = useState(false);
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["templates"],
+    queryKey: ['templates'],
     queryFn: async () => {
-      const { data, error } = await api.GET("/templates");
+      const { data, error } = await api.GET('/templates');
       if (error) throw error;
       return data?.data ?? [];
     },
@@ -30,16 +30,16 @@ export function TemplateList() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await api.DELETE("/templates/{templateID}", {
+      const { error } = await api.DELETE('/templates/{templateID}', {
         params: { path: { templateID: id } },
       });
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["templates"] });
-      toast.success("Template deleted");
+      queryClient.invalidateQueries({ queryKey: ['templates'] });
+      toast.success('Template deleted');
     },
-    onError: () => toast.error("Failed to delete template"),
+    onError: () => toast.error('Failed to delete template'),
   });
 
   const templates = data ?? [];
@@ -78,8 +78,8 @@ export function TemplateList() {
           </div>
           <h2 className="text-sm font-semibold mb-1">No templates yet</h2>
           <p className="text-xs text-muted-foreground mb-5 max-w-[320px]">
-            Define curated tenant flavors so operators can instantiate them
-            without filling out every field.
+            Define curated tenant flavors so operators can instantiate them without filling out
+            every field.
           </p>
           {isAdmin && (
             <Button size="sm" onClick={() => setCreating(true)}>
@@ -103,9 +103,7 @@ export function TemplateList() {
                     <Badge variant="secondary">{t.persona}</Badge>
                   </div>
                   {t.description && (
-                    <p className="text-[11px] text-muted-foreground break-words">
-                      {t.description}
-                    </p>
+                    <p className="text-[11px] text-muted-foreground break-words">{t.description}</p>
                   )}
                 </div>
                 {isAdmin && (
@@ -122,7 +120,7 @@ export function TemplateList() {
                         if (
                           await confirm({
                             title: `Delete template "${t.name}"?`,
-                            confirmLabel: "Delete",
+                            confirmLabel: 'Delete',
                           })
                         ) {
                           deleteMutation.mutate(t.id);
@@ -138,18 +136,14 @@ export function TemplateList() {
               </div>
               <div className="flex flex-wrap items-center gap-1.5 mt-2 text-[10px] text-muted-foreground">
                 {t.max_budget_usd > 0 && (
-                  <span className="font-mono">
-                    ≤ ${t.max_budget_usd.toLocaleString()}/mo
-                  </span>
+                  <span className="font-mono">≤ ${t.max_budget_usd.toLocaleString()}/mo</span>
                 )}
                 {t.allowed_model_families.length > 0 && (
-                  <span className="font-mono">
-                    {t.allowed_model_families.join(" · ")}
-                  </span>
+                  <span className="font-mono">{t.allowed_model_families.join(' · ')}</span>
                 )}
                 {t.required_compliance.length > 0 && (
                   <span className="text-warning font-mono">
-                    requires {t.required_compliance.join(", ")}
+                    requires {t.required_compliance.join(', ')}
                   </span>
                 )}
               </div>

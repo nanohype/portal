@@ -1,29 +1,26 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { api } from "@/api/client";
-import { useAuth } from "@/hooks/useAuth";
-import type { Cluster, Tenant } from "@/api/models";
-import { Button } from "@/components/ui/button";
-import { SkeletonRows } from "@/components/ui/skeleton";
-import { Link } from "@/components/ui/link";
-import { formatRelativeTime } from "@/lib/utils";
-import { Boxes, Plus } from "lucide-react";
-import { TenantCreateModal } from "./TenantCreateModal";
-import { StatusBadge } from "@/components/ui/status-badge";
-import { tenantPhase, isTenantPhaseTransitional } from "@/lib/status";
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/api/client';
+import { useAuth } from '@/hooks/useAuth';
+import type { Cluster, Tenant } from '@/api/models';
+import { Button } from '@/components/ui/button';
+import { SkeletonRows } from '@/components/ui/skeleton';
+import { Link } from '@/components/ui/link';
+import { formatRelativeTime } from '@/lib/utils';
+import { Boxes, Plus } from 'lucide-react';
+import { TenantCreateModal } from './TenantCreateModal';
+import { StatusBadge } from '@/components/ui/status-badge';
+import { tenantPhase, isTenantPhaseTransitional } from '@/lib/status';
 
 export function TenantList() {
   const { user } = useAuth();
-  const canWrite =
-    user?.role === "operator" ||
-    user?.role === "admin" ||
-    user?.role === "owner";
+  const canWrite = user?.role === 'operator' || user?.role === 'admin' || user?.role === 'owner';
   const [showCreate, setShowCreate] = useState(false);
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["tenants"],
+    queryKey: ['tenants'],
     queryFn: async () => {
-      const { data, error } = await api.GET("/tenants", {
+      const { data, error } = await api.GET('/tenants', {
         params: { query: { per_page: 200 } },
       });
       if (error) throw error;
@@ -34,9 +31,7 @@ export function TenantList() {
     // settling (pending/provisioning); otherwise back off — the watcher
     // reconciles every 60s backend-side, so the UI just needs to keep in step.
     refetchInterval: (query) =>
-      query.state.data?.data?.some((t) => isTenantPhaseTransitional(t.phase))
-        ? 5000
-        : 30000,
+      query.state.data?.data?.some((t) => isTenantPhaseTransitional(t.phase)) ? 5000 : 30000,
   });
 
   // Distinct key from ClusterList's ["clusters"] (which caches the paginated
@@ -44,9 +39,9 @@ export function TenantList() {
   // other's render and crash on rapid navigation. The ["clusters"] prefix still
   // matches cluster invalidations, so this stays fresh on mutations.
   const { data: clusters } = useQuery({
-    queryKey: ["clusters", "list"],
+    queryKey: ['clusters', 'list'],
     queryFn: async () => {
-      const { data, error } = await api.GET("/clusters", {
+      const { data, error } = await api.GET('/clusters', {
         params: { query: { per_page: 100 } },
       });
       if (error) throw error;
@@ -55,8 +50,7 @@ export function TenantList() {
   });
 
   const tenants = data?.data ?? [];
-  const clusterName = (id: string) =>
-    clusters?.find((c: Cluster) => c.id === id)?.name ?? id;
+  const clusterName = (id: string) => clusters?.find((c: Cluster) => c.id === id)?.name ?? id;
 
   // Group tenants by cluster so the list reads cluster-first
   const grouped = tenants.reduce<Record<string, Tenant[]>>((acc, t) => {
@@ -70,8 +64,7 @@ export function TenantList() {
         <div>
           <h1 className="text-lg font-semibold tracking-tight">Tenants</h1>
           <p className="text-[12px] text-muted-foreground mt-1">
-            eks-agent-platform tenants discovered by portal's cluster watcher (refreshed
-            every 60s)
+            eks-agent-platform tenants discovered by portal's cluster watcher (refreshed every 60s)
           </p>
         </div>
         {canWrite && (
@@ -101,8 +94,8 @@ export function TenantList() {
           </div>
           <h2 className="text-sm font-semibold mb-1">No tenants yet</h2>
           <p className="text-xs text-muted-foreground max-w-[320px]">
-            None of the connected clusters report any eks-agent-platform Tenant CRs. The
-            watcher will pick them up automatically once they exist.
+            None of the connected clusters report any eks-agent-platform Tenant CRs. The watcher
+            will pick them up automatically once they exist.
           </p>
         </div>
       ) : (

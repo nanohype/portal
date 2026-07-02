@@ -1,36 +1,36 @@
-import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
-import { api } from "@/api/client";
-import type { StateVersion, StateDiff } from "@/api/models";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/select";
-import { Spinner } from "@/components/ui/spinner";
-import { useConfirm } from "@/components/ui/confirm-context";
-import { ResourceBrowser } from "./ResourceBrowser";
-import { StateDiffViewer } from "./StateDiffViewer";
-import { formatRelativeTime } from "@/lib/utils";
-import { useAuth } from "@/hooks/useAuth";
-import { Database, Download, Layers, Search, GitCompare, Trash2 } from "lucide-react";
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { api } from '@/api/client';
+import type { StateVersion, StateDiff } from '@/api/models';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Select } from '@/components/ui/select';
+import { Spinner } from '@/components/ui/spinner';
+import { useConfirm } from '@/components/ui/confirm-context';
+import { ResourceBrowser } from './ResourceBrowser';
+import { StateDiffViewer } from './StateDiffViewer';
+import { formatRelativeTime } from '@/lib/utils';
+import { useAuth } from '@/hooks/useAuth';
+import { Database, Download, Layers, Search, GitCompare, Trash2 } from 'lucide-react';
 
 interface Props {
   workspaceId: string;
 }
 
 async function downloadState(workspaceId: string, stateId: string) {
-  const token = localStorage.getItem("portal_token");
+  const token = localStorage.getItem('portal_token');
   const res = await fetch(`/api/v1/workspaces/${workspaceId}/state/${stateId}/download`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) {
-    toast.error("Failed to download state file");
+    toast.error('Failed to download state file');
     return;
   }
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
+  const a = document.createElement('a');
   a.href = url;
   a.download = `state-${stateId}.json`;
   a.click();
@@ -40,73 +40,73 @@ async function downloadState(workspaceId: string, stateId: string) {
 export function StateExplorer({ workspaceId }: Props) {
   const [showResources, setShowResources] = useState(false);
   const [compareMode, setCompareMode] = useState(false);
-  const [fromSerial, setFromSerial] = useState<number | "">("");
-  const [toSerial, setToSerial] = useState<number | "">("");
+  const [fromSerial, setFromSerial] = useState<number | ''>('');
+  const [toSerial, setToSerial] = useState<number | ''>('');
   const { user } = useAuth();
-  const canDrop = user?.role === "owner" || user?.role === "admin";
+  const canDrop = user?.role === 'owner' || user?.role === 'admin';
   const qc = useQueryClient();
   const confirm = useConfirm();
 
   const dropMutation = useMutation({
     mutationFn: async (serial: number) => {
-      const token = localStorage.getItem("portal_token");
+      const token = localStorage.getItem('portal_token');
       const res = await fetch(`/api/v1/workspaces/${workspaceId}/state/serial/${serial}`, {
-        method: "DELETE",
+        method: 'DELETE',
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         signal: AbortSignal.timeout(30_000),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
     },
     onSuccess: () => {
-      toast.success("State version dropped");
-      qc.invalidateQueries({ queryKey: ["state-versions", workspaceId] });
-      qc.invalidateQueries({ queryKey: ["state-current", workspaceId] });
+      toast.success('State version dropped');
+      qc.invalidateQueries({ queryKey: ['state-versions', workspaceId] });
+      qc.invalidateQueries({ queryKey: ['state-current', workspaceId] });
     },
     onError: (e) => toast.error(`Failed to drop state version: ${(e as Error).message}`),
   });
 
-  const { data: versions, isLoading, isError } = useQuery({
-    queryKey: ["state-versions", workspaceId],
+  const {
+    data: versions,
+    isLoading,
+    isError,
+  } = useQuery({
+    queryKey: ['state-versions', workspaceId],
     queryFn: async () => {
-      const { data, error } = await api.GET(
-        "/workspaces/{workspaceId}/state",
-        {
-          params: { path: { workspaceId } },
-        }
-      );
+      const { data, error } = await api.GET('/workspaces/{workspaceId}/state', {
+        params: { path: { workspaceId } },
+      });
       if (error) throw error;
       return data?.data ?? [];
     },
   });
 
   const { data: currentState } = useQuery({
-    queryKey: ["state-current", workspaceId],
+    queryKey: ['state-current', workspaceId],
     queryFn: async () => {
-      const { data, error } = await api.GET(
-        "/workspaces/{workspaceId}/state/current",
-        {
-          params: { path: { workspaceId } },
-        }
-      );
+      const { data, error } = await api.GET('/workspaces/{workspaceId}/state/current', {
+        params: { path: { workspaceId } },
+      });
       if (error) throw error;
       return data;
     },
   });
 
-  const canCompare = typeof fromSerial === "number" && typeof toSerial === "number" && fromSerial !== toSerial;
+  const canCompare =
+    typeof fromSerial === 'number' && typeof toSerial === 'number' && fromSerial !== toSerial;
 
-  const { data: diffResult, isLoading: isDiffLoading, isError: isDiffError } = useQuery({
-    queryKey: ["state-diff", workspaceId, fromSerial, toSerial],
+  const {
+    data: diffResult,
+    isLoading: isDiffLoading,
+    isError: isDiffError,
+  } = useQuery({
+    queryKey: ['state-diff', workspaceId, fromSerial, toSerial],
     queryFn: async () => {
-      const { data, error } = await api.GET(
-        "/workspaces/{workspaceId}/state/diff",
-        {
-          params: {
-            path: { workspaceId },
-            query: { from: fromSerial as number, to: toSerial as number },
-          },
-        }
-      );
+      const { data, error } = await api.GET('/workspaces/{workspaceId}/state/diff', {
+        params: {
+          path: { workspaceId },
+          query: { from: fromSerial as number, to: toSerial as number },
+        },
+      });
       if (error) throw error;
       return data as StateDiff;
     },
@@ -146,19 +146,13 @@ export function StateExplorer({ workspaceId }: Props) {
               <Layers className="w-3.5 h-3.5" />
               {currentState.resource_count} resources
             </span>
-            <span className="font-mono text-xs">
-              {currentState.resource_summary}
-            </span>
+            <span className="font-mono text-xs">{currentState.resource_summary}</span>
             <span>{formatRelativeTime(currentState.created_at)}</span>
           </div>
           <div className="flex items-center gap-2 mt-3">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowResources(!showResources)}
-            >
+            <Button variant="outline" size="sm" onClick={() => setShowResources(!showResources)}>
               <Search className="w-3.5 h-3.5" />
-              {showResources ? "Hide Resources" : "Browse Resources"}
+              {showResources ? 'Hide Resources' : 'Browse Resources'}
             </Button>
             <Button
               variant="outline"
@@ -166,14 +160,16 @@ export function StateExplorer({ workspaceId }: Props) {
               onClick={() => {
                 setCompareMode(!compareMode);
                 if (!compareMode && versions && versions.length >= 2) {
-                  const sorted = [...(versions as StateVersion[])].sort((a, b) => b.serial - a.serial);
-                  setFromSerial(sorted[1]?.serial ?? "");
-                  setToSerial(sorted[0]?.serial ?? "");
+                  const sorted = [...(versions as StateVersion[])].sort(
+                    (a, b) => b.serial - a.serial,
+                  );
+                  setFromSerial(sorted[1]?.serial ?? '');
+                  setToSerial(sorted[0]?.serial ?? '');
                 }
               }}
             >
               <GitCompare className="w-3.5 h-3.5" />
-              {compareMode ? "Hide Compare" : "Compare"}
+              {compareMode ? 'Hide Compare' : 'Compare'}
             </Button>
           </div>
         </div>
@@ -248,12 +244,8 @@ export function StateExplorer({ workspaceId }: Props) {
               className="flex items-center justify-between px-4 py-3 hover:bg-accent/50 transition-colors"
             >
               <div className="flex items-center gap-3">
-                <span className="font-mono text-sm font-medium">
-                  #{sv.serial}
-                </span>
-                <span className="text-sm text-muted-foreground">
-                  {sv.resource_count} resources
-                </span>
+                <span className="font-mono text-sm font-medium">#{sv.serial}</span>
+                <span className="text-sm text-muted-foreground">{sv.resource_count} resources</span>
                 <span className="font-mono text-xs text-muted-foreground">
                   {sv.resource_summary}
                 </span>
@@ -276,8 +268,8 @@ export function StateExplorer({ workspaceId }: Props) {
                         await confirm({
                           title: `Drop state version #${sv.serial}?`,
                           message:
-                            "This removes the DB row and S3 objects. Use only when the version is known-broken (e.g. partial-errored, undecryptable). Cannot be undone.",
-                          confirmLabel: "Drop",
+                            'This removes the DB row and S3 objects. Use only when the version is known-broken (e.g. partial-errored, undecryptable). Cannot be undone.',
+                          confirmLabel: 'Drop',
                         })
                       ) {
                         dropMutation.mutate(sv.serial);

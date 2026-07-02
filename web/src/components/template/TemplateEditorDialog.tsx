@@ -1,50 +1,50 @@
-import { useState, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
-import { api } from "@/api/client";
-import type { Team, Template, TemplateTeamAccess } from "@/api/models";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
-import { ChipToggle } from "@/components/ui/chip-toggle";
-import { useConfirm } from "@/components/ui/confirm-context";
-import { formatRelativeTime } from "@/lib/utils";
-import { Trash2 } from "lucide-react";
+import { useState, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { api } from '@/api/client';
+import type { Team, Template, TemplateTeamAccess } from '@/api/models';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
+import { ChipToggle } from '@/components/ui/chip-toggle';
+import { useConfirm } from '@/components/ui/confirm-context';
+import { formatRelativeTime } from '@/lib/utils';
+import { Trash2 } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogDescription,
-} from "@/components/ui/dialog";
+} from '@/components/ui/dialog';
 
 // Personas, model families, and compliance flags come from the eks-agent-platform chart's
 // known taxonomies. Keeping these hardcoded here trades chart-evolution
 // freshness for form responsiveness — when eks-agent-platform adds an option, bump it here
 // and in the chart together.
 const PERSONAS = [
-  "generic",
-  "sales-ops",
-  "support",
-  "finance",
-  "ops",
-  "founder",
-  "eng",
-  "marketing",
-  "legal",
+  'generic',
+  'sales-ops',
+  'support',
+  'finance',
+  'ops',
+  'founder',
+  'eng',
+  'marketing',
+  'legal',
 ];
-const MODEL_FAMILIES = ["anthropic", "amazon-nova", "openai", "google"];
-const COMPLIANCE_FLAGS = ["soc2", "hipaa"];
+const MODEL_FAMILIES = ['anthropic', 'amazon-nova', 'openai', 'google'];
+const COMPLIANCE_FLAGS = ['soc2', 'hipaa'];
 
 // Suggested override paths the admin can pick from when defining what
 // operators can change. Matches the eks-agent-platform `charts/tenant` values schema.
 const OVERRIDE_PATH_SUGGESTIONS = [
-  "platform.displayName",
-  "platform.tenant",
-  "platform.compliance.hipaa",
-  "platform.compliance.soc2",
-  "budget.monthlyUsd",
-  "identity.allowedModelFamilies",
+  'platform.displayName',
+  'platform.tenant',
+  'platform.compliance.hipaa',
+  'platform.compliance.soc2',
+  'budget.monthlyUsd',
+  'identity.allowedModelFamilies',
 ];
 
 export function TemplateEditorDialog({
@@ -57,20 +57,14 @@ export function TemplateEditorDialog({
   existing: Template | null;
 }) {
   const queryClient = useQueryClient();
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [persona, setPersona] = useState("generic");
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [persona, setPersona] = useState('generic');
   const [maxBudget, setMaxBudget] = useState(0);
-  const [allowedFamilies, setAllowedFamilies] = useState<Set<string>>(
-    new Set(),
-  );
-  const [requiredCompliance, setRequiredCompliance] = useState<Set<string>>(
-    new Set(),
-  );
-  const [allowedOverrides, setAllowedOverrides] = useState<Set<string>>(
-    new Set(),
-  );
-  const [defaultValuesYaml, setDefaultValuesYaml] = useState("");
+  const [allowedFamilies, setAllowedFamilies] = useState<Set<string>>(new Set());
+  const [requiredCompliance, setRequiredCompliance] = useState<Set<string>>(new Set());
+  const [allowedOverrides, setAllowedOverrides] = useState<Set<string>>(new Set());
+  const [defaultValuesYaml, setDefaultValuesYaml] = useState('');
 
   useEffect(() => {
     if (existing) {
@@ -82,18 +76,16 @@ export function TemplateEditorDialog({
       setAllowedFamilies(new Set(existing.allowed_model_families));
       setRequiredCompliance(new Set(existing.required_compliance));
       setAllowedOverrides(new Set(existing.allowed_overrides));
-      setDefaultValuesYaml(
-        JSON.stringify(existing.default_values ?? {}, null, 2),
-      );
+      setDefaultValuesYaml(JSON.stringify(existing.default_values ?? {}, null, 2));
     } else {
-      setName("");
-      setDescription("");
-      setPersona("generic");
+      setName('');
+      setDescription('');
+      setPersona('generic');
       setMaxBudget(0);
       setAllowedFamilies(new Set());
       setRequiredCompliance(new Set());
       setAllowedOverrides(new Set());
-      setDefaultValuesYaml("{}");
+      setDefaultValuesYaml('{}');
     }
   }, [existing, open]);
 
@@ -103,9 +95,9 @@ export function TemplateEditorDialog({
     err?: string;
   } => {
     try {
-      const obj = JSON.parse(defaultValuesYaml || "{}");
-      if (typeof obj !== "object" || obj === null || Array.isArray(obj)) {
-        return { ok: false, err: "default_values must be a JSON object" };
+      const obj = JSON.parse(defaultValuesYaml || '{}');
+      if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) {
+        return { ok: false, err: 'default_values must be a JSON object' };
       }
       return { ok: true, parsed: obj as Record<string, unknown> };
     } catch (e) {
@@ -129,36 +121,33 @@ export function TemplateEditorDialog({
         required_compliance: Array.from(requiredCompliance),
       };
       if (existing) {
-        const { data, error } = await api.PUT("/templates/{templateID}", {
+        const { data, error } = await api.PUT('/templates/{templateID}', {
           params: { path: { templateID: existing.id } },
           body,
         });
         if (error) throw error;
         return data!;
       }
-      const { data, error } = await api.POST("/templates", { body });
+      const { data, error } = await api.POST('/templates', { body });
       if (error) throw error;
       return data!;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["templates"] });
-      toast.success(existing ? "Template updated" : "Template created");
+      queryClient.invalidateQueries({ queryKey: ['templates'] });
+      toast.success(existing ? 'Template updated' : 'Template created');
       onClose();
     },
     onError: (e: unknown) => {
-      const msg =
-        (e as { message?: string })?.message ?? "Failed to save template";
+      const msg = (e as { message?: string })?.message ?? 'Failed to save template';
       toast.error(msg);
     },
   });
 
   const defaultsErr = parseDefaults().err;
-  const canSubmit =
-    name.trim() !== "" && persona !== "" && !defaultsErr && !mutation.isPending;
+  const canSubmit = name.trim() !== '' && persona !== '' && !defaultsErr && !mutation.isPending;
 
   const toggleSet =
-    (setter: React.Dispatch<React.SetStateAction<Set<string>>>) =>
-    (value: string) =>
+    (setter: React.Dispatch<React.SetStateAction<Set<string>>>) => (value: string) =>
       setter((prev) => {
         const next = new Set(prev);
         if (next.has(value)) next.delete(value);
@@ -170,10 +159,10 @@ export function TemplateEditorDialog({
     <Dialog open={open} onClose={onClose} size="xl">
       <DialogContent className="max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{existing ? "Edit Template" : "New Template"}</DialogTitle>
+          <DialogTitle>{existing ? 'Edit Template' : 'New Template'}</DialogTitle>
           <DialogDescription>
-            Curate the defaults + caps. Operators instantiate tenants against
-            this template and can only override the paths you allow.
+            Curate the defaults + caps. Operators instantiate tenants against this template and can
+            only override the paths you allow.
           </DialogDescription>
         </DialogHeader>
 
@@ -188,10 +177,7 @@ export function TemplateEditorDialog({
           </Field>
 
           <Field label="Persona">
-            <Select
-              value={persona}
-              onChange={(e) => setPersona(e.target.value)}
-            >
+            <Select value={persona} onChange={(e) => setPersona(e.target.value)}>
               {PERSONAS.map((p) => (
                 <option key={p} value={p}>
                   {p}
@@ -213,9 +199,7 @@ export function TemplateEditorDialog({
               type="number"
               min={0}
               value={maxBudget}
-              onChange={(e) =>
-                setMaxBudget(Math.max(0, Number(e.target.value) || 0))
-              }
+              onChange={(e) => setMaxBudget(Math.max(0, Number(e.target.value) || 0))}
               className="font-mono"
             />
           </Field>
@@ -294,16 +278,8 @@ export function TemplateEditorDialog({
             <Button variant="ghost" size="sm" onClick={onClose}>
               Cancel
             </Button>
-            <Button
-              size="sm"
-              onClick={() => mutation.mutate()}
-              disabled={!canSubmit}
-            >
-              {mutation.isPending
-                ? "Saving..."
-                : existing
-                ? "Save changes"
-                : "Create Template"}
+            <Button size="sm" onClick={() => mutation.mutate()} disabled={!canSubmit}>
+              {mutation.isPending ? 'Saving...' : existing ? 'Save changes' : 'Create Template'}
             </Button>
           </div>
         </div>
@@ -315,24 +291,23 @@ export function TemplateEditorDialog({
 function TemplateAccessSection({ templateID }: { templateID: string }) {
   const queryClient = useQueryClient();
   const confirm = useConfirm();
-  const [picker, setPicker] = useState("");
+  const [picker, setPicker] = useState('');
 
   const { data: access } = useQuery({
-    queryKey: ["template", templateID, "access"],
+    queryKey: ['template', templateID, 'access'],
     queryFn: async () => {
-      const { data, error } = await api.GET(
-        "/templates/{templateID}/access",
-        { params: { path: { templateID } } },
-      );
+      const { data, error } = await api.GET('/templates/{templateID}/access', {
+        params: { path: { templateID } },
+      });
       if (error) throw error;
       return data?.data ?? [];
     },
   });
 
   const { data: teams } = useQuery({
-    queryKey: ["teams", "all"],
+    queryKey: ['teams', 'all'],
     queryFn: async () => {
-      const { data, error } = await api.GET("/teams");
+      const { data, error } = await api.GET('/teams');
       if (error) throw error;
       return data?.data ?? [];
     },
@@ -340,44 +315,42 @@ function TemplateAccessSection({ templateID }: { templateID: string }) {
 
   const grant = useMutation({
     mutationFn: async (teamID: string) => {
-      const { data, error } = await api.POST(
-        "/templates/{templateID}/access",
-        { params: { path: { templateID } }, body: { team_id: teamID } },
-      );
+      const { data, error } = await api.POST('/templates/{templateID}/access', {
+        params: { path: { templateID } },
+        body: { team_id: teamID },
+      });
       if (error) throw error;
       return data!;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["template", templateID, "access"],
+        queryKey: ['template', templateID, 'access'],
       });
-      toast.success("Access granted");
-      setPicker("");
+      toast.success('Access granted');
+      setPicker('');
     },
-    onError: () => toast.error("Failed to grant access"),
+    onError: () => toast.error('Failed to grant access'),
   });
 
   const revoke = useMutation({
     mutationFn: async (teamID: string) => {
-      const { error } = await api.DELETE(
-        "/templates/{templateID}/access/{teamId}",
-        { params: { path: { templateID, teamId: teamID } } },
-      );
+      const { error } = await api.DELETE('/templates/{templateID}/access/{teamId}', {
+        params: { path: { templateID, teamId: teamID } },
+      });
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["template", templateID, "access"],
+        queryKey: ['template', templateID, 'access'],
       });
-      toast.success("Access revoked");
+      toast.success('Access revoked');
     },
-    onError: () => toast.error("Failed to revoke access"),
+    onError: () => toast.error('Failed to revoke access'),
   });
 
   const grantedIDs = new Set((access ?? []).map((a: TemplateTeamAccess) => a.team_id));
   const ungranted = (teams ?? []).filter((t: Team) => !grantedIDs.has(t.id));
-  const teamName = (id: string) =>
-    (teams ?? []).find((t: Team) => t.id === id)?.name ?? id;
+  const teamName = (id: string) => (teams ?? []).find((t: Team) => t.id === id)?.name ?? id;
 
   return (
     <div className="border border-border/60 rounded-lg overflow-hidden">
@@ -391,10 +364,7 @@ function TemplateAccessSection({ templateID }: { templateID: string }) {
           </div>
         ) : (
           (access ?? []).map((a: TemplateTeamAccess) => (
-            <div
-              key={a.id}
-              className="px-4 py-2 text-xs flex items-center gap-3"
-            >
+            <div key={a.id} className="px-4 py-2 text-xs flex items-center gap-3">
               <span className="font-medium flex-1">{teamName(a.team_id)}</span>
               <span className="text-[11px] text-muted-foreground/70">
                 {formatRelativeTime(a.granted_at)}
@@ -404,7 +374,7 @@ function TemplateAccessSection({ templateID }: { templateID: string }) {
                   if (
                     await confirm({
                       title: `Revoke access from ${teamName(a.team_id)}?`,
-                      confirmLabel: "Revoke",
+                      confirmLabel: 'Revoke',
                     })
                   ) {
                     revoke.mutate(a.team_id);
@@ -461,9 +431,7 @@ function Field({
 }) {
   return (
     <div className={className}>
-      <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
-        {label}
-      </label>
+      <label className="text-xs font-medium text-muted-foreground mb-1.5 block">{label}</label>
       {children}
       {error ? (
         <p className="text-[11px] text-destructive mt-1">{error}</p>

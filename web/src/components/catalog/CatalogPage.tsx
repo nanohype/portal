@@ -1,28 +1,14 @@
-import { useState, useMemo, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { api } from "@/api/client";
-import { useAuth } from "@/hooks/useAuth";
-import type {
-  Workspace,
-  Tenant,
-  Pipeline,
-  Cluster,
-  Account,
-} from "@/api/models";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Spinner } from "@/components/ui/spinner";
-import { Link } from "@/components/ui/link";
-import { formatRelativeTime, getEnvironmentColor } from "@/lib/utils";
-import {
-  Boxes,
-  FolderGit2,
-  GitBranch,
-  Search,
-  Server,
-  Cloud,
-  LayoutGrid,
-} from "lucide-react";
+import { useState, useMemo, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/api/client';
+import { useAuth } from '@/hooks/useAuth';
+import type { Workspace, Tenant, Pipeline, Cluster, Account } from '@/api/models';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Spinner } from '@/components/ui/spinner';
+import { Link } from '@/components/ui/link';
+import { formatRelativeTime, getEnvironmentColor } from '@/lib/utils';
+import { Boxes, FolderGit2, GitBranch, Search, Server, Cloud, LayoutGrid } from 'lucide-react';
 
 // Catalog renders every entity a user can see as a unified, filterable grid.
 // Each entity-list endpoint already filters by the caller's role + team
@@ -30,12 +16,7 @@ import {
 // without doing its own permission checks — it just merges what each list
 // returns.
 
-type CatalogKind =
-  | "workspace"
-  | "tenant"
-  | "pipeline"
-  | "cluster"
-  | "account";
+type CatalogKind = 'workspace' | 'tenant' | 'pipeline' | 'cluster' | 'account';
 
 type CatalogEntry = {
   id: string;
@@ -48,7 +29,7 @@ type CatalogEntry = {
   // don't have it.
   environment?: string;
   status?: string;
-  statusVariant?: "success" | "default" | "destructive" | "warning" | "secondary";
+  statusVariant?: 'success' | 'default' | 'destructive' | 'warning' | 'secondary';
   meta?: string;
   updatedAt?: string;
 };
@@ -57,20 +38,20 @@ const KIND_META: Record<
   CatalogKind,
   { label: string; icon: React.ComponentType<{ className?: string }> }
 > = {
-  workspace: { label: "Workspaces", icon: FolderGit2 },
-  tenant: { label: "Tenants", icon: Boxes },
-  pipeline: { label: "Pipelines", icon: GitBranch },
-  cluster: { label: "Clusters", icon: Server },
-  account: { label: "Accounts", icon: Cloud },
+  workspace: { label: 'Workspaces', icon: FolderGit2 },
+  tenant: { label: 'Tenants', icon: Boxes },
+  pipeline: { label: 'Pipelines', icon: GitBranch },
+  cluster: { label: 'Clusters', icon: Server },
+  account: { label: 'Accounts', icon: Cloud },
 };
 
 export function CatalogPage() {
   const { user } = useAuth();
-  const isAdmin = user?.role === "admin" || user?.role === "owner";
+  const isAdmin = user?.role === 'admin' || user?.role === 'owner';
 
-  const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [activeKind, setActiveKind] = useState<CatalogKind | "all">("all");
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [activeKind, setActiveKind] = useState<CatalogKind | 'all'>('all');
 
   // Debounce search to keep filtering snappy as the user types
   useEffect(() => {
@@ -79,9 +60,9 @@ export function CatalogPage() {
   }, [search]);
 
   const workspaces = useQuery({
-    queryKey: ["catalog", "workspaces"],
+    queryKey: ['catalog', 'workspaces'],
     queryFn: async () => {
-      const { data, error } = await api.GET("/workspaces", {
+      const { data, error } = await api.GET('/workspaces', {
         params: { query: { per_page: 200 } },
       });
       if (error) throw error;
@@ -90,9 +71,9 @@ export function CatalogPage() {
   });
 
   const tenants = useQuery({
-    queryKey: ["catalog", "tenants"],
+    queryKey: ['catalog', 'tenants'],
     queryFn: async () => {
-      const { data, error } = await api.GET("/tenants", {
+      const { data, error } = await api.GET('/tenants', {
         params: { query: { per_page: 200 } },
       });
       if (error) throw error;
@@ -101,9 +82,9 @@ export function CatalogPage() {
   });
 
   const pipelines = useQuery({
-    queryKey: ["catalog", "pipelines"],
+    queryKey: ['catalog', 'pipelines'],
     queryFn: async () => {
-      const { data, error } = await api.GET("/pipelines");
+      const { data, error } = await api.GET('/pipelines');
       if (error) throw error;
       return data!;
     },
@@ -113,9 +94,9 @@ export function CatalogPage() {
   // non-admins both to save an API call and to avoid showing an empty
   // "Clusters" filter chip that they can't act on.
   const clusters = useQuery({
-    queryKey: ["catalog", "clusters"],
+    queryKey: ['catalog', 'clusters'],
     queryFn: async () => {
-      const { data, error } = await api.GET("/clusters", {
+      const { data, error } = await api.GET('/clusters', {
         params: { query: { per_page: 200 } },
       });
       if (error) throw error;
@@ -125,9 +106,9 @@ export function CatalogPage() {
   });
 
   const accounts = useQuery({
-    queryKey: ["catalog", "accounts"],
+    queryKey: ['catalog', 'accounts'],
     queryFn: async () => {
-      const { data, error } = await api.GET("/accounts", {
+      const { data, error } = await api.GET('/accounts', {
         params: { query: { per_page: 200 } },
       });
       if (error) throw error;
@@ -144,21 +125,21 @@ export function CatalogPage() {
     for (const w of (workspaces.data ?? []) as Workspace[]) {
       out.push({
         id: `workspace:${w.id}`,
-        kind: "workspace",
+        kind: 'workspace',
         name: w.name,
-        description: w.description ?? "",
+        description: w.description ?? '',
         href: `/workspaces/${w.id}`,
         environment: w.environment,
         updatedAt: w.updated_at,
       });
     }
     for (const t of (tenants.data ?? []) as Tenant[]) {
-      const phase = t.phase || "unknown";
+      const phase = t.phase || 'unknown';
       out.push({
         id: `tenant:${t.id}`,
-        kind: "tenant",
+        kind: 'tenant',
         name: t.name,
-        description: "",
+        description: '',
         href: `/tenants/${t.id}`,
         status: phase,
         statusVariant: tenantPhaseVariant(phase),
@@ -169,9 +150,9 @@ export function CatalogPage() {
     for (const p of (pipelines.data ?? []) as Pipeline[]) {
       out.push({
         id: `pipeline:${p.id}`,
-        kind: "pipeline",
+        kind: 'pipeline',
         name: p.name,
-        description: p.description ?? "",
+        description: p.description ?? '',
         href: `/pipelines/${p.id}`,
         updatedAt: p.updated_at,
       });
@@ -179,18 +160,18 @@ export function CatalogPage() {
     for (const c of (clusters.data ?? []) as Cluster[]) {
       out.push({
         id: `cluster:${c.id}`,
-        kind: "cluster",
+        kind: 'cluster',
         name: c.name,
-        description: c.description ?? "",
+        description: c.description ?? '',
         href: `/clusters/${c.id}`,
         environment: c.environment,
         status: c.connection_status,
         statusVariant:
-          c.connection_status === "connected"
-            ? "success"
-            : c.connection_status === "failed"
-            ? "destructive"
-            : "default",
+          c.connection_status === 'connected'
+            ? 'success'
+            : c.connection_status === 'failed'
+              ? 'destructive'
+              : 'default',
         meta: c.region,
         updatedAt: c.updated_at,
       });
@@ -198,9 +179,9 @@ export function CatalogPage() {
     for (const a of (accounts.data ?? []) as Account[]) {
       out.push({
         id: `account:${a.id}`,
-        kind: "account",
+        kind: 'account',
         name: a.name,
-        description: a.description ?? "",
+        description: a.description ?? '',
         href: `/accounts/${a.id}`,
         meta: `${a.aws_account_id} · ${a.default_region}`,
         updatedAt: a.updated_at,
@@ -224,8 +205,9 @@ export function CatalogPage() {
   const filtered = useMemo(() => {
     const q = debouncedSearch.trim().toLowerCase();
     return entries.filter((e) => {
-      if (activeKind !== "all" && e.kind !== activeKind) return false;
-      if (q && !e.name.toLowerCase().includes(q) && !e.description.toLowerCase().includes(q)) return false;
+      if (activeKind !== 'all' && e.kind !== activeKind) return false;
+      if (q && !e.name.toLowerCase().includes(q) && !e.description.toLowerCase().includes(q))
+        return false;
       return true;
     });
   }, [entries, debouncedSearch, activeKind]);
@@ -237,8 +219,8 @@ export function CatalogPage() {
     (isAdmin && (clusters.isLoading || accounts.isLoading));
 
   const availableKinds: CatalogKind[] = isAdmin
-    ? ["workspace", "tenant", "pipeline", "cluster", "account"]
-    : ["workspace", "tenant", "pipeline"];
+    ? ['workspace', 'tenant', 'pipeline', 'cluster', 'account']
+    : ['workspace', 'tenant', 'pipeline'];
 
   return (
     <div className="p-6 flex flex-col flex-1">
@@ -256,13 +238,11 @@ export function CatalogPage() {
           return (
             <button
               key={k}
-              onClick={() =>
-                setActiveKind(activeKind === k ? "all" : k)
-              }
+              onClick={() => setActiveKind(activeKind === k ? 'all' : k)}
               className={`group flex items-center gap-3 border rounded-lg px-3 py-2.5 transition-all duration-150 cursor-pointer text-left ${
                 activeKind === k
-                  ? "border-primary/30 bg-primary/[0.04]"
-                  : "border-border/60 hover:bg-accent/30 hover:border-primary/15"
+                  ? 'border-primary/30 bg-primary/[0.04]'
+                  : 'border-border/60 hover:bg-accent/30 hover:border-primary/15'
               }`}
             >
               <div className="w-8 h-8 rounded-md bg-primary/8 flex items-center justify-center shrink-0">
@@ -272,9 +252,7 @@ export function CatalogPage() {
                 <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
                   {KIND_META[k].label}
                 </div>
-                <div className="text-sm font-semibold font-mono">
-                  {counts[k]}
-                </div>
+                <div className="text-sm font-semibold font-mono">{counts[k]}</div>
               </div>
             </button>
           );
@@ -293,11 +271,11 @@ export function CatalogPage() {
           />
         </div>
         <button
-          onClick={() => setActiveKind("all")}
+          onClick={() => setActiveKind('all')}
           className={`text-[11px] px-2.5 py-1 rounded-md font-medium transition-colors cursor-pointer ${
-            activeKind === "all"
-              ? "bg-primary/10 text-primary"
-              : "text-muted-foreground hover:bg-hover"
+            activeKind === 'all'
+              ? 'bg-primary/10 text-primary'
+              : 'text-muted-foreground hover:bg-hover'
           }`}
         >
           all kinds
@@ -317,7 +295,7 @@ export function CatalogPage() {
           <p className="text-xs text-muted-foreground max-w-[320px]">
             {debouncedSearch
               ? `Nothing matches "${debouncedSearch}".`
-              : "Nothing here yet. Create a workspace, tenant, or pipeline to populate the catalog."}
+              : 'Nothing here yet. Create a workspace, tenant, or pipeline to populate the catalog.'}
           </p>
         </div>
       ) : (
@@ -350,9 +328,7 @@ function CatalogCard({ entry, index }: { entry: CatalogEntry; index: number }) {
             </span>
             <Badge variant="secondary">{entry.kind}</Badge>
             {entry.status && (
-              <Badge variant={entry.statusVariant ?? "secondary"}>
-                {entry.status}
-              </Badge>
+              <Badge variant={entry.statusVariant ?? 'secondary'}>{entry.status}</Badge>
             )}
             {entry.environment && (
               <Badge variant="secondary" className={getEnvironmentColor(entry.environment)}>
@@ -380,20 +356,20 @@ function CatalogCard({ entry, index }: { entry: CatalogEntry; index: number }) {
 
 function tenantPhaseVariant(
   phase: string,
-): "success" | "default" | "destructive" | "warning" | "secondary" {
+): 'success' | 'default' | 'destructive' | 'warning' | 'secondary' {
   switch (phase.toLowerCase()) {
-    case "ready":
-    case "active":
-    case "healthy":
-      return "success";
-    case "pending":
-    case "provisioning":
-      return "default";
-    case "error":
-    case "failed":
-    case "degraded":
-      return "destructive";
+    case 'ready':
+    case 'active':
+    case 'healthy':
+      return 'success';
+    case 'pending':
+    case 'provisioning':
+      return 'default';
+    case 'error':
+    case 'failed':
+    case 'degraded':
+      return 'destructive';
     default:
-      return "secondary";
+      return 'secondary';
   }
 }

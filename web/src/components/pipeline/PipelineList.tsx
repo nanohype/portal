@@ -1,23 +1,23 @@
-import { useState, useRef } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
-import { api } from "@/api/client";
-import type { Workspace, CreatePipelineStageInput } from "@/api/models";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
-import { SkeletonRows } from "@/components/ui/skeleton";
-import { Link } from "@/components/ui/link";
-import { useConfirm } from "@/components/ui/confirm-context";
+import { useState, useRef } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { api } from '@/api/client';
+import type { Workspace, CreatePipelineStageInput } from '@/api/models';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
+import { SkeletonRows } from '@/components/ui/skeleton';
+import { Link } from '@/components/ui/link';
+import { useConfirm } from '@/components/ui/confirm-context';
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogDescription,
-} from "@/components/ui/dialog";
-import { GitBranch, Plus, Trash2, GripVertical } from "lucide-react";
+} from '@/components/ui/dialog';
+import { GitBranch, Plus, Trash2, GripVertical } from 'lucide-react';
 
 export function PipelineList() {
   const [showCreate, setShowCreate] = useState(false);
@@ -29,9 +29,9 @@ export function PipelineList() {
     isLoading,
     isError,
   } = useQuery({
-    queryKey: ["pipelines"],
+    queryKey: ['pipelines'],
     queryFn: async () => {
-      const { data, error } = await api.GET("/pipelines");
+      const { data, error } = await api.GET('/pipelines');
       if (error) throw error;
       return data?.data ?? [];
     },
@@ -39,16 +39,16 @@ export function PipelineList() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await api.DELETE("/pipelines/{pipelineId}", {
+      const { error } = await api.DELETE('/pipelines/{pipelineId}', {
         params: { path: { pipelineId: id } },
       });
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["pipelines"] });
-      toast.success("Pipeline deleted");
+      queryClient.invalidateQueries({ queryKey: ['pipelines'] });
+      toast.success('Pipeline deleted');
     },
-    onError: () => toast.error("Failed to delete pipeline"),
+    onError: () => toast.error('Failed to delete pipeline'),
   });
 
   return (
@@ -123,8 +123,8 @@ export function PipelineList() {
                       e.stopPropagation();
                       if (
                         await confirm({
-                          title: "Delete this pipeline?",
-                          confirmLabel: "Delete",
+                          title: 'Delete this pipeline?',
+                          confirmLabel: 'Delete',
                         })
                       ) {
                         deleteMutation.mutate(p.id);
@@ -142,30 +142,21 @@ export function PipelineList() {
         </div>
       )}
 
-      <CreatePipelineDialog
-        open={showCreate}
-        onClose={() => setShowCreate(false)}
-      />
+      <CreatePipelineDialog open={showCreate} onClose={() => setShowCreate(false)} />
     </div>
   );
 }
 
-function CreatePipelineDialog({
-  open,
-  onClose,
-}: {
-  open: boolean;
-  onClose: () => void;
-}) {
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
+function CreatePipelineDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
   const [stages, setStages] = useState<CreatePipelineStageInput[]>([]);
   const queryClient = useQueryClient();
 
   const { data: workspaces } = useQuery({
-    queryKey: ["workspaces-all"],
+    queryKey: ['workspaces-all'],
     queryFn: async () => {
-      const { data, error } = await api.GET("/workspaces", {
+      const { data, error } = await api.GET('/workspaces', {
         params: { query: { per_page: 100 } },
       });
       if (error) throw error;
@@ -176,28 +167,25 @@ function CreatePipelineDialog({
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      const { data, error } = await api.POST("/pipelines", {
+      const { data, error } = await api.POST('/pipelines', {
         body: { name, description, stages },
       });
       if (error) throw error;
       return data!;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["pipelines"] });
-      toast.success("Pipeline created");
-      setName("");
-      setDescription("");
+      queryClient.invalidateQueries({ queryKey: ['pipelines'] });
+      toast.success('Pipeline created');
+      setName('');
+      setDescription('');
       setStages([]);
       onClose();
     },
-    onError: () => toast.error("Failed to create pipeline"),
+    onError: () => toast.error('Failed to create pipeline'),
   });
 
   const addStage = (workspaceId: string) => {
-    setStages([
-      ...stages,
-      { workspace_id: workspaceId, auto_apply: true, on_failure: "stop" },
-    ]);
+    setStages([...stages, { workspace_id: workspaceId, auto_apply: true, on_failure: 'stop' }]);
   };
 
   const removeStage = (index: number) => {
@@ -217,7 +205,7 @@ function CreatePipelineDialog({
 
   const handleDragOver = (e: React.DragEvent, index: number) => {
     e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
+    e.dataTransfer.dropEffect = 'move';
     dragOverIndex.current = index;
     setDropTarget(index);
   };
@@ -252,8 +240,7 @@ function CreatePipelineDialog({
     const newStages = [...stages];
     newStages[index] = {
       ...newStages[index],
-      on_failure:
-        newStages[index].on_failure === "stop" ? "continue" : "stop",
+      on_failure: newStages[index].on_failure === 'stop' ? 'continue' : 'stop',
     };
     setStages(newStages);
   };
@@ -262,7 +249,7 @@ function CreatePipelineDialog({
     workspaces?.find((w: Workspace) => w.id === id)?.name ?? id;
 
   const availableWorkspaces = workspaces?.filter(
-    (w: Workspace) => !stages.some((s) => s.workspace_id === w.id)
+    (w: Workspace) => !stages.some((s) => s.workspace_id === w.id),
   );
 
   return (
@@ -277,9 +264,7 @@ function CreatePipelineDialog({
 
         <div className="space-y-4">
           <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
-              Name
-            </label>
+            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Name</label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -299,9 +284,7 @@ function CreatePipelineDialog({
           </div>
 
           <div>
-            <label className="text-xs font-medium text-muted-foreground mb-2 block">
-              Stages
-            </label>
+            <label className="text-xs font-medium text-muted-foreground mb-2 block">Stages</label>
 
             {stages.length > 0 && (
               <div className="space-y-1 mb-3">
@@ -315,10 +298,10 @@ function CreatePipelineDialog({
                     onDragLeave={() => setDropTarget(null)}
                     className={`flex items-center gap-2 border rounded-lg px-3 py-2.5 transition-all duration-150 select-none ${
                       dragActive === i
-                        ? "opacity-40 scale-[0.97] border-primary/30 bg-primary/5"
+                        ? 'opacity-40 scale-[0.97] border-primary/30 bg-primary/5'
                         : dropTarget === i && dragActive !== null && dragActive !== i
-                        ? "border-primary/40 bg-primary/8 scale-[1.01]"
-                        : "border-border/60 bg-background/30"
+                          ? 'border-primary/40 bg-primary/8 scale-[1.01]'
+                          : 'border-border/60 bg-background/30'
                     }`}
                   >
                     <div className="cursor-grab active:cursor-grabbing p-0.5 text-muted-foreground/50 hover:text-muted-foreground transition-colors">
@@ -335,10 +318,8 @@ function CreatePipelineDialog({
                       onClick={() => toggleAutoApply(i)}
                       className="cursor-pointer"
                     >
-                      <Badge
-                        variant={stage.auto_apply ? "success" : "secondary"}
-                      >
-                        {stage.auto_apply ? "auto" : "manual"}
+                      <Badge variant={stage.auto_apply ? 'success' : 'secondary'}>
+                        {stage.auto_apply ? 'auto' : 'manual'}
                       </Badge>
                     </button>
                     <button
@@ -346,13 +327,7 @@ function CreatePipelineDialog({
                       onClick={() => toggleOnFailure(i)}
                       className="cursor-pointer"
                     >
-                      <Badge
-                        variant={
-                          stage.on_failure === "stop"
-                            ? "destructive"
-                            : "warning"
-                        }
-                      >
+                      <Badge variant={stage.on_failure === 'stop' ? 'destructive' : 'warning'}>
                         {stage.on_failure}
                       </Badge>
                     </button>
@@ -393,11 +368,9 @@ function CreatePipelineDialog({
             <Button
               size="sm"
               onClick={() => createMutation.mutate()}
-              disabled={
-                !name || stages.length === 0 || createMutation.isPending
-              }
+              disabled={!name || stages.length === 0 || createMutation.isPending}
             >
-              {createMutation.isPending ? "Creating..." : "Create Pipeline"}
+              {createMutation.isPending ? 'Creating...' : 'Create Pipeline'}
             </Button>
           </div>
         </div>

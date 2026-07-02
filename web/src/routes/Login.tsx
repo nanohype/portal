@@ -1,12 +1,12 @@
-import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Box } from "lucide-react";
+import { useEffect, useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { Box } from 'lucide-react';
 
 export function LoginPage() {
   const [devLogin, setDevLogin] = useState(false);
 
   useEffect(() => {
-    fetch("/api/v1/health")
+    fetch('/api/v1/health')
       .then((r) => r.json())
       .then((data) => {
         if (data.dev_login) setDevLogin(true);
@@ -22,14 +22,14 @@ export function LoginPage() {
             <Box className="w-8 h-8 text-primary-foreground" />
           </div>
           <h1 className="text-3xl font-bold tracking-tight mb-2">portal</h1>
-          <p className="text-muted-foreground">
-            OpenTofu lifecycle management
-          </p>
+          <p className="text-muted-foreground">OpenTofu lifecycle management</p>
         </div>
 
         <div className="rounded-lg border border-border bg-card p-6 space-y-3">
           <Button
-            onClick={() => { window.location.href = "/api/v1/auth/github"; }}
+            onClick={() => {
+              window.location.href = '/api/v1/auth/github';
+            }}
             className="w-full"
             size="lg"
           >
@@ -41,7 +41,9 @@ export function LoginPage() {
 
           {devLogin && (
             <Button
-              onClick={() => { window.location.href = "/api/v1/auth/dev"; }}
+              onClick={() => {
+                window.location.href = '/api/v1/auth/dev';
+              }}
               variant="outline"
               className="w-full"
               size="lg"

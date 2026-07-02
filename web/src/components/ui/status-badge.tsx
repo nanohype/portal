@@ -1,7 +1,7 @@
-import { Badge } from "@/components/ui/badge";
-import { Spinner } from "@/components/ui/spinner";
-import { cn } from "@/lib/utils";
-import type { StatusVisual } from "@/lib/status";
+import { Badge } from '@/components/ui/badge';
+import { Spinner } from '@/components/ui/spinner';
+import { cn } from '@/lib/utils';
+import type { StatusVisual } from '@/lib/status';
 
 // The one status pill. Fed a StatusVisual from lib/status (one mapping per
 // domain), so every status — run, cluster connection, ArgoCD, control plane,
@@ -20,7 +20,7 @@ export function StatusBadge({
   return (
     <Badge
       variant={visual.variant}
-      className={cn("gap-1.5", className)}
+      className={cn('gap-1.5', className)}
       aria-label={`Status: ${visual.label}`}
     >
       {visual.spinning ? (

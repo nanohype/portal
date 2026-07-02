@@ -1,18 +1,18 @@
-import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
-import { api } from "@/api/client";
-import type { Account } from "@/api/models";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
+import { useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { api } from '@/api/client';
+import type { Account } from '@/api/models';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogDescription,
-} from "@/components/ui/dialog";
+} from '@/components/ui/dialog';
 
 const AWS_REGION_RE = /^[a-z]{2}-[a-z]+-\d$/;
 
@@ -26,31 +26,31 @@ export function ClusterCreateModal({
   accounts: Account[];
 }) {
   const queryClient = useQueryClient();
-  const [accountID, setAccountID] = useState("");
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [environment, setEnvironment] = useState<
-    "development" | "staging" | "production"
-  >("production");
-  const [apiEndpoint, setApiEndpoint] = useState("");
-  const [caBundle, setCaBundle] = useState("");
-  const [saToken, setSaToken] = useState("");
-  const [region, setRegion] = useState("");
+  const [accountID, setAccountID] = useState('');
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [environment, setEnvironment] = useState<'development' | 'staging' | 'production'>(
+    'production',
+  );
+  const [apiEndpoint, setApiEndpoint] = useState('');
+  const [caBundle, setCaBundle] = useState('');
+  const [saToken, setSaToken] = useState('');
+  const [region, setRegion] = useState('');
 
   const reset = () => {
-    setAccountID("");
-    setName("");
-    setDescription("");
-    setEnvironment("production");
-    setApiEndpoint("");
-    setCaBundle("");
-    setSaToken("");
-    setRegion("");
+    setAccountID('');
+    setName('');
+    setDescription('');
+    setEnvironment('production');
+    setApiEndpoint('');
+    setCaBundle('');
+    setSaToken('');
+    setRegion('');
   };
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      const { data, error } = await api.POST("/clusters", {
+      const { data, error } = await api.POST('/clusters', {
         body: {
           account_id: accountID,
           name: name.trim(),
@@ -66,33 +66,30 @@ export function ClusterCreateModal({
       return data!;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["clusters"] });
-      toast.success("Cluster created · connection test running");
+      queryClient.invalidateQueries({ queryKey: ['clusters'] });
+      toast.success('Cluster created · connection test running');
       reset();
       onClose();
     },
     onError: (e: unknown) => {
-      const msg =
-        (e as { message?: string })?.message ?? "Failed to create cluster";
+      const msg = (e as { message?: string })?.message ?? 'Failed to create cluster';
       toast.error(msg);
     },
   });
 
-  const apiEndpointInvalid =
-    apiEndpoint !== "" && !apiEndpoint.startsWith("https://");
+  const apiEndpointInvalid = apiEndpoint !== '' && !apiEndpoint.startsWith('https://');
   const caBundleInvalid =
-    caBundle !== "" &&
-    !(caBundle.trimStart().startsWith("-----BEGIN") &&
-      caBundle.includes("-----END"));
-  const regionInvalid = region !== "" && !AWS_REGION_RE.test(region);
+    caBundle !== '' &&
+    !(caBundle.trimStart().startsWith('-----BEGIN') && caBundle.includes('-----END'));
+  const regionInvalid = region !== '' && !AWS_REGION_RE.test(region);
 
   const canSubmit =
-    accountID !== "" &&
-    name.trim() !== "" &&
-    apiEndpoint.startsWith("https://") &&
-    caBundle.trimStart().startsWith("-----BEGIN") &&
-    caBundle.includes("-----END") &&
-    saToken.trim() !== "" &&
+    accountID !== '' &&
+    name.trim() !== '' &&
+    apiEndpoint.startsWith('https://') &&
+    caBundle.trimStart().startsWith('-----BEGIN') &&
+    caBundle.includes('-----END') &&
+    saToken.trim() !== '' &&
     !regionInvalid;
 
   return (
@@ -101,17 +98,13 @@ export function ClusterCreateModal({
         <DialogHeader>
           <DialogTitle>New Cluster</DialogTitle>
           <DialogDescription>
-            Register a Kubernetes cluster. The connection test runs
-            asynchronously once you save.
+            Register a Kubernetes cluster. The connection test runs asynchronously once you save.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <Field label="Account">
-            <Select
-              value={accountID}
-              onChange={(e) => setAccountID(e.target.value)}
-            >
+            <Select value={accountID} onChange={(e) => setAccountID(e.target.value)}>
               <option value="">Pick an account…</option>
               {accounts.map((a) => (
                 <option key={a.id} value={a.id}>
@@ -141,9 +134,7 @@ export function ClusterCreateModal({
             <Select
               value={environment}
               onChange={(e) =>
-                setEnvironment(
-                  e.target.value as "development" | "staging" | "production",
-                )
+                setEnvironment(e.target.value as 'development' | 'staging' | 'production')
               }
             >
               <option value="development">development</option>
@@ -154,7 +145,7 @@ export function ClusterCreateModal({
 
           <Field
             label="API Endpoint"
-            error={apiEndpointInvalid ? "Must start with https://" : null}
+            error={apiEndpointInvalid ? 'Must start with https://' : null}
           >
             <Input
               value={apiEndpoint}
@@ -167,9 +158,7 @@ export function ClusterCreateModal({
           <Field
             label="CA Bundle (PEM)"
             error={
-              caBundleInvalid
-                ? "Must be a PEM-encoded certificate (-----BEGIN…-----END)"
-                : null
+              caBundleInvalid ? 'Must be a PEM-encoded certificate (-----BEGIN…-----END)' : null
             }
           >
             <textarea
@@ -192,7 +181,7 @@ export function ClusterCreateModal({
 
           <Field
             label="Region (optional)"
-            error={regionInvalid ? "Must look like us-west-2" : null}
+            error={regionInvalid ? 'Must look like us-west-2' : null}
           >
             <Input
               value={region}
@@ -211,7 +200,7 @@ export function ClusterCreateModal({
               onClick={() => createMutation.mutate()}
               disabled={!canSubmit || createMutation.isPending}
             >
-              {createMutation.isPending ? "Creating..." : "Create Cluster"}
+              {createMutation.isPending ? 'Creating...' : 'Create Cluster'}
             </Button>
           </div>
         </div>
@@ -231,13 +220,9 @@ function Field({
 }) {
   return (
     <div>
-      <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
-        {label}
-      </label>
+      <label className="text-xs font-medium text-muted-foreground mb-1.5 block">{label}</label>
       {children}
-      {error && (
-        <p className="text-[11px] text-destructive mt-1">{error}</p>
-      )}
+      {error && <p className="text-[11px] text-destructive mt-1">{error}</p>}
     </div>
   );
 }

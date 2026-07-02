@@ -1,5 +1,5 @@
-import { useLocation as useRouterLocation } from "@tanstack/react-router";
-import { getRouter } from "@/lib/router-ref";
+import { useLocation as useRouterLocation } from '@tanstack/react-router';
+import { getRouter } from '@/lib/router-ref';
 
 // Shims over TanStack Router so existing call sites keep their import surface.
 // navigate() is a standalone helper (used outside hook scope), so it reaches the
