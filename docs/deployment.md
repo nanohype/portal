@@ -334,3 +334,4 @@ plain text — they live in the eks-fleet repo.
 | Vend a cluster via **local** portal (`task dev`) | `eks-fleet/docs/rung-1-via-portal.md` |
 | Run portal **in-cluster** on kx (watchers on, live timeline) | [in-cluster-on-kx.md](./in-cluster-on-kx.md) |
 | Deploy portal on a **real EKS hub** (IRSA + the IAM wiring) | [deploy-on-hub.md](./deploy-on-hub.md) |
+| **Operate** a deployed portal (alerts, failure modes, on-call) | [runbook.md](./runbook.md) |

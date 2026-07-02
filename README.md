@@ -51,6 +51,7 @@ Runbooks (the runbook index in [deployment.md](docs/deployment.md) tells you whi
 
 - [docs/in-cluster-on-kx.md](docs/in-cluster-on-kx.md) — run portal in-cluster on the kx (kind) hub with watchers on.
 - [docs/deploy-on-hub.md](docs/deploy-on-hub.md) — deploy portal on a real EKS hub (IRSA + the cross-account IAM wiring).
+- [docs/runbook.md](docs/runbook.md) — operate a deployed portal: metrics, alert conditions, failure-mode playbooks.
 
 ## License
 
