@@ -3,7 +3,9 @@
 // commits the rendered manifest to the clusters GitOps repo; the hub's ArgoCD
 // applies it and Crossplane vends the EKS cluster. Required inputs are name,
 // account, region, and team; everything else carries eks-fleet's defaults when
-// unset (matching apis/cluster/definition.yaml).
+// unset (matching apis/cluster/definition.yaml). name is the cluster base — the
+// EKS cluster is <environment>-<name> — and becomes spec.clusterName on the CR;
+// it must be unique per (account, region, environment) and not equal environment.
 package clusterspec
 
 import (
@@ -17,7 +19,7 @@ import (
 const (
 	apiVersion            = "fleet.nanohype.dev/v1alpha1"
 	kind                  = "Cluster"
-	defaultEnvironment    = "dev"
+	defaultEnvironment    = "development"
 	defaultClusterVersion = "1.36"
 )
 
@@ -27,7 +29,7 @@ var (
 	k8sName  = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 	awsAcct  = regexp.MustCompile(`^[0-9]{12}$`)
 	awsRegn  = regexp.MustCompile(`^[a-z]{2}-[a-z]+-[0-9]$`)
-	validEnv = map[string]bool{"dev": true, "staging": true, "production": true}
+	validEnv = map[string]bool{"development": true, "staging": true, "production": true}
 )
 
 // Input is the portal-facing shape (snake_case JSON for the API + the
@@ -76,6 +78,8 @@ func (in Input) Validate() error {
 	switch {
 	case !k8sName.MatchString(in.Name):
 		return fmt.Errorf("name %q must be a lowercase RFC-1123 label", in.Name)
+	case len(in.Name) > 12:
+		return fmt.Errorf("name %q must be <= 12 chars: the derived <environment>-<name> feeds cluster-scoped S3/IAM names; the tightest (agent-iam's account+region-qualified model-artifacts bucket) fits within S3's 63-char limit in us-west-2", in.Name)
 	case !awsAcct.MatchString(in.Account):
 		return fmt.Errorf("account %q must be a 12-digit AWS account id", in.Account)
 	case !awsRegn.MatchString(in.Region):
@@ -84,7 +88,13 @@ func (in Input) Validate() error {
 		return fmt.Errorf("team %q must be a lowercase RFC-1123 label (it is the Cluster's namespace)", in.Team)
 	}
 	if in.Environment != "" && !validEnv[in.Environment] {
-		return fmt.Errorf("environment %q must be dev, staging, or production", in.Environment)
+		return fmt.Errorf("environment %q must be development, staging, or production", in.Environment)
+	}
+	// name is the cluster base; the EKS cluster is <environment>-<name>. If the two are
+	// equal the name doubles (development-development). Mirrors the Cluster XRD's CEL rule so it fails
+	// here (400) instead of at admission.
+	if env := in.EffectiveEnvironment(); in.Name == env {
+		return fmt.Errorf("name must not equal environment %q (the cluster name would double, e.g. %[1]s-%[1]s)", env)
 	}
 	if in.EndpointPublicAccess != nil && *in.EndpointPublicAccess && len(in.EndpointPublicAccessCidrs) == 0 {
 		return fmt.Errorf("endpoint_public_access requires endpoint_public_access_cidrs: clusters vend with a private API endpoint unless a CIDR allowlist scopes the public one")
@@ -145,6 +155,7 @@ type crSpec struct {
 	Region                    string         `json:"region"`
 	Team                      string         `json:"team"`
 	Environment               string         `json:"environment"`
+	ClusterName               string         `json:"clusterName"`
 	ClusterVersion            string         `json:"clusterVersion"`
 	SystemNodes               *crSystemNodes `json:"systemNodes,omitempty"`
 	Network                   *crNetwork     `json:"network,omitempty"`
@@ -187,6 +198,7 @@ func (in Input) Render() (string, error) {
 			Region:                    in.Region,
 			Team:                      in.Team,
 			Environment:               in.EffectiveEnvironment(),
+			ClusterName:               in.Name,
 			ClusterVersion:            clusterVersion,
 			EndpointPublicAccess:      in.EndpointPublicAccess,
 			EndpointPublicAccessCidrs: in.EndpointPublicAccessCidrs,

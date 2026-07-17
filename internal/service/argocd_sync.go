@@ -99,11 +99,6 @@ func (s *ArgoCDSyncService) Sync(ctx context.Context) (created, updated, skipped
 
 func labelOr(labels map[string]string, key, def string) string {
 	if v, ok := labels[key]; ok && v != "" {
-		// The bootstrap env tree uses "dev"; the portal labels clusters
-		// "development". Map the common case, pass everything else through.
-		if key == "environment" && v == "dev" {
-			return "development"
-		}
 		return v
 	}
 	return def

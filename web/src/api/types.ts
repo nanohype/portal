@@ -1851,7 +1851,7 @@ export interface components {
             region: string;
             team: string;
             /** @enum {string} */
-            environment?: "dev" | "staging" | "production";
+            environment?: "development" | "staging" | "production";
             cluster_version?: string;
             system_nodes?: components["schemas"]["ClusterOrderSystemNodes"];
             network?: components["schemas"]["ClusterOrderNetwork"];

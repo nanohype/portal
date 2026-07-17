@@ -17,7 +17,7 @@
 # Configure via env vars (defaults match the typical stxkxs setup):
 #   PORTAL_API           default http://localhost:8080
 #   LANDING_ZONE_PATH   default $HOME/codes/nanohype/landing-zone
-#   LZ_ACCOUNT          default workload-prod
+#   LZ_ACCOUNT          default workload-production
 #   LZ_REGION           default us-west-2
 #   LZ_ENV              default production
 #   AWS_PROFILE_NAME    default stxkxs
@@ -31,7 +31,7 @@ set -euo pipefail
 
 API=${PORTAL_API:-http://localhost:8080}
 LZ_PATH=${LANDING_ZONE_PATH:-$HOME/codes/nanohype/landing-zone}
-ACCOUNT=${LZ_ACCOUNT:-workload-prod}
+ACCOUNT=${LZ_ACCOUNT:-workload-production}
 REGION=${LZ_REGION:-us-west-2}
 ENV=${LZ_ENV:-production}
 PROFILE=${AWS_PROFILE_NAME:-stxkxs}

@@ -159,12 +159,12 @@ PORTAL_API_URL=http://localhost:8081 task seed   # confirm the seed env var name
 ## 7. Vend, and watch it live
 
 In the in-cluster portal: **Clusters → Provision** (account = your mgmt account,
-region `us-west-2`, team `platform`, env `dev`). Then watch — no kubectl:
+region `us-west-2`, team `platform`, env `development`). Then watch — no kubectl:
 
 - The order's **timeline** advances queued → committed → **building** (with the
   live tofu phase, and any provider error inline) → **active**.
 - **/ops** shows the vend in the org-wide feed.
-- Once ArgoCD applies the per-cluster Application (`cluster-dev-<name>`), the
+- Once ArgoCD applies the per-cluster Application (`cluster-development-<name>`), the
   cluster's **ArgoCD badge** goes Synced · Healthy.
 
 Real EKS spend starts when Crossplane begins the build (~the same ephemeral
@@ -186,8 +186,8 @@ residue tofu destroy can't reach.
 ## Verify
 
 - Order → `cluster_operations` row `committed` with a git SHA, and the CR at
-  `clusters/dev/<name>.yaml` in the clusters repo.
-- `kubectl --context kind-kx -n argocd get applications` shows `cluster-dev-<name>`
+  `clusters/development/<name>.yaml` in the clusters repo.
+- `kubectl --context kind-kx -n argocd get applications` shows `cluster-development-<name>`
   Synced; `kubectl --context kind-kx get cluster,workspace -n platform` exists.
 - Portal timeline reaches **active**; `/ops` lists it; the ArgoCD badge is set.
 - Teardown → `deprovisioned`; `aws eks list-clusters` → `[]`.

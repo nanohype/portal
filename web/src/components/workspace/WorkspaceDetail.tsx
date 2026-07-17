@@ -433,7 +433,7 @@ export function WorkspaceDetail({ workspaceId }: Props) {
                   className="font-mono text-xs flex-1"
                 />
                 <Input
-                  placeholder="production-eks"
+                  placeholder="production-platform"
                   value={row.id}
                   onChange={(e) => {
                     const next = [...importRows];

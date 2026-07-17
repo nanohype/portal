@@ -43,7 +43,7 @@ func TestListArgoCDClusters(t *testing.T) {
 	ctx := context.Background()
 	objs := []*corev1.Secret{
 		clusterSecret("in-cluster",
-			map[string]string{"environment": "dev", "region": "us-west-2", "cluster_name": "dev-eks"},
+			map[string]string{"environment": "development", "region": "us-west-2", "cluster_name": "development-platform"},
 			map[string]string{"name": "in-cluster", "server": InClusterAPIEndpoint}),
 		clusterSecret("remote-eks", nil, map[string]string{
 			"name":   "remote-eks",
@@ -88,7 +88,7 @@ func TestListArgoCDClusters(t *testing.T) {
 	if !ok || !ic.InCluster {
 		t.Errorf("in-cluster entry should be present with InCluster=true, got %+v", ic)
 	}
-	if ic.Labels["cluster_name"] != "dev-eks" {
+	if ic.Labels["cluster_name"] != "development-platform" {
 		t.Errorf("in-cluster labels not carried through: %v", ic.Labels)
 	}
 	r, ok := byName["remote-eks"]

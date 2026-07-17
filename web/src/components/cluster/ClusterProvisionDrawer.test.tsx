@@ -35,8 +35,8 @@ async function choose(user: UserEvent, current: RegExp, option: RegExp) {
 // from its default), name, team.
 async function fillRequired(user: UserEvent) {
   await choose(user, /pick an account/i, /prod/i);
-  await user.type(screen.getByPlaceholderText('eks'), 'dev-eks');
-  await user.type(screen.getByPlaceholderText('platform'), 'platform');
+  await user.type(screen.getByPlaceholderText('platform'), 'analytics');
+  await user.type(screen.getByPlaceholderText('apps'), 'platform');
 }
 
 beforeEach(() => {

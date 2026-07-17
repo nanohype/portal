@@ -13,12 +13,12 @@ func TestClusterManifestPath(t *testing.T) {
 		clusterName string
 		want        string
 	}{
-		{"happy path", "dev", "dev-eks", "clusters/dev/dev-eks.yaml"},
+		{"happy path", "development", "development-eks", "clusters/development/development-eks.yaml"},
 		{"production", "production", "prod-eks", "clusters/production/prod-eks.yaml"},
-		{"uppercase normalized", "Dev", "Prod-EKS", "clusters/dev/prod-eks.yaml"},
+		{"uppercase normalized", "Development", "Prod-EKS", "clusters/development/prod-eks.yaml"},
 		{"slash sanitized", "a/b", "evil/x", "clusters/a-b/evil-x.yaml"},
 		{"empty env", "", "cluster", "clusters/unknown/cluster.yaml"},
-		{"empty name", "dev", "", "clusters/dev/unknown.yaml"},
+		{"empty name", "development", "", "clusters/development/unknown.yaml"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

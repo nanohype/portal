@@ -42,7 +42,7 @@ export function ClusterProvisionDrawer({
   const [accountID, setAccountID] = useState('');
   const [name, setName] = useState('');
   const [team, setTeam] = useState('');
-  const [environment, setEnvironment] = useState<'dev' | 'staging' | 'production'>('dev');
+  const [environment, setEnvironment] = useState<'development' | 'staging' | 'production'>('development');
   const [region, setRegion] = useState('');
   const [clusterVersion, setClusterVersion] = useState('');
   // Private-by-default: the fleet's Cluster XRD defaults endpointPublicAccess
@@ -59,7 +59,7 @@ export function ClusterProvisionDrawer({
     setAccountID('');
     setName('');
     setTeam('');
-    setEnvironment('dev');
+    setEnvironment('development');
     setRegion('');
     setClusterVersion('');
     setPublicAccess(false);
@@ -226,7 +226,7 @@ export function ClusterProvisionDrawer({
                 id={`${uid}-name`}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="eks"
+                placeholder="platform"
                 className="font-mono"
               />
             </Field>
@@ -240,7 +240,7 @@ export function ClusterProvisionDrawer({
                 id={`${uid}-team`}
                 value={team}
                 onChange={(e) => setTeam(e.target.value)}
-                placeholder="platform"
+                placeholder="apps"
                 className="font-mono"
               />
             </Field>
@@ -249,9 +249,9 @@ export function ClusterProvisionDrawer({
               <Select
                 id={`${uid}-environment`}
                 value={environment}
-                onChange={(e) => setEnvironment(e.target.value as 'dev' | 'staging' | 'production')}
+                onChange={(e) => setEnvironment(e.target.value as 'development' | 'staging' | 'production')}
               >
-                <option value="dev">dev</option>
+                <option value="development">development</option>
                 <option value="staging">staging</option>
                 <option value="production">production</option>
               </Select>

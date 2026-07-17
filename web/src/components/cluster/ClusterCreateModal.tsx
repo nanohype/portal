@@ -124,7 +124,7 @@ export function ClusterCreateModal({
               id={`${uid}-name`}
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="production-eks"
+              placeholder="platform"
             />
           </Field>
 

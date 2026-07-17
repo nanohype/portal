@@ -10,7 +10,7 @@ import (
 func intp(i int) *int { return &i }
 
 func TestRender_MinimalDefaults(t *testing.T) {
-	in := Input{Name: "dev-eks", Account: "111111111111", Region: "us-west-2", Team: "platform"}
+	in := Input{Name: "platform", Account: "111111111111", Region: "us-west-2", Team: "platform"}
 	out, err := in.Render()
 	if err != nil {
 		t.Fatalf("render: %v", err)
@@ -23,11 +23,11 @@ func TestRender_MinimalDefaults(t *testing.T) {
 	if cr.APIVersion != apiVersion || cr.Kind != kind {
 		t.Errorf("apiVersion/kind = %q/%q", cr.APIVersion, cr.Kind)
 	}
-	if cr.Metadata.Name != "dev-eks" || cr.Metadata.Namespace != "platform" {
-		t.Errorf("metadata = %+v, want name=dev-eks namespace=platform", cr.Metadata)
+	if cr.Metadata.Name != "platform" || cr.Metadata.Namespace != "platform" {
+		t.Errorf("metadata = %+v, want name=platform namespace=platform", cr.Metadata)
 	}
-	if cr.Spec.Environment != "dev" || cr.Spec.ClusterVersion != "1.36" {
-		t.Errorf("defaults not applied: env=%q version=%q", cr.Spec.Environment, cr.Spec.ClusterVersion)
+	if cr.Spec.Environment != "development" || cr.Spec.ClusterName != "platform" || cr.Spec.ClusterVersion != "1.36" {
+		t.Errorf("defaults not applied: env=%q clusterName=%q version=%q", cr.Spec.Environment, cr.Spec.ClusterName, cr.Spec.ClusterVersion)
 	}
 	if cr.Spec.Account != "111111111111" || cr.Spec.Region != "us-west-2" || cr.Spec.Team != "platform" {
 		t.Errorf("required spec fields wrong: %+v", cr.Spec)
@@ -44,7 +44,7 @@ func TestRender_MinimalDefaults(t *testing.T) {
 func TestRender_FullSpec(t *testing.T) {
 	yes := true
 	in := Input{
-		Name: "prod-eks", Account: "222222222222", Region: "us-east-1", Team: "platform",
+		Name: "analytics", Account: "222222222222", Region: "us-east-1", Team: "platform",
 		Environment: "production", ClusterVersion: "1.34",
 		SystemNodes:               &SystemNodes{InstanceTypes: []string{"m7g.2xlarge"}, MinSize: intp(3), MaxSize: intp(9), DesiredSize: intp(3), DiskSize: intp(200)},
 		Network:                   &Network{VpcCidr: "10.4.0.0/16", MaxAzs: intp(3), NatGateways: intp(3)},
@@ -72,8 +72,11 @@ func TestRender_FullSpec(t *testing.T) {
 	if cr.Spec.VendRoleArn == "" || !strings.Contains(out, "production-eks-fleet-vend") {
 		t.Errorf("vendRoleArn not rendered")
 	}
+	if cr.Spec.ClusterName != "analytics" {
+		t.Errorf("clusterName = %q, want analytics", cr.Spec.ClusterName)
+	}
 	// camelCase field names in the YAML (not snake_case).
-	for _, want := range []string{"clusterVersion:", "systemNodes:", "instanceTypes:", "vpcCidr:", "natGateways:", "endpointPublicAccess:"} {
+	for _, want := range []string{"clusterName:", "clusterVersion:", "systemNodes:", "instanceTypes:", "vpcCidr:", "natGateways:", "endpointPublicAccess:"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("rendered YAML missing camelCase field %q:\n%s", want, out)
 		}
@@ -127,12 +130,15 @@ func TestRender_BootstrapAccessRoleArn(t *testing.T) {
 func TestValidate_Errors(t *testing.T) {
 	base := Input{Name: "ok", Account: "111111111111", Region: "us-west-2", Team: "platform"}
 	cases := map[string]func(*Input){
-		"bad name":   func(i *Input) { i.Name = "Bad_Name" },
-		"short acct": func(i *Input) { i.Account = "123" },
-		"non-digit":  func(i *Input) { i.Account = "11111111111x" },
-		"bad region": func(i *Input) { i.Region = "uswest2" },
-		"bad team":   func(i *Input) { i.Team = "Platform/x" },
-		"bad env":    func(i *Input) { i.Environment = "qa" },
+		"bad name":      func(i *Input) { i.Name = "Bad_Name" },
+		"name too long": func(i *Input) { i.Name = "thirteenchars" }, // 13 > 12 char cap
+		"short acct":    func(i *Input) { i.Account = "123" },
+		"non-digit":     func(i *Input) { i.Account = "11111111111x" },
+		"bad region":    func(i *Input) { i.Region = "uswest2" },
+		"bad team":      func(i *Input) { i.Team = "Platform/x" },
+		"bad env":       func(i *Input) { i.Environment = "qa" },
+		"name == env":   func(i *Input) { i.Name = "development" }, // default env is development; development-development doubles
+		"name == env2":  func(i *Input) { i.Environment = "staging"; i.Name = "staging" },
 		"public endpoint without cidr allowlist": func(i *Input) {
 			yes := true
 			i.EndpointPublicAccess = &yes
@@ -182,8 +188,8 @@ func TestValidate_EndpointPosture(t *testing.T) {
 }
 
 func TestEffectiveEnvironment(t *testing.T) {
-	if (Input{}).EffectiveEnvironment() != "dev" {
-		t.Error("empty env should default to dev")
+	if (Input{}).EffectiveEnvironment() != "development" {
+		t.Error("empty env should default to development")
 	}
 	if (Input{Environment: "staging"}).EffectiveEnvironment() != "staging" {
 		t.Error("set env should pass through")

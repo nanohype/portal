@@ -2424,7 +2424,7 @@ components:
         account: { type: string }
         region: { type: string }
         team: { type: string }
-        environment: { type: string, enum: [dev, staging, production] }
+        environment: { type: string, enum: [development, staging, production] }
         cluster_version: { type: string }
         system_nodes: { $ref: "#/components/schemas/ClusterOrderSystemNodes" }
         network: { $ref: "#/components/schemas/ClusterOrderNetwork" }

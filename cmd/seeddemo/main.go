@@ -236,13 +236,13 @@ func (s *seeder) seed() {
 	}
 	accounts := []acct{
 		{id(), "fleet", "111111111111", "us-west-2"},
-		{id(), "workload-prod", "222222222222", "us-west-2"},
+		{id(), "workload-production", "222222222222", "us-west-2"},
 		{id(), "workload-staging", "333333333333", "us-east-1"},
 		{id(), "sandbox", "444444444444", "eu-west-1"},
 	}
 	descs := map[string]string{
 		"fleet":            "Hub account — runs the eks-fleet control plane and vends spokes.",
-		"workload-prod":    "Production workloads.",
+		"workload-production":    "Production workloads.",
 		"workload-staging": "Pre-prod staging.",
 		"sandbox":          "Throwaway experiments.",
 	}
@@ -332,10 +332,10 @@ func (s *seeder) seed() {
 		resources                                      int
 	}
 	wss := []wspec{
-		{id(), "lz-network", "production", "upload", "", "", "live/aws/workload-prod/us-west-2/production/network", "1.11.0", false, false, false, false, "applied", 12},
-		{id(), "lz-cluster", "production", "upload", "", "", "live/aws/workload-prod/us-west-2/production/cluster", "1.11.0", false, false, false, false, "applied", 47},
-		{id(), "lz-cluster-bootstrap", "production", "upload", "", "", "live/aws/workload-prod/us-west-2/production/cluster-bootstrap", "1.11.0", false, false, false, false, "applied", 8},
-		{id(), "lz-cluster-addons", "production", "upload", "", "", "live/aws/workload-prod/us-west-2/production/cluster-addons", "1.11.0", true, false, false, false, "planning", 23},
+		{id(), "lz-network", "production", "upload", "", "", "live/aws/workload-production/us-west-2/production/network", "1.11.0", false, false, false, false, "applied", 12},
+		{id(), "lz-cluster", "production", "upload", "", "", "live/aws/workload-production/us-west-2/production/cluster", "1.11.0", false, false, false, false, "applied", 47},
+		{id(), "lz-cluster-bootstrap", "production", "upload", "", "", "live/aws/workload-production/us-west-2/production/cluster-bootstrap", "1.11.0", false, false, false, false, "applied", 8},
+		{id(), "lz-cluster-addons", "production", "upload", "", "", "live/aws/workload-production/us-west-2/production/cluster-addons", "1.11.0", true, false, false, false, "planning", 23},
 		{id(), "app-competitive-intelligence", "production", "vcs", "https://github.com/nanohype/competitive-intelligence", "main", "infra", "1.11.0", true, false, true, false, "applied", 15},
 		{id(), "app-digest-pipeline", "staging", "vcs", "https://github.com/nanohype/digest-pipeline", "main", "infra", "1.11.0", false, true, true, false, "errored", 0},
 		{id(), "fleet-hub", "production", "upload", "", "", "live/aws/fleet/us-west-2/hub/fleet-hub", "1.11.0", false, true, false, true, "applied", 31},
@@ -551,7 +551,7 @@ func (s *seeder) seed() {
 		age                      time.Duration
 	}
 	logs := []al{
-		{admin, "account.create", "account", aProd, nil, map[string]any{"name": "workload-prod", "aws_account_id": "222222222222"}, 30 * d},
+		{admin, "account.create", "account", aProd, nil, map[string]any{"name": "workload-production", "aws_account_id": "222222222222"}, 30 * d},
 		{admin, "cluster.register", "cluster", cProd, nil, map[string]any{"name": "prod-eks", "region": "us-west-2"}, 22 * d},
 		{dev, "workspace.create", "workspace", wNet, nil, map[string]any{"name": "lz-network", "environment": "production"}, 20 * d},
 		{op1, "run.apply", "run", wCluster, map[string]any{"status": "planned"}, map[string]any{"status": "applied", "resources_added": 47}, 18 * d},

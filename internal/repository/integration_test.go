@@ -328,7 +328,7 @@ func TestExpireClusterOperation(t *testing.T) {
 	seedOp := func(status string) string {
 		opID := id()
 		exec(t, ctx, `INSERT INTO cluster_operations (id, org_id, name, environment, team, operation, status, spec_json, created_by)
-			VALUES ($1,$2,$3,'dev','platform','provision'::cluster_op_kind,$4::cluster_op_status,'{}'::jsonb,$5)`,
+			VALUES ($1,$2,$3,'development','platform','provision'::cluster_op_kind,$4::cluster_op_status,'{}'::jsonb,$5)`,
 			opID, orgID, "cl-"+opID, status, userID)
 		return opID
 	}
