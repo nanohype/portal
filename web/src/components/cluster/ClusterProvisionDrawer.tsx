@@ -42,7 +42,9 @@ export function ClusterProvisionDrawer({
   const [accountID, setAccountID] = useState('');
   const [name, setName] = useState('');
   const [team, setTeam] = useState('');
-  const [environment, setEnvironment] = useState<'development' | 'staging' | 'production'>('development');
+  const [environment, setEnvironment] = useState<'development' | 'staging' | 'production'>(
+    'development',
+  );
   const [region, setRegion] = useState('');
   const [clusterVersion, setClusterVersion] = useState('');
   // Private-by-default: the fleet's Cluster XRD defaults endpointPublicAccess
@@ -249,7 +251,9 @@ export function ClusterProvisionDrawer({
               <Select
                 id={`${uid}-environment`}
                 value={environment}
-                onChange={(e) => setEnvironment(e.target.value as 'development' | 'staging' | 'production')}
+                onChange={(e) =>
+                  setEnvironment(e.target.value as 'development' | 'staging' | 'production')
+                }
               >
                 <option value="development">development</option>
                 <option value="staging">staging</option>
