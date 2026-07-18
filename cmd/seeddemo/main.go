@@ -241,10 +241,10 @@ func (s *seeder) seed() {
 		{id(), "sandbox", "444444444444", "eu-west-1"},
 	}
 	descs := map[string]string{
-		"fleet":            "Hub account — runs the eks-fleet control plane and vends spokes.",
-		"workload-production":    "Production workloads.",
-		"workload-staging": "Pre-prod staging.",
-		"sandbox":          "Throwaway experiments.",
+		"fleet":               "Hub account — runs the eks-fleet control plane and vends spokes.",
+		"workload-production": "Production workloads.",
+		"workload-staging":    "Pre-prod staging.",
+		"sandbox":             "Throwaway experiments.",
 	}
 	for i, a := range accounts {
 		s.ins("accounts", map[string]any{
