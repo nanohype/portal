@@ -138,6 +138,7 @@ config:
   webURL: "https://portal.example.com"
   githubClientID: "<from-github>"
   githubClientSecret: "<from-github>"
+  allowedGitHubOrg: "<your-github-org>"   # required outside development
   jwtSecret: "<random-string>"
   encryptionKey: "<exactly-32-bytes>"
   webhookSecret: "<random-string>"

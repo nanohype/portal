@@ -39,11 +39,13 @@ type Config struct {
 	S3UseSSL    bool   `env:"S3_USE_SSL" envDefault:"false"`
 	S3Region    string `env:"S3_REGION" envDefault:"us-east-1"`
 
-	// GitHub OAuth. AllowedGitHubOrg, when set, restricts login to active members
-	// of that GitHub organization — the callback verifies membership with the
-	// already-requested read:org scope and rejects non-members. Empty (default)
-	// preserves open login: any GitHub account that completes the flow is admitted
-	// (first user → owner, the rest → viewer).
+	// GitHub OAuth. AllowedGitHubOrg restricts login to active members of that
+	// GitHub organization — the callback verifies membership with the
+	// already-requested read:org scope and rejects non-members. A GitHub OAuth
+	// App authenticates every GitHub account, not just the ones you want, so this
+	// is the only thing narrowing sign-in to people you trust. It is required
+	// outside development (see Validate) and the auth handler refuses GitHub
+	// sign-in without it rather than admitting everyone.
 	GitHubClientID     string `env:"GITHUB_CLIENT_ID"`
 	GitHubClientSecret string `env:"GITHUB_CLIENT_SECRET"`
 	AllowedGitHubOrg   string `env:"ALLOWED_GITHUB_ORG"`
@@ -149,6 +151,12 @@ func (c *Config) Validate() error {
 		}
 		if c.GitHubClientID == "" || c.GitHubClientSecret == "" {
 			return fmt.Errorf("GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET must be set in non-development environments")
+		}
+		// A GitHub OAuth App admits every GitHub account that completes the flow.
+		// Without an org to check membership against there is no boundary at all,
+		// so refuse to start rather than come up admitting the internet.
+		if c.AllowedGitHubOrg == "" {
+			return fmt.Errorf("ALLOWED_GITHUB_ORG must be set in non-development environments: GitHub OAuth admits any GitHub account, and this is what restricts sign-in to members of your organization")
 		}
 		if c.WebhookSecret == "" {
 			return fmt.Errorf("WEBHOOK_SECRET must be set in non-development environments")

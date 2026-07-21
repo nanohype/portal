@@ -62,7 +62,7 @@ Config is wired through the `objectStore` Helm block (and surfaces as the `S3_*`
 |----------|---------|-------------|
 | `GITHUB_CLIENT_ID` | _(empty)_ | Client ID of the GitHub OAuth App backing sign-in. Required in non-dev environments. |
 | `GITHUB_CLIENT_SECRET` | _(empty)_ | Client secret of that OAuth App. Required in non-dev environments. |
-| `ALLOWED_GITHUB_ORG` | _(empty)_ | When set, only active members of this GitHub org may sign in — the callback checks membership with the `read:org` scope and returns 403 to everyone else. Empty admits any GitHub account that completes the flow. |
+| `ALLOWED_GITHUB_ORG` | _(empty)_ | GitHub org whose active members may sign in — the callback checks membership with the `read:org` scope and returns 403 to everyone else. **Required in non-dev environments**: GitHub OAuth authenticates every GitHub account, so this is what limits sign-in to your people. The server refuses to start without it, and refuses GitHub sign-in if it is somehow missing, instead of admitting everyone. Set it through `config.allowedGitHubOrg` in the Helm chart. |
 | `JWT_SECRET` | `dev-secret-change-in-production` | Signing key for JWT tokens. **Must be changed in non-dev environments.** |
 | `JWT_EXPIRATION` | `24h` | Token lifetime |
 

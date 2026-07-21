@@ -42,7 +42,34 @@ func NewAuthHandler(cfg *config.Config, userSvc *service.UserService, jwt *auth.
 	}
 }
 
+// githubSignInConfigured reports whether GitHub sign-in may proceed. A GitHub
+// OAuth App authenticates every GitHub account in existence, so
+// ALLOWED_GITHUB_ORG is the boundary between "people in my org" and "anyone".
+// Missing it is a misconfiguration, not a request to admit everyone: outside
+// development the flow is refused. config.Validate already blocks startup in
+// that state; this is the second lock, so no future wiring change can turn an
+// absent access-control setting back into open sign-in.
+func (h *AuthHandler) githubSignInConfigured() bool {
+	return h.cfg.AllowedGitHubOrg != "" || h.cfg.Environment == "development"
+}
+
+// refuseUnconfiguredSignIn writes the refusal and reports whether it did. The
+// response stays generic; the operator-facing detail goes to the log.
+func (h *AuthHandler) refuseUnconfiguredSignIn(w http.ResponseWriter) bool {
+	if h.githubSignInConfigured() {
+		return false
+	}
+	slog.Error("github sign-in refused: ALLOWED_GITHUB_ORG is not set, which would admit any GitHub account",
+		"environment", h.cfg.Environment)
+	respond.Error(w, http.StatusServiceUnavailable, "GitHub sign-in is not configured on this instance")
+	return true
+}
+
 func (h *AuthHandler) GitHubLogin(w http.ResponseWriter, r *http.Request) {
+	if h.refuseUnconfiguredSignIn(w) {
+		return
+	}
+
 	state := ulid.Make().String()
 
 	// Store state in a signed, short-lived cookie for CSRF protection
@@ -104,6 +131,12 @@ type githubUser struct {
 }
 
 func (h *AuthHandler) GitHubCallback(w http.ResponseWriter, r *http.Request) {
+	// Re-checked here, not just on /login: the callback is a separate entry point
+	// and an attacker picks the URL they hit.
+	if h.refuseUnconfiguredSignIn(w) {
+		return
+	}
+
 	ctx := r.Context()
 	code := r.URL.Query().Get("code")
 	if code == "" {
@@ -175,11 +208,10 @@ func (h *AuthHandler) GitHubCallback(w http.ResponseWriter, r *http.Request) {
 		ghUser.Name = ghUser.Login
 	}
 
-	// Enforce GitHub org membership when configured. Without this, a GitHub
-	// OAuth App admits any GitHub account that completes the flow — the read:org
-	// scope is requested but unused. With ALLOWED_GITHUB_ORG set, only active
-	// members of that org may log in (and thus only a member can become the
-	// bootstrap owner).
+	// Enforce GitHub org membership. The guard above already rejected the
+	// unconfigured case outside development, so reaching here with an empty org
+	// means an explicit development instance, where the dev-login shortcut makes
+	// an org check pointless anyway.
 	if h.cfg.AllowedGitHubOrg != "" {
 		member, err := h.isActiveOrgMember(ghCtx, client, h.cfg.AllowedGitHubOrg)
 		if err != nil {
