@@ -278,6 +278,10 @@ function TeamDetail({ team, onDelete }: { team: Team; onDelete: () => void }) {
             Add member
           </Button>
         </div>
+        <p className="text-xs text-muted-foreground mb-2">
+          A member's role here caps what they get from any workspace or tenant grant to this team. A
+          viewer stays a viewer on a workspace granted to the team at operator.
+        </p>
 
         {showAddMember && (
           <div className="mb-3 p-3 rounded-lg border border-border bg-accent/20 space-y-2">
@@ -294,7 +298,11 @@ function TeamDetail({ team, onDelete }: { team: Team; onDelete: () => void }) {
                 ))}
             </Select>
             <div className="grid grid-cols-[auto_1fr] gap-2">
-              <Select value={addMemberRole} onChange={(e) => setAddMemberRole(e.target.value)}>
+              <Select
+                value={addMemberRole}
+                aria-label="Role in team"
+                onChange={(e) => setAddMemberRole(e.target.value)}
+              >
                 <option value="viewer">Viewer</option>
                 <option value="operator">Operator</option>
                 <option value="admin">Admin</option>

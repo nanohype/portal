@@ -18,6 +18,8 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { GitBranch, Plus, Trash2, GripVertical } from 'lucide-react';
+import { roleAtLeast } from '@/lib/roles';
+import { useAuth } from '@/hooks/useAuth';
 
 export function PipelineList() {
   const [showCreate, setShowCreate] = useState(false);
@@ -149,6 +151,13 @@ export function PipelineList() {
 
 function CreatePipelineDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const uid = useId();
+  const { user } = useAuth();
+  // A stage's auto_apply overrides the workspace's own setting, so the API
+  // holds it to the same bar as flipping auto_apply on the workspace itself.
+  // Operators build pipelines here every day — the dialog defaults their stages
+  // to manual and locks the toggle rather than letting them assemble something
+  // the server will refuse.
+  const canAutoApply = roleAtLeast(user?.role, 'admin');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [stages, setStages] = useState<CreatePipelineStageInput[]>([]);
@@ -182,11 +191,15 @@ function CreatePipelineDialog({ open, onClose }: { open: boolean; onClose: () =>
       setStages([]);
       onClose();
     },
-    onError: () => toast.error('Failed to create pipeline'),
+    onError: (e) =>
+      toast.error((e as { message?: string })?.message ?? 'Failed to create pipeline'),
   });
 
   const addStage = (workspaceId: string) => {
-    setStages([...stages, { workspace_id: workspaceId, auto_apply: true, on_failure: 'stop' }]);
+    setStages([
+      ...stages,
+      { workspace_id: workspaceId, auto_apply: canAutoApply, on_failure: 'stop' },
+    ]);
   };
 
   const removeStage = (index: number) => {
@@ -229,6 +242,7 @@ function CreatePipelineDialog({ open, onClose }: { open: boolean; onClose: () =>
   };
 
   const toggleAutoApply = (index: number) => {
+    if (!canAutoApply) return;
     const newStages = [...stages];
     newStages[index] = {
       ...newStages[index],
@@ -296,6 +310,12 @@ function CreatePipelineDialog({ open, onClose }: { open: boolean; onClose: () =>
 
           <div>
             <span className="text-xs font-medium text-muted-foreground mb-2 block">Stages</span>
+            {!canAutoApply && (
+              <p className="text-xs text-muted-foreground mb-2">
+                Stages run manual — each one pauses for an approval before it applies. Admins can
+                set a stage to auto-apply.
+              </p>
+            )}
 
             {stages.length > 0 && (
               <div className="space-y-1 mb-3">
@@ -327,7 +347,13 @@ function CreatePipelineDialog({ open, onClose }: { open: boolean; onClose: () =>
                     <button
                       type="button"
                       onClick={() => toggleAutoApply(i)}
-                      className="cursor-pointer"
+                      disabled={!canAutoApply}
+                      title={
+                        canAutoApply
+                          ? 'Toggle whether this stage applies automatically'
+                          : 'Auto-apply on a stage is an admin setting — this stage waits for an approval'
+                      }
+                      className={canAutoApply ? 'cursor-pointer' : 'cursor-not-allowed'}
                     >
                       <Badge variant={stage.auto_apply ? 'success' : 'secondary'}>
                         {stage.auto_apply ? 'auto' : 'manual'}

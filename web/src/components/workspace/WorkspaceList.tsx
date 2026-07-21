@@ -79,7 +79,8 @@ export function WorkspaceList() {
       setShowCreate(false);
       toast.success('Workspace created');
     },
-    onError: () => toast.error('Failed to create workspace'),
+    onError: (e) =>
+      toast.error((e as { message?: string })?.message ?? 'Failed to create workspace'),
   });
 
   const envOptions = [

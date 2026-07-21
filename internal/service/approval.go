@@ -71,6 +71,15 @@ func (s *ApprovalService) List(ctx context.Context, runID, workspaceID, orgID st
 // released (only if this run still holds it) and the next pending run is claimed
 // + enqueued atomically — the same hand-off RunService.Cancel and the worker's
 // finish paths use, so a concurrent reject + cancel can't double-enqueue.
+//
+// The signer is not compared against the run's creator, and that is the model:
+// requires_approval means an admin was involved, not that two people were.
+// Signing your own plan gains nothing — the route already sits at
+// ActionApplyProd, and anyone who clears it may POST {"operation":"apply"} on
+// the same workspace directly (handler/run.go), so refusing a self-approval
+// would close a door while leaving the wall open. Separation of duties would be
+// a different design: it needs the direct-apply path to go too, and it locks
+// out an org with one admin, so it is not something to bolt on here.
 func (s *ApprovalService) Create(ctx context.Context, runID, workspaceID, orgID, userID, status, comment, ipAddress, userAgent string) (repository.Approval, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {

@@ -21,6 +21,8 @@ import { formatRelativeTime, formatDuration, getEnvironmentColor } from '@/lib/u
 import { navigate } from '@/hooks/useNavigate';
 import { Link } from '@/components/ui/link';
 import { ConfigUpload } from '@/components/workspace/ConfigUpload';
+import { roleAtLeast } from '@/lib/roles';
+import { useAuth } from '@/hooks/useAuth';
 import {
   Dialog,
   DialogContent,
@@ -68,6 +70,7 @@ function getTabFromURL(): Tab {
 
 export function WorkspaceDetail({ workspaceId }: Props) {
   const uid = useId();
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const confirm = useConfirm();
   const [tab, setTab] = useState<Tab>(getTabFromURL);
@@ -143,7 +146,7 @@ export function WorkspaceDetail({ workspaceId }: Props) {
       setImportRows([{ address: '', id: '' }]);
       navigate(`/workspaces/${workspaceId}/runs/${run.id}`);
     },
-    onError: () => toast.error('Failed to create run'),
+    onError: (e) => toast.error((e as { message?: string })?.message ?? 'Failed to create run'),
   });
 
   const lockMutation = useMutation({
@@ -230,6 +233,17 @@ export function WorkspaceDetail({ workspaceId }: Props) {
       </div>
     );
   }
+
+  // The org role, not the workspace-resolved one: releasing a gated workspace
+  // and rewriting state are org-level authority, and a per-workspace grant does
+  // not carry either. These only decide what the page offers — the API decides
+  // the request.
+  const canReleaseGate = roleAtLeast(user?.role, 'admin');
+  const canManageState = roleAtLeast(user?.role, 'admin');
+  // On a workspace that requires approval, a smoke test is not a dry run: it
+  // shell-executes a script from the repo with the run's credentials, so it
+  // carries the same bar as releasing the gate.
+  const gatedForCaller = workspace.requires_approval && !canReleaseGate;
 
   const tabs: { id: Tab; label: string; icon: typeof ListOrdered }[] = [
     { id: 'runs', label: 'Runs', icon: ListOrdered },
@@ -318,9 +332,14 @@ export function WorkspaceDetail({ workspaceId }: Props) {
               disabled={
                 createRunMutation.isPending ||
                 workspace.locked ||
+                gatedForCaller ||
                 (workspace.source === 'upload' && !workspace.current_config_version_id)
               }
-              title="Run smoke-test.sh from the working directory"
+              title={
+                gatedForCaller
+                  ? 'This workspace requires approval, and a smoke test runs a script from the repo with the workspace credentials — admins run it'
+                  : 'Run smoke-test.sh from the working directory'
+              }
             >
               <FlaskConical className="w-4 h-4" />
               Test
@@ -331,7 +350,13 @@ export function WorkspaceDetail({ workspaceId }: Props) {
               disabled={
                 createRunMutation.isPending ||
                 workspace.locked ||
+                !canManageState ||
                 (workspace.source === 'upload' && !workspace.current_config_version_id)
+              }
+              title={
+                canManageState
+                  ? 'Adopt existing resources into this workspace state'
+                  : 'Import rewrites the workspace state — admins run it'
               }
             >
               <Import className="w-4 h-4" />
@@ -353,7 +378,13 @@ export function WorkspaceDetail({ workspaceId }: Props) {
               disabled={
                 createRunMutation.isPending ||
                 workspace.locked ||
+                !canManageState ||
                 (workspace.source === 'upload' && !workspace.current_config_version_id)
+              }
+              title={
+                canManageState
+                  ? 'Destroy every resource this workspace manages'
+                  : 'Destroying live resources is an admin action'
               }
             >
               <Trash2 className="w-4 h-4" />

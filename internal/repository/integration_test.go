@@ -617,3 +617,95 @@ func TestListWorkspaceTeamAccessIsOrgScoped(t *testing.T) {
 		t.Fatalf("grant team = %q, want %q", access[0].TeamID, ownTeam)
 	}
 }
+
+// seedConfigWorkspace creates a workspace pinned to a specific repo URL,
+// working directory and approval gate — the three fields that decide whether
+// two workspaces are two doors onto the same infrastructure.
+func seedConfigWorkspace(t *testing.T, ctx context.Context, orgID, userID, repoURL, workingDir string, requiresApproval bool) string {
+	t.Helper()
+	wsID := id()
+	exec(t, ctx,
+		`INSERT INTO workspaces (id,org_id,name,created_by,repo_url,working_dir,requires_approval)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+		wsID, orgID, "ws-"+wsID, userID, repoURL, workingDir, requiresApproval)
+	return wsID
+}
+
+// requires_approval protects the infrastructure a config manages, not the row
+// that names it: with terragrunt the backend is declared in the repo, so a
+// second workspace on the same repo + working_dir drives the same remote state.
+// HasGatedWorkspaceForConfig is what lets the handler refuse an ungated twin,
+// so it has to see through the ways the same target can be spelled.
+func TestHasGatedWorkspaceForConfig(t *testing.T) {
+	requireDB(t)
+	ctx := context.Background()
+	orgA, userA := seedOrg(t, ctx, "twin-a")
+	orgB, userB := seedOrg(t, ctx, "twin-b")
+
+	const repo = "https://github.com/acme/infra.git"
+	gated := seedConfigWorkspace(t, ctx, orgA, userA, repo, "envs/prod", true)
+	seedConfigWorkspace(t, ctx, orgA, userA, repo, "envs/dev", false)
+	// Same config, gated, but in another org — must never be visible here.
+	seedConfigWorkspace(t, ctx, orgB, userB, "https://github.com/acme/other", "envs/prod", true)
+
+	tests := []struct {
+		name       string
+		orgID      string
+		repoURL    string
+		workingDir string
+		excludeID  string
+		want       bool
+	}{
+		{"exact match on a gated config", orgA, repo, "envs/prod", "", true},
+		{"the same repo without the .git suffix", orgA, "https://github.com/acme/infra", "envs/prod", "", true},
+		{"a trailing slash on the repo", orgA, "https://github.com/acme/infra.git/", "envs/prod", "", true},
+		{"a different case on the host and path", orgA, "HTTPS://GitHub.com/Acme/Infra.GIT", "envs/prod", "", true},
+		{"the same repo over ssh", orgA, "git@github.com:acme/infra.git", "envs/prod", "", true},
+		{"the same repo with an embedded token", orgA, "https://ghp_token@github.com/acme/infra", "envs/prod", "", true},
+		{"the same repo over the ssh:// scheme", orgA, "ssh://git@github.com/acme/infra", "envs/prod", "", true},
+		{"a ./ prefix on the working directory", orgA, repo, "./envs/prod", "", true},
+		{"a trailing slash on the working directory", orgA, repo, "envs/prod/", "", true},
+
+		{"a different directory in the same repo", orgA, repo, "envs/staging", "", false},
+		{"the ungated sibling's own directory", orgA, repo, "envs/dev", "", false},
+		{"a different repo entirely", orgA, "https://github.com/acme/apps", "envs/prod", "", false},
+		{"an upload workspace has no repo to compare", orgA, "", "envs/prod", "", false},
+
+		{"the gated workspace does not match itself", orgA, repo, "envs/prod", gated, false},
+		{"another org's gated workspace is invisible", orgB, repo, "envs/prod", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := testQueries.HasGatedWorkspaceForConfig(ctx, repository.GatedTwinParams{
+				OrgID:      tt.orgID,
+				RepoURL:    tt.repoURL,
+				WorkingDir: tt.workingDir,
+				ExcludeID:  tt.excludeID,
+			})
+			if err != nil {
+				t.Fatalf("HasGatedWorkspaceForConfig: %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("HasGatedWorkspaceForConfig(repo=%q, dir=%q) = %v, want %v",
+					tt.repoURL, tt.workingDir, got, tt.want)
+			}
+		})
+	}
+
+	// The root of a repo has several spellings and they must all agree, so a
+	// gated workspace at "." cannot be twinned by one at "" or "./".
+	rootRepo := "https://github.com/acme/root-config"
+	seedConfigWorkspace(t, ctx, orgA, userA, rootRepo, ".", true)
+	for _, dir := range []string{".", "", "./", "/"} {
+		got, err := testQueries.HasGatedWorkspaceForConfig(ctx, repository.GatedTwinParams{
+			OrgID: orgA, RepoURL: rootRepo, WorkingDir: dir,
+		})
+		if err != nil {
+			t.Fatalf("HasGatedWorkspaceForConfig(root, %q): %v", dir, err)
+		}
+		if !got {
+			t.Errorf("working_dir %q did not match a gated workspace at the repo root", dir)
+		}
+	}
+}

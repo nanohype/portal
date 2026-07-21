@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -185,6 +186,54 @@ func approvalGateAtCreateAllowed(autoApply bool, orgRole string) bool {
 		return true
 	}
 	return auth.CanPerform(orgRole, auth.ActionApplyProd)
+}
+
+// gatedTwinAllowed decides whether a caller may stand up — or repoint — an
+// ungated workspace onto a config some other workspace already gates.
+//
+// requires_approval lives on the workspace row, but what it protects is the
+// infrastructure the config manages, and a workspace row is not a boundary
+// around that. Two workspaces on the same repo + working_dir drive the same
+// backend (terragrunt declares remote_state in the tree), so an ungated twin is
+// a second door onto the gated workspace's own resources, opened at the
+// operator bar the create and update routes sit at.
+//
+// Two ways through: carry the gate too — an operator may always create the twin
+// gated, since requires_approval only ever adds a wait — or hold the authority
+// to release a gated apply in the first place, ActionApplyProd, the same bar
+// turning the gate off already takes.
+//
+// This keys on the config identity portal can see. Upload workspaces have no
+// repo URL to compare, so two uploads of the same tree stay indistinguishable
+// here; the check does not claim to cover them.
+func gatedTwinAllowed(hasGatedTwin, requiresApproval bool, orgRole string) bool {
+	if !hasGatedTwin || requiresApproval {
+		return true
+	}
+	return auth.CanPerform(orgRole, auth.ActionApplyProd)
+}
+
+const gatedTwinMessage = "another workspace already requires approval for this repository and working directory: " +
+	"set requires_approval on this one too, or hold admin role or higher"
+
+// effectiveConfigTarget resolves what a workspace will point at, and whether it
+// will be gated, once an update lands. UpdateWorkspace COALESCEs empty strings
+// and nil pointers to the stored row, so a request that omits a field is a
+// request to keep it.
+func effectiveConfigTarget(current repository.Workspace, req UpdateWorkspaceRequest) (repoURL, workingDir string, requiresApproval bool) {
+	repoURL = current.RepoURL
+	if req.RepoURL != "" {
+		repoURL = req.RepoURL
+	}
+	workingDir = current.WorkingDir
+	if req.WorkingDir != "" {
+		workingDir = req.WorkingDir
+	}
+	requiresApproval = current.RequiresApproval
+	if req.RequiresApproval != nil {
+		requiresApproval = *req.RequiresApproval
+	}
+	return repoURL, workingDir, requiresApproval
 }
 
 // changesApprovalGate reports whether an update actually moves auto_apply or
@@ -377,6 +426,17 @@ func (h *WorkspaceHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	hasGatedTwin, err := h.svc.HasGatedTwin(r.Context(), userCtx.OrgID, req.RepoURL, req.WorkingDir, "")
+	if err != nil {
+		slog.Error("failed to check for a gated workspace on this config", "error", err)
+		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to create workspace")
+		return
+	}
+	if !gatedTwinAllowed(hasGatedTwin, req.RequiresApproval, userCtx.Role) {
+		respond.Error(w, http.StatusForbidden, gatedTwinMessage)
+		return
+	}
+
 	workspace, err := h.svc.Create(r.Context(), service.CreateWorkspaceParams{
 		OrgID:             userCtx.OrgID,
 		Name:              req.Name,
@@ -442,6 +502,21 @@ func (h *WorkspaceHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	if !approvalGateChangeAllowed(current, req, userCtx.Role) {
 		respond.Error(w, http.StatusForbidden, "changing auto_apply or requires_approval requires admin role or higher")
+		return
+	}
+
+	// Update COALESCEs empty strings to the stored value, so the twin check has
+	// to run against what the workspace will point at after the write, not
+	// against what the request happened to carry.
+	targetRepoURL, targetWorkingDir, targetGated := effectiveConfigTarget(current, req)
+	hasGatedTwin, err := h.svc.HasGatedTwin(r.Context(), userCtx.OrgID, targetRepoURL, targetWorkingDir, workspaceID)
+	if err != nil {
+		slog.Error("failed to check for a gated workspace on this config", "error", err)
+		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to update workspace")
+		return
+	}
+	if !gatedTwinAllowed(hasGatedTwin, targetGated, userCtx.Role) {
+		respond.Error(w, http.StatusForbidden, gatedTwinMessage)
 		return
 	}
 
@@ -652,6 +727,21 @@ func (h *WorkspaceHandler) Clone(w http.ResponseWriter, r *http.Request) {
 	// bar.
 	if !approvalGateAtCreateAllowed(source.AutoApply, userCtx.Role) {
 		respond.Error(w, http.StatusForbidden, "cloning a workspace with auto_apply requires admin role or higher")
+		return
+	}
+
+	// A clone copies the source's repo, working_dir and requires_approval, so
+	// cloning a gated workspace produces a gated one. Cloning an ungated
+	// workspace that happens to sit on a config some OTHER workspace gates is
+	// the twin case, and takes the twin bar.
+	hasGatedTwin, err := h.svc.HasGatedTwin(r.Context(), userCtx.OrgID, source.RepoURL, source.WorkingDir, sourceID)
+	if err != nil {
+		slog.Error("failed to check for a gated workspace on this config", "error", err)
+		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to clone workspace")
+		return
+	}
+	if !gatedTwinAllowed(hasGatedTwin, source.RequiresApproval, userCtx.Role) {
+		respond.Error(w, http.StatusForbidden, gatedTwinMessage)
 		return
 	}
 

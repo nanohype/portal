@@ -104,6 +104,25 @@ func (s *WorkspaceService) Get(ctx context.Context, id, orgID string) (repositor
 	})
 }
 
+// HasGatedTwin reports whether another workspace in this org already gates the
+// same repo + working_dir behind an approval.
+//
+// The workspace row is a label on a config, not a boundary around it: with
+// terragrunt the backend is declared in the repo, so two workspaces on the same
+// path share one remote state and one set of real resources. Without this,
+// requires_approval is a property of a row anyone may stand up a second copy
+// of.
+//
+// excludeID keeps a workspace from matching itself on update.
+func (s *WorkspaceService) HasGatedTwin(ctx context.Context, orgID, repoURL, workingDir, excludeID string) (bool, error) {
+	return s.queries.HasGatedWorkspaceForConfig(ctx, repository.GatedTwinParams{
+		OrgID:      orgID,
+		RepoURL:    repoURL,
+		WorkingDir: workingDir,
+		ExcludeID:  excludeID,
+	})
+}
+
 func (s *WorkspaceService) Create(ctx context.Context, params CreateWorkspaceParams) (repository.Workspace, error) {
 	source := params.Source
 	if source == "" {

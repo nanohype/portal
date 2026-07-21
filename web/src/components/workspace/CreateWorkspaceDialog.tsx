@@ -15,6 +15,8 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { GitBranch, Upload } from 'lucide-react';
+import { roleAtLeast } from '@/lib/roles';
+import { useAuth } from '@/hooks/useAuth';
 
 const vcsSchema = z.object({
   source: z.literal('vcs'),
@@ -49,6 +51,12 @@ interface Props {
 
 export function CreateWorkspaceDialog({ open, onClose, onSubmit, isLoading }: Props) {
   const uid = useId();
+  const { user } = useAuth();
+  // Standing up a workspace that applies with nobody signing off is the same
+  // authority as turning auto_apply on later, which the settings form already
+  // reserves for admins. Requiring approval only ever adds a wait, so that box
+  // stays open to everyone.
+  const canChangeApprovalGate = roleAtLeast(user?.role, 'admin');
   const [source, setSource] = useState<'vcs' | 'upload'>('vcs');
 
   const schema = source === 'vcs' ? vcsSchema : uploadSchema;
@@ -266,12 +274,14 @@ export function CreateWorkspaceDialog({ open, onClose, onSubmit, isLoading }: Pr
                 id={`${uid}-auto-apply`}
                 type="checkbox"
                 {...register('auto_apply')}
-                className="w-4 h-4 rounded border-border"
+                disabled={!canChangeApprovalGate}
+                className="w-4 h-4 rounded border-border disabled:cursor-not-allowed disabled:opacity-50"
               />
               <div>
                 <div className="text-sm">Auto-apply</div>
                 <div className="text-xs text-muted-foreground">
                   Automatically apply after a successful plan
+                  {canChangeApprovalGate ? '' : ' — admins change this'}
                 </div>
               </div>
             </label>

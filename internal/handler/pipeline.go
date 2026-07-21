@@ -203,15 +203,17 @@ func (h *PipelineHandler) Create(w http.ResponseWriter, r *http.Request) {
 			respond.Error(w, http.StatusBadRequest, "on_failure must be 'stop' or 'continue'")
 			return
 		}
-		// A stage's auto_apply overrides the workspace's own setting for that
-		// run, so writing it is the same act as flipping auto_apply on the
-		// workspace and carries the same bar. (A workspace that requires
-		// approval still parks the run for a human — the override cannot open
-		// that gate — but an ungated workspace would apply for real.)
-		if s.AutoApply && !auth.CanPerform(userCtx.Role, auth.ActionApplyProd) {
-			respond.Error(w, http.StatusForbidden, "setting auto_apply on a stage requires admin role or higher")
-			return
-		}
+	}
+
+	// A stage's auto_apply overrides the workspace's own setting for that run,
+	// so writing it is the same act as flipping auto_apply on the workspace and
+	// carries the same bar. (A workspace that requires approval still parks the
+	// run for a human — the override cannot open that gate — but an ungated
+	// workspace would apply for real.) A new pipeline has no stored stages, so
+	// every auto-apply stage on it is new authority.
+	if addsAutoApplyStage(nil, req.Stages) && !auth.CanPerform(userCtx.Role, auth.ActionApplyProd) {
+		respond.Error(w, http.StatusForbidden, "setting auto_apply on a stage requires admin role or higher")
+		return
 	}
 
 	pipeline, err := h.pipelineSvc.Create(r.Context(), userCtx.OrgID, req.Name, req.Description, userCtx.UserID, req.Stages)
@@ -284,12 +286,25 @@ func (h *PipelineHandler) Update(w http.ResponseWriter, r *http.Request) {
 			respond.Error(w, http.StatusBadRequest, "on_failure must be 'stop' or 'continue'")
 			return
 		}
-		// A stage's auto_apply overrides the workspace's own setting for that
-		// run, so writing it is the same act as flipping auto_apply on the
-		// workspace and carries the same bar. (A workspace that requires
-		// approval still parks the run for a human — the override cannot open
-		// that gate — but an ungated workspace would apply for real.)
-		if s.AutoApply && !auth.CanPerform(userCtx.Role, auth.ActionApplyProd) {
+	}
+
+	// Update replaces the whole stage list, so an edit that only renames the
+	// pipeline or reorders it still resubmits every stage's auto_apply. Only a
+	// stage that gains auto-apply is an authorization event — the same rule
+	// changesApprovalGate follows on the workspace form. Without the
+	// comparison, one admin-set auto-apply stage would freeze the pipeline
+	// against every later operator edit.
+	if req.Stages != nil {
+		if _, err := h.pipelineSvc.Get(r.Context(), pipelineID, userCtx.OrgID); err != nil {
+			respond.FromError(w, r, err)
+			return
+		}
+		currentStages, err := h.pipelineSvc.ListStages(r.Context(), pipelineID)
+		if err != nil {
+			respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to list stages")
+			return
+		}
+		if addsAutoApplyStage(currentStages, req.Stages) && !auth.CanPerform(userCtx.Role, auth.ActionApplyProd) {
 			respond.Error(w, http.StatusForbidden, "setting auto_apply on a stage requires admin role or higher")
 			return
 		}
@@ -452,4 +467,34 @@ type PipelineDetailResponse struct {
 type PipelineRunDetailResponse struct {
 	PipelineRun PipelineRunResponse        `json:"pipeline_run"`
 	Stages      []PipelineRunStageResponse `json:"stages"`
+}
+
+// addsAutoApplyStage reports whether a submitted stage list hands the pipeline
+// auto-apply anywhere it does not already hold it.
+//
+// Stages carry no stable id across an update — the write deletes and recreates
+// the whole list — so identity is the workspace a stage targets, counted rather
+// than set-tested because a pipeline may run the same workspace twice. Any
+// workspace that would end up with more auto-applying stages than it has today
+// is new authority; reordering, renaming, changing on_failure, dropping a stage
+// or adding a non-auto one is not.
+func addsAutoApplyStage(current []repository.PipelineStageWithWorkspace, submitted []service.CreatePipelineStageInput) bool {
+	have := make(map[string]int, len(current))
+	for _, s := range current {
+		if s.AutoApply {
+			have[s.WorkspaceID]++
+		}
+	}
+	want := make(map[string]int, len(submitted))
+	for _, s := range submitted {
+		if s.AutoApply {
+			want[s.WorkspaceID]++
+		}
+	}
+	for workspaceID, n := range want {
+		if n > have[workspaceID] {
+			return true
+		}
+	}
+	return false
 }

@@ -54,9 +54,11 @@ func TestCanPerform_UnknownRole(t *testing.T) {
 
 func TestActionForOperation(t *testing.T) {
 	cases := map[string]Action{
-		"plan":    ActionCreateRun,
-		"test":    ActionCreateRun,
-		"import":  ActionCreateRun,
+		"plan": ActionCreateRun,
+		"test": ActionCreateRun,
+		// import rewrites which real resources a config claims. Every other way
+		// to move state already sits at ActionManageState, so this does too.
+		"import":  ActionManageState,
 		"apply":   ActionApplyRun,
 		"destroy": ActionDestroyRun,
 	}
@@ -82,9 +84,13 @@ func TestRunOperationAuthorization(t *testing.T) {
 		{"operator", "plan", true},
 		{"operator", "apply", true},
 		{"operator", "destroy", false},
+		{"operator", "test", true},
+		{"operator", "import", false},
 		{"admin", "apply", true},
 		{"admin", "destroy", true},
+		{"admin", "import", true},
 		{"owner", "destroy", true},
+		{"owner", "import", true},
 	}
 	for _, c := range cases {
 		if got := CanPerform(c.role, ActionForOperation(c.operation)); got != c.allowed {

@@ -133,7 +133,7 @@ export function WorkspaceSettings({ workspace }: Props) {
       queryClient.invalidateQueries({ queryKey: ['workspace', workspace.id] });
       toast.success('Settings saved');
     },
-    onError: () => toast.error('Failed to save settings'),
+    onError: (e) => toast.error((e as { message?: string })?.message ?? 'Failed to save settings'),
   });
 
   const deleteMutation = useMutation({

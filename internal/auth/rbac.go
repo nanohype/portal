@@ -85,16 +85,23 @@ func MaxRole(a, b string) string {
 	return a
 }
 
-// ActionForOperation maps a run operation to the action it requires. apply and
-// destroy are the destructive operations and carry their own (higher) min-role;
-// plan/test/import are gated at the create_run baseline.
+// ActionForOperation maps a run operation to the action it requires.
+//
+// apply and destroy run tofu against live state and carry their own (higher)
+// min-role. import rewrites state — it decides which real resources a config
+// claims, and every other way to move state (downloading a tfstate, deleting a
+// serial) already sits at ActionManageState, so it does too. plan and test stay
+// at the create_run baseline; a workspace that gates applies raises test
+// separately, in requiresApprovalGate.
 func ActionForOperation(operation string) Action {
 	switch operation {
 	case "apply":
 		return ActionApplyRun
 	case "destroy":
 		return ActionDestroyRun
-	default: // plan, test, import
+	case "import":
+		return ActionManageState
+	default: // plan, test
 		return ActionCreateRun
 	}
 }

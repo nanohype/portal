@@ -200,17 +200,19 @@ func (h *RunHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A workspace with requires_approval says no apply happens on it without a
-	// human signing off. Asking for operation "apply" or "destroy" directly runs
-	// tofu against live state with no approval row ever created, so on a gated
-	// workspace those carry the bar that signing the approval carries —
-	// ActionApplyProd, org-scoped, exactly like POST .../approvals.
+	// A workspace with requires_approval says nothing on it touches live
+	// infrastructure or state without a human signing off. Every operation that
+	// can do either — apply, destroy, test (it shell-executes smoke-test.sh from
+	// the repo) and import (it rewrites state) — reaches that outcome with no
+	// approval row ever created, so on a gated workspace they carry the bar that
+	// signing the approval carries: ActionApplyProd, org-scoped, exactly like
+	// POST .../approvals.
 	//
 	// It is the org role that is checked, not the workspace-resolved one: a
 	// per-workspace grant does not confer the authority to release a gated
 	// apply, the same rule the approval route and the settings guard follow.
 	// Operators keep the full plan → approve → apply path on gated workspaces,
-	// and every path on ungated ones.
+	// and on ungated ones every path their org role already allows.
 	if requiresApprovalGate(ws, req.Operation) && !auth.CanPerform(userCtx.Role, auth.ActionApplyProd) {
 		respond.Error(w, http.StatusForbidden,
 			"this workspace requires approval: run a plan and have it approved, or hold admin role or higher")
@@ -245,15 +247,37 @@ func (h *RunHandler) Create(w http.ResponseWriter, r *http.Request) {
 	respond.JSON(w, http.StatusCreated, runResponse(run))
 }
 
-// requiresApprovalGate reports whether this operation on this workspace is a
-// real apply against a workspace that gates applies behind an approval. plan,
-// test and import do not change live infrastructure through this path, so they
-// are not gated here.
+// requiresApprovalGate reports whether this operation on this workspace can
+// change live infrastructure or its state without an approval row, on a
+// workspace whose whole point is that neither happens unsigned.
+//
+// apply and destroy are the obvious ones: they run tofu against live state.
+//
+// test is not a dry run. It runs `/bin/sh smoke-test.sh` from the checked-out
+// working directory (executor/local.go and the generated script in
+// executor/kubernetes.go), with the run's full environment — every decrypted
+// env-category variable and the executor's own cloud identity. The file comes
+// from the repo the workspace points at, and repointing a workspace sits at the
+// route's operator bar, so an ungated test is a way to run anything the
+// workspace can run. The worker agrees: it records a finished test as
+// "applied".
+//
+// import writes a new state version. Rewriting which real resources a config
+// claims is what ActionManageState guards everywhere else.
+//
+// plan is the one operation left out, and deliberately: it is how an operator
+// reaches the approval in the first place, so gating it would leave gated
+// workspaces with no operator workflow at all.
 func requiresApprovalGate(ws repository.Workspace, operation string) bool {
 	if !ws.RequiresApproval {
 		return false
 	}
-	return operation == "apply" || operation == "destroy"
+	switch operation {
+	case "apply", "destroy", "test", "import":
+		return true
+	default: // plan
+		return false
+	}
 }
 
 // isValidOperation returns whether an operation string is valid.

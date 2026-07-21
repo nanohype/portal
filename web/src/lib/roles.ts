@@ -19,3 +19,13 @@ const level: Record<string, number> = {
 export function roleAtLeast(role: string | null | undefined, min: Role): boolean {
   return (level[role ?? ''] ?? 0) >= level[min];
 }
+
+// minRole returns the lower of two roles, mirroring the LEAST(...) the API
+// applies when a workspace grant meets a person's role inside the granted team.
+// An unrecognised role on either side yields nothing, matching roleAtLeast.
+export function minRole(a: string | null | undefined, b: string | null | undefined): Role | '' {
+  const la = level[a ?? ''] ?? 0;
+  const lb = level[b ?? ''] ?? 0;
+  const lowest = Math.min(la, lb);
+  return roles.find((r) => level[r] === lowest) ?? '';
+}

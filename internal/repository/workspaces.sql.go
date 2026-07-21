@@ -2,7 +2,10 @@
 
 package repository
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 const workspaceColumns = `id, org_id, name, description, repo_url, repo_branch, working_dir, tofu_version, environment, auto_apply, requires_approval, vcs_trigger_enabled, locked, locked_by, current_run_id, created_by, source, current_config_version_id, created_at, updated_at`
 
@@ -361,4 +364,81 @@ func (q *Queries) FindWorkspacesByRepo(ctx context.Context, arg FindWorkspacesBy
 		workspaces = []Workspace{}
 	}
 	return workspaces, rows.Err()
+}
+
+// A workspace is only a name for "this config, at this path". Two workspaces
+// pointing at the same repo and the same working_dir drive the same backend —
+// terragrunt declares remote_state in the tree itself — so they are two doors
+// onto one piece of infrastructure. These expressions reduce both halves of
+// that identity to a canonical form, so the same target spelled differently
+// still compares equal.
+//
+// repoURLIdentitySQL, applied outside-in: lowercase and drop trailing slashes,
+// drop a ".git" suffix, drop the scheme, drop any userinfo (a URL carrying a
+// token is the same repo), then turn scp-style "host:path" into "host/path".
+// All of these land on "github.com/acme/infra":
+//
+//	https://github.com/acme/infra.git    ssh://git@github.com/acme/infra
+//	https://TOKEN@github.com/acme/infra/  git@github.com:acme/infra.git
+//
+// It normalises spelling, not remote identity: a mirror under a different host
+// or path is a different string and stays one. The check narrows the gap
+// structurally, it does not close it by proof.
+const (
+	repoURLIdentitySQL = `REGEXP_REPLACE(
+		REGEXP_REPLACE(
+			REGEXP_REPLACE(
+				REGEXP_REPLACE(
+					RTRIM(LOWER(%s), '/'),
+				'\.git$', ''),
+			'^[a-z][a-z0-9+.-]*://', ''),
+		'^[^/@]*@', ''),
+	'^([^/:]+):', '\1/')`
+
+	// A leaf is the repo root under every spelling of it: "", ".", "./" and "/"
+	// all reduce to ".", and "./envs/prod", "envs/prod" and "envs/prod/" all
+	// reduce to "envs/prod".
+	workingDirIdentitySQL = `COALESCE(NULLIF(BTRIM(REGEXP_REPLACE(%s, '^\.?/+', ''), '/'), ''), '.')`
+)
+
+type GatedTwinParams struct {
+	OrgID      string `json:"org_id"`
+	RepoURL    string `json:"repo_url"`
+	WorkingDir string `json:"working_dir"`
+	ExcludeID  string `json:"exclude_id"`
+}
+
+// HasGatedWorkspaceForConfig reports whether some OTHER workspace in this org
+// already gates this exact repo + working_dir behind an approval.
+//
+// Both sides of each comparison run through the same normalising expression, so
+// the check cannot be dodged by spelling the repo URL differently.
+//
+// An empty repo_url means an upload workspace, which has no comparable config
+// identity; the query returns false rather than matching every other upload
+// workspace in the org.
+func (q *Queries) HasGatedWorkspaceForConfig(ctx context.Context, arg GatedTwinParams) (bool, error) {
+	if arg.RepoURL == "" {
+		return false, nil
+	}
+	repoCol := fmt.Sprintf(repoURLIdentitySQL, "repo_url")
+	repoArg := fmt.Sprintf(repoURLIdentitySQL, "$2::TEXT")
+	dirCol := fmt.Sprintf(workingDirIdentitySQL, "working_dir")
+	dirArg := fmt.Sprintf(workingDirIdentitySQL, "$3::TEXT")
+
+	row := q.db.QueryRow(ctx,
+		`SELECT EXISTS (
+			SELECT 1 FROM workspaces
+			WHERE org_id = $1
+			  AND id <> $4
+			  AND requires_approval = TRUE
+			  AND repo_url <> ''
+			  AND `+repoCol+` = `+repoArg+`
+			  AND `+dirCol+` = `+dirArg+`
+		)`,
+		arg.OrgID, arg.RepoURL, arg.WorkingDir, arg.ExcludeID,
+	)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
