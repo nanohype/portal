@@ -465,7 +465,7 @@ func (w *RunJobWorker) isRunCancelled(ctx context.Context, runID, orgID string) 
 }
 
 // postPlanAction determines the status after a plan completes.
-// auto_apply wins over requires_approval. "queued" triggers auto-apply enqueue.
+// requires_approval wins over auto_apply. "queued" triggers auto-apply enqueue.
 // selectBrowseState returns the bytes that should be uploaded as the
 // resource-browser / pipeline-output state for the run, or nil when there
 // is nothing to capture. In plain-tofu mode the executor produces both
@@ -483,11 +483,18 @@ func selectBrowseState(stateFile, stateJSON []byte) []byte {
 }
 
 func postPlanAction(autoApply, requiresApproval bool) string {
-	if autoApply {
-		return "queued"
-	}
+	// requires_approval is checked first, and wins. It is the workspace's
+	// statement that no apply happens without a human signing off, so it has to
+	// outrank auto_apply — otherwise auto_apply is a way to skip the approval
+	// rather than a convenience on workspaces that do not need one. A pipeline
+	// stage supplies auto_apply as a per-run override (AutoApplyOverride), so
+	// with the old ordering a stage could turn the gate off for a workspace
+	// whose owner had turned it on.
 	if requiresApproval {
 		return "awaiting_approval"
+	}
+	if autoApply {
+		return "queued"
 	}
 	return "planned"
 }

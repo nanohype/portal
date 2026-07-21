@@ -19,6 +19,18 @@ func (q *Queries) GetUser(ctx context.Context, id string) (User, error) {
 	return scanUser(row)
 }
 
+// GetUserRole returns just the role column for one user in one org. Every
+// authenticated request runs it, so it stays a single-column read on the
+// primary key rather than loading the whole row. A user that does not exist in
+// that org returns pgx.ErrNoRows.
+func (q *Queries) GetUserRole(ctx context.Context, id, orgID string) (string, error) {
+	var role string
+	err := q.db.QueryRow(ctx,
+		`SELECT role::text FROM users WHERE id = $1 AND org_id = $2`, id, orgID,
+	).Scan(&role)
+	return role, err
+}
+
 func (q *Queries) GetUserByEmail(ctx context.Context, email string, orgID string) (User, error) {
 	row := q.db.QueryRow(ctx,
 		`SELECT `+userColumns+` FROM users WHERE email = $1 AND org_id = $2`, email, orgID,

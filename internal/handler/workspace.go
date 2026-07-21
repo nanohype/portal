@@ -169,6 +169,24 @@ func approvalGateChangeAllowed(current repository.Workspace, req UpdateWorkspace
 	return auth.CanPerform(orgRole, auth.ActionApplyProd)
 }
 
+// approvalGateAtCreateAllowed decides whether a caller may stand up a workspace
+// with these approval-gate settings.
+//
+// A new workspace defaults to auto_apply off, so it starts behind the same
+// human-in-the-loop Update protects. Asking for auto_apply at creation asks for
+// a workspace that applies to live cloud state with nobody signing off — the
+// authority Update holds at ActionApplyProd. Without this, the guard on Update
+// is trivially sidestepped: create the workspace with the gate already open
+// instead of opening it afterwards.
+//
+// requires_approval only ever adds a wait, so turning it on needs no extra bar.
+func approvalGateAtCreateAllowed(autoApply bool, orgRole string) bool {
+	if !autoApply {
+		return true
+	}
+	return auth.CanPerform(orgRole, auth.ActionApplyProd)
+}
+
 // changesApprovalGate reports whether an update actually moves auto_apply or
 // requires_approval away from what the workspace stores today. The settings
 // form submits every field on every save, so a nil-pointer check would flag
@@ -351,6 +369,11 @@ func (h *WorkspaceHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	if req.Environment != "" && req.Environment != "development" && req.Environment != "staging" && req.Environment != "production" {
 		respond.Error(w, http.StatusBadRequest, "environment must be development, staging, or production")
+		return
+	}
+
+	if !approvalGateAtCreateAllowed(req.AutoApply, userCtx.Role) {
+		respond.Error(w, http.StatusForbidden, "creating a workspace with auto_apply requires admin role or higher")
 		return
 	}
 
@@ -619,6 +642,16 @@ func (h *WorkspaceHandler) Clone(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Environment != "" && req.Environment != "development" && req.Environment != "staging" && req.Environment != "production" {
 		respond.Error(w, http.StatusBadRequest, "environment must be development, staging, or production")
+		return
+	}
+
+	// A clone carries the source's approval-gate settings. Cloning an
+	// auto-applying workspace therefore hands the caller a second auto-applying
+	// workspace — one they can then repoint at any repo through Update, which
+	// sits at the operator bar. That is the create case, so it takes the create
+	// bar.
+	if !approvalGateAtCreateAllowed(source.AutoApply, userCtx.Role) {
+		respond.Error(w, http.StatusForbidden, "cloning a workspace with auto_apply requires admin role or higher")
 		return
 	}
 

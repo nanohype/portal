@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -30,12 +31,25 @@ type UserContext struct {
 	Role   string
 }
 
-type Middleware struct {
-	jwt *JWTAuth
+// UserRoleResolver reports the org role a user holds right now. An unknown user
+// (no row for that id in that org) is an empty role, not an error — the caller
+// treats it as a dead session.
+type UserRoleResolver interface {
+	UserRole(ctx context.Context, userID, orgID string) (string, error)
 }
 
-func NewMiddleware(jwt *JWTAuth) *Middleware {
-	return &Middleware{jwt: jwt}
+type Middleware struct {
+	jwt   *JWTAuth
+	roles UserRoleResolver
+}
+
+// NewMiddleware builds the authentication middleware. The token proves WHO the
+// caller is; the resolver answers what they may do, read fresh on every
+// request. Role is deliberately not a token claim: a token lives for hours, so
+// a claim would let a promotion sit unusable and a demotion keep its authority
+// until the token expired.
+func NewMiddleware(jwt *JWTAuth, roles UserRoleResolver) *Middleware {
+	return &Middleware{jwt: jwt, roles: roles}
 }
 
 func (m *Middleware) Authenticate(next http.Handler) http.Handler {
@@ -52,11 +66,31 @@ func (m *Middleware) Authenticate(next http.Handler) http.Handler {
 			return
 		}
 
+		// Fail closed on an unreadable role: a lookup that errors is answered
+		// with 503, never with a guess. 503 is deliberate — the client's 401
+		// handler discards the session, and a database blip must not log
+		// everybody out.
+		if m.roles == nil {
+			respond.Error(w, http.StatusServiceUnavailable, "authorization unavailable")
+			return
+		}
+		role, err := m.roles.UserRole(r.Context(), claims.UserID, claims.OrgID)
+		if err != nil {
+			slog.ErrorContext(r.Context(), "user role lookup failed, denying request",
+				"user_id", claims.UserID, "org_id", claims.OrgID, "error", err)
+			respond.Error(w, http.StatusServiceUnavailable, "authorization unavailable")
+			return
+		}
+		if role == "" {
+			respond.Error(w, http.StatusUnauthorized, "invalid token")
+			return
+		}
+
 		userCtx := &UserContext{
 			UserID: claims.UserID,
 			OrgID:  claims.OrgID,
 			Email:  claims.Email,
-			Role:   claims.Role,
+			Role:   role,
 		}
 
 		ctx := context.WithValue(r.Context(), UserContextKey, userCtx)

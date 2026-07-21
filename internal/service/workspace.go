@@ -12,6 +12,7 @@ import (
 	"github.com/nanohype/portal/internal/apperr"
 	"github.com/nanohype/portal/internal/conv"
 	"github.com/nanohype/portal/internal/repository"
+	"github.com/nanohype/portal/internal/secrets"
 	"github.com/nanohype/portal/internal/storage"
 	"github.com/nanohype/portal/internal/tfstate"
 )
@@ -24,13 +25,19 @@ var ErrWorkspaceHasRuns = fmt.Errorf("workspace has existing runs")
 var ErrStorageNotConfigured = fmt.Errorf("storage not configured")
 
 type WorkspaceService struct {
-	queries *repository.Queries
-	db      *pgxpool.Pool
-	storage *storage.S3Storage
+	queries   *repository.Queries
+	db        *pgxpool.Pool
+	storage   *storage.S3Storage
+	encryptor *secrets.Encryptor
 }
 
-func NewWorkspaceService(queries *repository.Queries, db *pgxpool.Pool, store *storage.S3Storage) *WorkspaceService {
-	return &WorkspaceService{queries: queries, db: db, storage: store}
+// NewWorkspaceService builds the workspace domain. The encryptor is what lets
+// output import carry a sensitive value across as a sensitive variable — stored
+// encrypted, redacted on read — instead of flattening it to plaintext. A nil
+// encryptor (deploy without an encryption key) makes import drop sensitive
+// outputs rather than write them in the clear.
+func NewWorkspaceService(queries *repository.Queries, db *pgxpool.Pool, store *storage.S3Storage, encryptor *secrets.Encryptor) *WorkspaceService {
+	return &WorkspaceService{queries: queries, db: db, storage: store, encryptor: encryptor}
 }
 
 type CreateWorkspaceParams struct {
@@ -261,7 +268,7 @@ func (s *WorkspaceService) CopyInto(ctx context.Context, sourceID, targetID, org
 		var v repository.WorkspaceVariable
 		if existing, ok := existingByKey[sv.Key+"|"+sv.Category]; ok {
 			v, err = qtx.UpdateWorkspaceVariable(ctx, repository.UpdateWorkspaceVariableParams{
-				ID: existing.ID, OrgID: orgID,
+				ID: existing.ID, WorkspaceID: targetID, OrgID: orgID,
 				Value: sv.Value, Sensitive: sv.Sensitive, Description: sv.Description,
 			})
 		} else {
@@ -354,6 +361,16 @@ func (s *WorkspaceService) ImportOutputs(ctx context.Context, params ImportOutpu
 		if params.SkipSensitive && out.Sensitive {
 			continue
 		}
+		// An output the source state marks sensitive stays sensitive on the
+		// target: encrypted at rest, redacted by every list, readable only
+		// through the reveal endpoint. Storing it as an ordinary variable would
+		// republish a secret in plaintext to everyone who can read the target's
+		// variables. With no encryptor configured there is no way to store it
+		// safely, so it is skipped.
+		if out.Sensitive && s.encryptor == nil {
+			slog.Warn("skipping sensitive output: no encryptor configured", "key", out.Name)
+			continue
+		}
 
 		// Non-string outputs (lists, maps, numbers) are stored as their JSON
 		// encoding, which is also how tofu expects complex variable values.
@@ -366,12 +383,22 @@ func (s *WorkspaceService) ImportOutputs(ctx context.Context, params ImportOutpu
 			valueStr = string(b)
 		}
 
+		if out.Sensitive {
+			encrypted, encErr := s.encryptor.Encrypt(valueStr)
+			if encErr != nil {
+				slog.Warn("failed to encrypt sensitive output", "key", out.Name, "error", encErr)
+				continue
+			}
+			valueStr = encrypted
+		}
+
 		desc := fmt.Sprintf("Imported from %s output (%s)", params.DescriptionSource, out.Type)
 
 		var v repository.WorkspaceVariable
 		if ev, exists := existingByKey[out.Name]; exists {
 			v, err = s.queries.UpdateWorkspaceVariable(ctx, repository.UpdateWorkspaceVariableParams{
-				ID: ev.ID, OrgID: params.OrgID, Value: valueStr, Sensitive: false, Description: desc,
+				ID: ev.ID, WorkspaceID: params.TargetWorkspaceID, OrgID: params.OrgID,
+				Value: valueStr, Sensitive: out.Sensitive, Description: desc,
 			})
 		} else {
 			v, err = s.queries.CreateWorkspaceVariable(ctx, repository.CreateWorkspaceVariableParams{
@@ -380,7 +407,7 @@ func (s *WorkspaceService) ImportOutputs(ctx context.Context, params ImportOutpu
 				OrgID:       params.OrgID,
 				Key:         out.Name,
 				Value:       valueStr,
-				Sensitive:   false,
+				Sensitive:   out.Sensitive,
 				Category:    "terraform",
 				Description: desc,
 			})

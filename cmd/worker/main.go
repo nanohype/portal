@@ -159,7 +159,7 @@ func main() {
 
 	// Set up RunService + WorkspaceService for the pipeline stage worker
 	runSvc := service.NewRunService(queries, dbPool, streamer)
-	workspaceSvc := service.NewWorkspaceService(queries, dbPool, store)
+	workspaceSvc := service.NewWorkspaceService(queries, dbPool, store, encryptor)
 
 	// Set up River workers
 	workers := river.NewWorkers()

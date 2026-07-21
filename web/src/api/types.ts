@@ -209,7 +209,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Reveal an org variable's decrypted value (operator) */
+        /** Reveal an org variable's decrypted value (admin) */
         get: operations["revealOrgVariableValue"];
         put?: never;
         post?: never;
@@ -650,7 +650,7 @@ export interface paths {
         /** List pipelines */
         get: operations["listPipelines"];
         put?: never;
-        /** Create a pipeline (operator) */
+        /** Create a pipeline (operator; stage auto_apply needs admin) */
         post: operations["createPipeline"];
         delete?: never;
         options?: never;
@@ -667,7 +667,7 @@ export interface paths {
         };
         /** Get a pipeline with its stages */
         get: operations["getPipeline"];
-        /** Update a pipeline (operator) */
+        /** Update a pipeline (operator; stage auto_apply needs admin) */
         put: operations["updatePipeline"];
         post?: never;
         /** Delete a pipeline (admin) */
@@ -739,7 +739,7 @@ export interface paths {
         /** List pipeline variables */
         get: operations["listPipelineVariables"];
         put?: never;
-        /** Create a pipeline variable (operator) */
+        /** Create a pipeline variable (admin) */
         post: operations["createPipelineVariable"];
         delete?: never;
         options?: never;
@@ -755,10 +755,10 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** Update a pipeline variable (operator) */
+        /** Update a pipeline variable (admin) */
         put: operations["updatePipelineVariable"];
         post?: never;
-        /** Delete a pipeline variable (operator) */
+        /** Delete a pipeline variable (admin) */
         delete: operations["deletePipelineVariable"];
         options?: never;
         head?: never;
@@ -772,7 +772,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Reveal a pipeline variable's decrypted value (operator) */
+        /** Reveal a pipeline variable's decrypted value (admin) */
         get: operations["revealPipelineVariableValue"];
         put?: never;
         post?: never;
@@ -792,7 +792,7 @@ export interface paths {
         /** List workspaces */
         get: operations["listWorkspaces"];
         put?: never;
-        /** Create a workspace (operator) */
+        /** Create a workspace (operator; auto_apply needs admin) */
         post: operations["createWorkspace"];
         delete?: never;
         options?: never;
@@ -848,7 +848,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Clone a workspace with its variables (operator) */
+        /** Clone a workspace with its variables (operator; an auto-applying source needs admin) */
         post: operations["cloneWorkspace"];
         delete?: never;
         options?: never;
@@ -935,7 +935,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Discover the config's variable surface (admin)
+         * Discover the config's variable surface (viewer)
          * @description Parses the staged config (terragrunt render + variables.tf, or plain tofu) and returns every module variable with its configured state. Synchronous; intentionally not list-enveloped.
          */
         post: operations["discoverWorkspaceVariables"];
@@ -971,7 +971,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Import another workspace's outputs as variables (admin) */
+        /** Import another workspace's outputs as variables (admin on both workspaces) */
         post: operations["importWorkspaceOutputs"];
         delete?: never;
         options?: never;
@@ -988,7 +988,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Copy another workspace's variables into this one (admin) */
+        /** Copy another workspace's variables into this one (admin on both workspaces) */
         post: operations["copyWorkspaceVariables"];
         delete?: never;
         options?: never;
@@ -1021,7 +1021,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Reveal a workspace variable's decrypted value (operator) */
+        /** Reveal a workspace variable's decrypted value (admin) */
         get: operations["revealWorkspaceVariableValue"];
         put?: never;
         post?: never;
@@ -1212,7 +1212,7 @@ export interface paths {
         /** List a workspace's runs */
         get: operations["listRuns"];
         put?: never;
-        /** Create a run (role elevates per operation) */
+        /** Create a run (role elevates per operation; apply/destroy on a workspace that requires approval needs admin) */
         post: operations["createRun"];
         delete?: never;
         options?: never;

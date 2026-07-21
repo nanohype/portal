@@ -48,10 +48,13 @@ type approvalAuditRecord struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// List returns a run's approvals, scoped to the caller's org. A run the org
-// can't see is a 404, not an empty list.
-func (s *ApprovalService) List(ctx context.Context, runID, orgID string) ([]repository.Approval, error) {
-	if _, err := s.queries.GetRun(ctx, repository.GetRunParams{ID: runID, OrgID: orgID}); err != nil {
+// List returns a run's approvals. The run is keyed on the workspace the caller
+// was authorized against as well as their org, so a run from another workspace
+// is a 404, not an empty list.
+func (s *ApprovalService) List(ctx context.Context, runID, workspaceID, orgID string) ([]repository.Approval, error) {
+	if _, err := s.queries.GetRunInWorkspace(ctx, repository.GetRunInWorkspaceParams{
+		ID: runID, WorkspaceID: workspaceID, OrgID: orgID,
+	}); err != nil {
 		return nil, apperr.NotFound("run not found")
 	}
 	return s.queries.ListApprovalsByRun(ctx, runID)
@@ -68,7 +71,7 @@ func (s *ApprovalService) List(ctx context.Context, runID, orgID string) ([]repo
 // released (only if this run still holds it) and the next pending run is claimed
 // + enqueued atomically — the same hand-off RunService.Cancel and the worker's
 // finish paths use, so a concurrent reject + cancel can't double-enqueue.
-func (s *ApprovalService) Create(ctx context.Context, runID, orgID, userID, status, comment, ipAddress, userAgent string) (repository.Approval, error) {
+func (s *ApprovalService) Create(ctx context.Context, runID, workspaceID, orgID, userID, status, comment, ipAddress, userAgent string) (repository.Approval, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return repository.Approval{}, fmt.Errorf("begin approval tx: %w", err)
@@ -76,8 +79,12 @@ func (s *ApprovalService) Create(ctx context.Context, runID, orgID, userID, stat
 	defer tx.Rollback(ctx)
 	qtx := s.queries.WithTx(tx)
 
-	// Lock the run row to serialize concurrent approvals.
-	run, err := qtx.GetRunForUpdate(ctx, repository.GetRunParams{ID: runID, OrgID: orgID})
+	// Lock the run row to serialize concurrent approvals. Keyed on the
+	// workspace the caller was authorized against, so an approval can only
+	// release a run of that workspace.
+	run, err := qtx.GetRunInWorkspaceForUpdate(ctx, repository.GetRunInWorkspaceParams{
+		ID: runID, WorkspaceID: workspaceID, OrgID: orgID,
+	})
 	if err != nil {
 		return repository.Approval{}, apperr.NotFound("run not found")
 	}

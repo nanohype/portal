@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/api/client';
+import { useAuth } from '@/hooks/useAuth';
 import { Link } from '@/components/ui/link';
 import { Spinner } from '@/components/ui/spinner';
 import { summarizeFleet } from '@/lib/fleet';
@@ -11,6 +12,9 @@ function opMoving(o: ClusterOperation): boolean {
 }
 
 export function FleetOverview() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin' || user?.role === 'owner';
+
   // Reuse the bare-array ["clusters","list"] key (the ops/accounts convention)
   // — distinct from ClusterList's enveloped ["clusters"] so the shapes can't
   // collide in the query cache.
@@ -32,6 +36,8 @@ export function FleetOverview() {
       if (error) throw error;
       return data?.data ?? [];
     },
+    // Vend orders are admin-only on the API; the cluster list above is not.
+    enabled: isAdmin,
     refetchInterval: (query) => ((query.state.data ?? []).some(opMoving) ? 5000 : false),
   });
 

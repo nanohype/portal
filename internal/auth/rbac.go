@@ -18,6 +18,7 @@ const (
 	ActionDestroyRun      Action = "destroy_run"
 	ActionManageState     Action = "manage_state"
 	ActionManageVars      Action = "manage_vars"
+	ActionRevealSecret    Action = "reveal_secret"
 	ActionManageTeams     Action = "manage_teams"
 	ActionManageOrg       Action = "manage_org"
 	ActionDeleteWorkspace Action = "delete_workspace"
@@ -53,6 +54,11 @@ func minRoleForAction(action Action) string {
 	case ActionDestroyRun, ActionManageState, ActionDeleteWorkspace:
 		return "admin"
 	case ActionManageVars:
+		return "admin"
+	// Handing back the plaintext of a stored secret discloses at least as much
+	// as editing it, so the reveal endpoints sit at the same bar as the writes
+	// rather than a tier below them.
+	case ActionRevealSecret:
 		return "admin"
 	case ActionManageTeams:
 		return "admin"

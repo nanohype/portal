@@ -121,7 +121,10 @@ func seedOrg(t *testing.T, ctx context.Context, slug string) (orgID, userID stri
 func seedWorkspace(t *testing.T, ctx context.Context, orgID, userID string) string {
 	t.Helper()
 	wsID := id()
-	exec(t, ctx, `INSERT INTO workspaces (id,org_id,name,created_by) VALUES ($1,$2,$3,$4)`, wsID, orgID, "ws-"+id()[:8], userID)
+	// Name off the full ULID: workspaces are unique on (org_id, name), and a
+	// ULID prefix is the shared timestamp, so two workspaces seeded in the same
+	// org in the same millisecond would collide.
+	exec(t, ctx, `INSERT INTO workspaces (id,org_id,name,created_by) VALUES ($1,$2,$3,$4)`, wsID, orgID, "ws-"+wsID, userID)
 	return wsID
 }
 
@@ -363,11 +366,14 @@ func TestExpireClusterOperation(t *testing.T) {
 }
 
 // seedTeamMember creates a team in an org and puts a user in it.
-func seedTeamMember(t *testing.T, ctx context.Context, orgID, userID string) string {
+// seedTeamMember creates a team and puts the user in it with the given role
+// within the team. That in-team role caps any grant the team holds, so it is a
+// parameter rather than a fixed value.
+func seedTeamMember(t *testing.T, ctx context.Context, orgID, userID, memberRole string) string {
 	t.Helper()
 	teamID := id()
-	exec(t, ctx, `INSERT INTO teams (id,org_id,name,slug) VALUES ($1,$2,$3,$4)`, teamID, orgID, "team-"+teamID[:8], "team-"+teamID)
-	exec(t, ctx, `INSERT INTO team_members (id,team_id,user_id,role) VALUES ($1,$2,$3,'viewer')`, id(), teamID, userID)
+	exec(t, ctx, `INSERT INTO teams (id,org_id,name,slug) VALUES ($1,$2,$3,$4)`, teamID, orgID, "team-"+teamID, "team-"+teamID)
+	exec(t, ctx, `INSERT INTO team_members (id,team_id,user_id,role) VALUES ($1,$2,$3,$4)`, id(), teamID, userID, memberRole)
 	return teamID
 }
 
@@ -390,18 +396,42 @@ func TestGetWorkspaceTeamRole(t *testing.T) {
 		t.Fatalf("ungranted workspace returned role %q, want empty", role)
 	}
 
-	teamID := seedTeamMember(t, ctx, orgA, userA)
+	teamID := seedTeamMember(t, ctx, orgA, userA, "operator")
 	exec(t, ctx, `INSERT INTO workspace_team_access (id,workspace_id,team_id,role) VALUES ($1,$2,$3,'operator')`, id(), wsID, teamID)
 
 	if role, err = testQueries.GetWorkspaceTeamRole(ctx, wsID, userA, orgA); err != nil || role != "operator" {
 		t.Fatalf("granted workspace returned (%q, %v), want operator", role, err)
 	}
 
-	// A second team grants more: the highest grant wins, not the newest.
-	higherTeam := seedTeamMember(t, ctx, orgA, userA)
+	// The in-team role caps the grant. A team granted operator hands operator to
+	// its operators and viewer to its viewers — the members panel and the
+	// authority a member actually holds say the same thing.
+	cappedUser := id()
+	exec(t, ctx, `INSERT INTO users (id,org_id,email,name,role) VALUES ($1,$2,$3,'U','viewer')`, cappedUser, orgA, cappedUser+"@t.local")
+	exec(t, ctx, `INSERT INTO team_members (id,team_id,user_id,role) VALUES ($1,$2,$3,'viewer')`, id(), teamID, cappedUser)
+	if role, err = testQueries.GetWorkspaceTeamRole(ctx, wsID, cappedUser, orgA); err != nil || role != "viewer" {
+		t.Fatalf("viewer in an operator-granted team returned (%q, %v), want viewer", role, err)
+	}
+
+	// The cap never raises: an admin within a team granted only viewer still
+	// picks up viewer from the grant.
+	lowGrantTeam := seedTeamMember(t, ctx, orgA, cappedUser, "admin")
+	exec(t, ctx, `INSERT INTO workspace_team_access (id,workspace_id,team_id,role) VALUES ($1,$2,$3,'viewer')`, id(), wsID, lowGrantTeam)
+	if role, err = testQueries.GetWorkspaceTeamRole(ctx, wsID, cappedUser, orgA); err != nil || role != "viewer" {
+		t.Fatalf("admin in a viewer-granted team returned (%q, %v), want viewer", role, err)
+	}
+
+	// A second team grants more: the highest capped result wins, not the newest.
+	higherTeam := seedTeamMember(t, ctx, orgA, userA, "admin")
 	exec(t, ctx, `INSERT INTO workspace_team_access (id,workspace_id,team_id,role) VALUES ($1,$2,$3,'admin')`, id(), wsID, higherTeam)
 	if role, err = testQueries.GetWorkspaceTeamRole(ctx, wsID, userA, orgA); err != nil || role != "admin" {
 		t.Fatalf("two grants returned (%q, %v), want the higher one (admin)", role, err)
+	}
+
+	// A grant on one workspace is read only for that workspace.
+	otherWS := seedWorkspace(t, ctx, orgA, userA)
+	if role, err = testQueries.GetWorkspaceTeamRole(ctx, otherWS, userA, orgA); err != nil || role != "" {
+		t.Fatalf("grant leaked to another workspace: (%q, %v), want empty", role, err)
 	}
 
 	// A caller in another org reads no grant even with the exact workspace id.
@@ -412,5 +442,178 @@ func TestGetWorkspaceTeamRole(t *testing.T) {
 	// And a user who is in no granted team reads nothing either.
 	if role, err = testQueries.GetWorkspaceTeamRole(ctx, wsID, userB, orgA); err != nil || role != "" {
 		t.Fatalf("non-member read returned (%q, %v), want empty", role, err)
+	}
+}
+
+// ── workspace-scoped child lookups ──────────────────────────────────────────
+//
+// Every route under /workspaces/{workspaceID}/… is authorized against the
+// workspace in its path. These assert the queries behind those routes agree:
+// a child object addressed through the wrong workspace has to miss, so being
+// authorized on one workspace cannot be spent on another's variables, state, or
+// runs. Org scoping alone does not do it — both workspaces below are in the
+// same org, which is exactly the case the gate cannot see.
+
+func seedVariable(t *testing.T, ctx context.Context, wsID, orgID, key string) string {
+	t.Helper()
+	varID := id()
+	exec(t, ctx, `INSERT INTO workspace_variables (id,workspace_id,org_id,key,value,sensitive,category)
+		VALUES ($1,$2,$3,$4,'secret-value',true,'env')`, varID, wsID, orgID, key)
+	return varID
+}
+
+func seedStateVersion(t *testing.T, ctx context.Context, wsID, orgID, runID string, serial int) string {
+	t.Helper()
+	svID := id()
+	exec(t, ctx, `INSERT INTO state_versions (id,workspace_id,org_id,run_id,serial,state_url)
+		VALUES ($1,$2,$3,$4,$5,'s3://state/x.json')`, svID, wsID, orgID, runID, serial)
+	return svID
+}
+
+func TestWorkspaceVariableIsWorkspaceScoped(t *testing.T) {
+	requireDB(t)
+	ctx := context.Background()
+	orgID, userID := seedOrg(t, ctx, "varscope")
+	victim := seedWorkspace(t, ctx, orgID, userID)
+	attacker := seedWorkspace(t, ctx, orgID, userID)
+	varID := seedVariable(t, ctx, victim, orgID, "aws_secret_access_key")
+
+	// Reading through the owning workspace works.
+	if _, err := testQueries.GetWorkspaceVariable(ctx, repository.GetWorkspaceVariableParams{
+		ID: varID, WorkspaceID: victim, OrgID: orgID,
+	}); err != nil {
+		t.Fatalf("owning workspace should read its own variable, got: %v", err)
+	}
+
+	// Reading the same variable id through another workspace in the same org
+	// must miss — this is the read that returned a decrypted secret.
+	if _, err := testQueries.GetWorkspaceVariable(ctx, repository.GetWorkspaceVariableParams{
+		ID: varID, WorkspaceID: attacker, OrgID: orgID,
+	}); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("cross-workspace variable read must return no rows, got: %v", err)
+	}
+
+	// Writing through another workspace must change nothing.
+	if _, err := testQueries.UpdateWorkspaceVariable(ctx, repository.UpdateWorkspaceVariableParams{
+		ID: varID, WorkspaceID: attacker, OrgID: orgID, Value: "poisoned", Category: "env",
+	}); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("cross-workspace variable update must affect no row, got: %v", err)
+	}
+	after, err := testQueries.GetWorkspaceVariable(ctx, repository.GetWorkspaceVariableParams{
+		ID: varID, WorkspaceID: victim, OrgID: orgID,
+	})
+	if err != nil {
+		t.Fatalf("re-read after blocked update: %v", err)
+	}
+	if after.Value != "secret-value" {
+		t.Fatalf("variable value = %q, want it untouched by the cross-workspace write", after.Value)
+	}
+
+	// Deleting through another workspace must miss and leave the row in place.
+	if _, err := testQueries.DeleteWorkspaceVariable(ctx, repository.DeleteWorkspaceVariableParams{
+		ID: varID, WorkspaceID: attacker, OrgID: orgID,
+	}); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("cross-workspace variable delete must affect no row, got: %v", err)
+	}
+	if _, err := testQueries.GetWorkspaceVariable(ctx, repository.GetWorkspaceVariableParams{
+		ID: varID, WorkspaceID: victim, OrgID: orgID,
+	}); err != nil {
+		t.Fatalf("variable should still exist after a blocked delete, got: %v", err)
+	}
+
+	// The legitimate delete still works.
+	if _, err := testQueries.DeleteWorkspaceVariable(ctx, repository.DeleteWorkspaceVariableParams{
+		ID: varID, WorkspaceID: victim, OrgID: orgID,
+	}); err != nil {
+		t.Fatalf("owning workspace should delete its own variable, got: %v", err)
+	}
+}
+
+func TestStateVersionIsWorkspaceScoped(t *testing.T) {
+	requireDB(t)
+	ctx := context.Background()
+	orgID, userID := seedOrg(t, ctx, "statescope")
+	victim := seedWorkspace(t, ctx, orgID, userID)
+	attacker := seedWorkspace(t, ctx, orgID, userID)
+	runID := seedRun(t, ctx, victim, orgID, userID)
+	svID := seedStateVersion(t, ctx, victim, orgID, runID, 1)
+
+	if _, err := testQueries.GetStateVersion(ctx, repository.GetStateVersionParams{
+		ID: svID, WorkspaceID: victim, OrgID: orgID,
+	}); err != nil {
+		t.Fatalf("owning workspace should read its own state version, got: %v", err)
+	}
+
+	// The download route resolves the blob's location from this row, so a hit
+	// here is a full tfstate — every provider credential in it — handed to a
+	// caller authorized on a different workspace.
+	if _, err := testQueries.GetStateVersion(ctx, repository.GetStateVersionParams{
+		ID: svID, WorkspaceID: attacker, OrgID: orgID,
+	}); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("cross-workspace state version read must return no rows, got: %v", err)
+	}
+}
+
+func TestRunLookupIsWorkspaceScoped(t *testing.T) {
+	requireDB(t)
+	ctx := context.Background()
+	orgID, userID := seedOrg(t, ctx, "runscope")
+	victim := seedWorkspace(t, ctx, orgID, userID)
+	attacker := seedWorkspace(t, ctx, orgID, userID)
+	runID := seedRun(t, ctx, victim, orgID, userID)
+
+	if _, err := testQueries.GetRunInWorkspace(ctx, repository.GetRunInWorkspaceParams{
+		ID: runID, WorkspaceID: victim, OrgID: orgID,
+	}); err != nil {
+		t.Fatalf("owning workspace should read its own run, got: %v", err)
+	}
+	if _, err := testQueries.GetRunInWorkspace(ctx, repository.GetRunInWorkspaceParams{
+		ID: runID, WorkspaceID: attacker, OrgID: orgID,
+	}); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("cross-workspace run read must return no rows, got: %v", err)
+	}
+
+	// Cancelling another workspace's in-flight run is a denial of service
+	// against whoever owns it.
+	if _, err := testQueries.CancelRun(ctx, runID, attacker, orgID); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("cross-workspace cancel must affect no row, got: %v", err)
+	}
+	var status string
+	if err := testPool.QueryRow(ctx, `SELECT status FROM runs WHERE id = $1`, runID).Scan(&status); err != nil {
+		t.Fatalf("read run status: %v", err)
+	}
+	if status != "pending" {
+		t.Fatalf("run status = %q, want it untouched by the cross-workspace cancel", status)
+	}
+
+	// The legitimate cancel still works.
+	if _, err := testQueries.CancelRun(ctx, runID, victim, orgID); err != nil {
+		t.Fatalf("owning workspace should cancel its own run, got: %v", err)
+	}
+}
+
+// The grants panel names teams, so its join is org-scoped like the grant read
+// itself — a row planted against another org's team discloses nothing.
+func TestListWorkspaceTeamAccessIsOrgScoped(t *testing.T) {
+	requireDB(t)
+	ctx := context.Background()
+	orgA, userA := seedOrg(t, ctx, "wtaa")
+	orgB, userB := seedOrg(t, ctx, "wtab")
+	wsID := seedWorkspace(t, ctx, orgA, userA)
+
+	ownTeam := seedTeamMember(t, ctx, orgA, userA, "admin")
+	foreignTeam := seedTeamMember(t, ctx, orgB, userB, "admin")
+	exec(t, ctx, `INSERT INTO workspace_team_access (id,workspace_id,team_id,role) VALUES ($1,$2,$3,'operator')`, id(), wsID, ownTeam)
+	exec(t, ctx, `INSERT INTO workspace_team_access (id,workspace_id,team_id,role) VALUES ($1,$2,$3,'admin')`, id(), wsID, foreignTeam)
+
+	access, err := testQueries.ListWorkspaceTeamAccess(ctx, wsID, orgA)
+	if err != nil {
+		t.Fatalf("list workspace access: %v", err)
+	}
+	if len(access) != 1 {
+		t.Fatalf("got %d grants, want only the caller's own org's team", len(access))
+	}
+	if access[0].TeamID != ownTeam {
+		t.Fatalf("grant team = %q, want %q", access[0].TeamID, ownTeam)
 	}
 }

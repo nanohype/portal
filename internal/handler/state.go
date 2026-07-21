@@ -88,9 +88,10 @@ func (h *StateHandler) GetCurrent(w http.ResponseWriter, r *http.Request) {
 
 func (h *StateHandler) Get(w http.ResponseWriter, r *http.Request) {
 	userCtx := auth.GetUser(r.Context())
+	workspaceID := chi.URLParam(r, "workspaceID")
 	stateID := chi.URLParam(r, "stateID")
 
-	sv, err := h.svc.Version(r.Context(), stateID, userCtx.OrgID)
+	sv, err := h.svc.Version(r.Context(), stateID, workspaceID, userCtx.OrgID)
 	if err != nil {
 		respond.FromError(w, r, err)
 		return
@@ -100,9 +101,13 @@ func (h *StateHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 func (h *StateHandler) Download(w http.ResponseWriter, r *http.Request) {
 	userCtx := auth.GetUser(r.Context())
+	workspaceID := chi.URLParam(r, "workspaceID")
 	stateID := chi.URLParam(r, "stateID")
 
-	_, data, err := h.svc.Download(r.Context(), stateID, userCtx.OrgID)
+	// The blob is the workspace's whole tfstate. It is fetched by the workspace
+	// this request was authorized against, so a state-version id from another
+	// workspace is a 404.
+	_, data, err := h.svc.Download(r.Context(), stateID, workspaceID, userCtx.OrgID)
 	if err != nil {
 		respond.FromError(w, r, err)
 		return

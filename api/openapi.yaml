@@ -256,7 +256,7 @@ paths:
   /variables/{variableId}/value:
     get:
       operationId: revealOrgVariableValue
-      summary: Reveal an org variable's decrypted value (operator)
+      summary: Reveal an org variable's decrypted value (admin)
       parameters:
         - { name: variableId, in: path, required: true, schema: { type: string } }
       responses:
@@ -892,7 +892,7 @@ paths:
         default: { $ref: "#/components/responses/Error" }
     post:
       operationId: createPipeline
-      summary: Create a pipeline (operator)
+      summary: Create a pipeline (operator; stage auto_apply needs admin)
       requestBody:
         required: true
         content:
@@ -921,7 +921,7 @@ paths:
         default: { $ref: "#/components/responses/Error" }
     put:
       operationId: updatePipeline
-      summary: Update a pipeline (operator)
+      summary: Update a pipeline (operator; stage auto_apply needs admin)
       parameters:
         - { name: pipelineId, in: path, required: true, schema: { type: string } }
       requestBody:
@@ -1018,7 +1018,7 @@ paths:
         default: { $ref: "#/components/responses/Error" }
     post:
       operationId: createPipelineVariable
-      summary: Create a pipeline variable (operator)
+      summary: Create a pipeline variable (admin)
       parameters:
         - { name: pipelineId, in: path, required: true, schema: { type: string } }
       requestBody:
@@ -1037,7 +1037,7 @@ paths:
   /pipelines/{pipelineId}/variables/{variableId}:
     put:
       operationId: updatePipelineVariable
-      summary: Update a pipeline variable (operator)
+      summary: Update a pipeline variable (admin)
       parameters:
         - { name: pipelineId, in: path, required: true, schema: { type: string } }
         - { name: variableId, in: path, required: true, schema: { type: string } }
@@ -1055,7 +1055,7 @@ paths:
         default: { $ref: "#/components/responses/Error" }
     delete:
       operationId: deletePipelineVariable
-      summary: Delete a pipeline variable (operator)
+      summary: Delete a pipeline variable (admin)
       parameters:
         - { name: pipelineId, in: path, required: true, schema: { type: string } }
         - { name: variableId, in: path, required: true, schema: { type: string } }
@@ -1066,7 +1066,7 @@ paths:
   /pipelines/{pipelineId}/variables/{variableId}/value:
     get:
       operationId: revealPipelineVariableValue
-      summary: Reveal a pipeline variable's decrypted value (operator)
+      summary: Reveal a pipeline variable's decrypted value (admin)
       parameters:
         - { name: pipelineId, in: path, required: true, schema: { type: string } }
         - { name: variableId, in: path, required: true, schema: { type: string } }
@@ -1096,7 +1096,7 @@ paths:
         default: { $ref: "#/components/responses/Error" }
     post:
       operationId: createWorkspace
-      summary: Create a workspace (operator)
+      summary: Create a workspace (operator; auto_apply needs admin)
       requestBody:
         required: true
         content:
@@ -1185,7 +1185,7 @@ paths:
   /workspaces/{workspaceId}/clone:
     post:
       operationId: cloneWorkspace
-      summary: Clone a workspace with its variables (operator)
+      summary: Clone a workspace with its variables (operator; an auto-applying source needs admin)
       parameters:
         - { name: workspaceId, in: path, required: true, schema: { type: string } }
       requestBody:
@@ -1280,7 +1280,7 @@ paths:
   /workspaces/{workspaceId}/variables/discover:
     post:
       operationId: discoverWorkspaceVariables
-      summary: Discover the config's variable surface (admin)
+      summary: Discover the config's variable surface (viewer)
       description: >
         Parses the staged config (terragrunt render + variables.tf, or plain
         tofu) and returns every module variable with its configured state.
@@ -1327,7 +1327,7 @@ paths:
   /workspaces/{workspaceId}/variables/import-outputs:
     post:
       operationId: importWorkspaceOutputs
-      summary: Import another workspace's outputs as variables (admin)
+      summary: Import another workspace's outputs as variables (admin on both workspaces)
       parameters:
         - { name: workspaceId, in: path, required: true, schema: { type: string } }
       requestBody:
@@ -1352,7 +1352,7 @@ paths:
   /workspaces/{workspaceId}/variables/copy:
     post:
       operationId: copyWorkspaceVariables
-      summary: Copy another workspace's variables into this one (admin)
+      summary: Copy another workspace's variables into this one (admin on both workspaces)
       parameters:
         - { name: workspaceId, in: path, required: true, schema: { type: string } }
       requestBody:
@@ -1406,7 +1406,7 @@ paths:
   /workspaces/{workspaceId}/variables/{variableId}/value:
     get:
       operationId: revealWorkspaceVariableValue
-      summary: Reveal a workspace variable's decrypted value (operator)
+      summary: Reveal a workspace variable's decrypted value (admin)
       parameters:
         - { name: workspaceId, in: path, required: true, schema: { type: string } }
         - { name: variableId, in: path, required: true, schema: { type: string } }
@@ -1618,7 +1618,7 @@ paths:
         default: { $ref: "#/components/responses/Error" }
     post:
       operationId: createRun
-      summary: Create a run (role elevates per operation)
+      summary: Create a run (role elevates per operation; apply/destroy on a workspace that requires approval needs admin)
       parameters:
         - { name: workspaceId, in: path, required: true, schema: { type: string } }
       requestBody:

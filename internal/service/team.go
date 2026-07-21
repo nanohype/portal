@@ -8,6 +8,7 @@ import (
 	"github.com/oklog/ulid/v2"
 
 	"github.com/nanohype/portal/internal/apperr"
+	"github.com/nanohype/portal/internal/auth"
 	"github.com/nanohype/portal/internal/repository"
 )
 
@@ -88,8 +89,20 @@ type AddTeamMemberParams struct {
 	CloudIdentity string
 }
 
+// userInOrg keeps membership inside the org. team_members has no org_id and its
+// foreign key only requires the user to exist, so the check has to be explicit.
+func (s *TeamService) userInOrg(ctx context.Context, userID, orgID string) error {
+	if _, err := s.queries.GetUserRole(ctx, userID, orgID); err != nil {
+		return apperr.Wrap(apperr.KindNotFound, "user not found", err)
+	}
+	return nil
+}
+
 func (s *TeamService) AddMember(ctx context.Context, params AddTeamMemberParams) (repository.TeamMember, error) {
 	if _, err := s.Get(ctx, params.TeamID, params.OrgID); err != nil {
+		return repository.TeamMember{}, err
+	}
+	if err := s.userInOrg(ctx, params.UserID, params.OrgID); err != nil {
 		return repository.TeamMember{}, err
 	}
 
@@ -112,6 +125,9 @@ type UpdateTeamMemberParams struct {
 
 func (s *TeamService) UpdateMember(ctx context.Context, params UpdateTeamMemberParams) (repository.TeamMember, error) {
 	if _, err := s.Get(ctx, params.TeamID, params.OrgID); err != nil {
+		return repository.TeamMember{}, err
+	}
+	if err := s.userInOrg(ctx, params.UserID, params.OrgID); err != nil {
 		return repository.TeamMember{}, err
 	}
 
@@ -147,7 +163,7 @@ func (s *TeamService) ListWorkspaceAccess(ctx context.Context, workspaceID, orgI
 	if err := s.workspaceExists(ctx, workspaceID, orgID); err != nil {
 		return nil, err
 	}
-	return s.queries.ListWorkspaceTeamAccess(ctx, workspaceID)
+	return s.queries.ListWorkspaceTeamAccess(ctx, workspaceID, orgID)
 }
 
 type SetWorkspaceAccessParams struct {
@@ -155,11 +171,31 @@ type SetWorkspaceAccessParams struct {
 	OrgID       string
 	TeamID      string
 	Role        string
+	// GranterRole is the org role of the caller writing the grant. A grant is
+	// authority handed to other people, so it is capped at what the granter
+	// holds themselves.
+	GranterRole string
 }
 
+// SetWorkspaceAccess writes a team's grant on a workspace.
+//
+// Both sides are org-scoped: the workspace, and the team the grant names.
+// workspace_team_access has no org_id of its own and its foreign key only
+// requires the team to exist somewhere, so without the team check an admin
+// could plant a row naming another org's team.
+//
+// The granted role may not exceed the granter's own. Nothing today reads an
+// owner-level workspace grant, but an admin minting one would be handing out
+// authority above their own the moment a route required it.
 func (s *TeamService) SetWorkspaceAccess(ctx context.Context, params SetWorkspaceAccessParams) (repository.WorkspaceTeamAccess, error) {
 	if err := s.workspaceExists(ctx, params.WorkspaceID, params.OrgID); err != nil {
 		return repository.WorkspaceTeamAccess{}, err
+	}
+	if _, err := s.Get(ctx, params.TeamID, params.OrgID); err != nil {
+		return repository.WorkspaceTeamAccess{}, err
+	}
+	if auth.MaxRole(params.GranterRole, params.Role) != params.GranterRole {
+		return repository.WorkspaceTeamAccess{}, apperr.Forbidden("cannot grant a role above your own")
 	}
 
 	return s.queries.SetWorkspaceTeamAccess(ctx, repository.SetWorkspaceTeamAccessParams{
@@ -168,14 +204,6 @@ func (s *TeamService) SetWorkspaceAccess(ctx context.Context, params SetWorkspac
 		TeamID:      params.TeamID,
 		Role:        params.Role,
 	})
-}
-
-// WorkspaceTeamRole reports the highest role the user's teams hold on one
-// workspace, or "" when no grant applies. It is the read side of
-// workspace_team_access: auth.RequireWorkspaceRole combines the result with
-// the caller's org role to decide a workspace-scoped request.
-func (s *TeamService) WorkspaceTeamRole(ctx context.Context, workspaceID, userID, orgID string) (string, error) {
-	return s.queries.GetWorkspaceTeamRole(ctx, workspaceID, userID, orgID)
 }
 
 func (s *TeamService) RemoveWorkspaceAccess(ctx context.Context, workspaceID, orgID, teamID string) error {

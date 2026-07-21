@@ -50,9 +50,13 @@ func (s *StateService) Latest(ctx context.Context, workspaceID, orgID string) (r
 	return sv, err
 }
 
-// Version returns a single state version by ID.
-func (s *StateService) Version(ctx context.Context, stateID, orgID string) (repository.StateVersion, error) {
-	sv, err := s.queries.GetStateVersion(ctx, repository.GetStateVersionParams{ID: stateID, OrgID: orgID})
+// Version returns a single state version of one workspace. The workspace is
+// part of the key: the route is authorized against the workspace in its path,
+// so a state-version id from elsewhere in the org has to miss.
+func (s *StateService) Version(ctx context.Context, stateID, workspaceID, orgID string) (repository.StateVersion, error) {
+	sv, err := s.queries.GetStateVersion(ctx, repository.GetStateVersionParams{
+		ID: stateID, WorkspaceID: workspaceID, OrgID: orgID,
+	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return sv, apperr.NotFound("state version not found")
 	}
@@ -60,8 +64,8 @@ func (s *StateService) Version(ctx context.Context, stateID, orgID string) (repo
 }
 
 // Download returns a state version's metadata and its raw tfstate blob.
-func (s *StateService) Download(ctx context.Context, stateID, orgID string) (repository.StateVersion, []byte, error) {
-	sv, err := s.Version(ctx, stateID, orgID)
+func (s *StateService) Download(ctx context.Context, stateID, workspaceID, orgID string) (repository.StateVersion, []byte, error) {
+	sv, err := s.Version(ctx, stateID, workspaceID, orgID)
 	if err != nil {
 		return sv, nil, err
 	}

@@ -23,7 +23,7 @@ func TestApprovalServiceCreate(t *testing.T) {
 		runID := seedPlannedRun(t, ctx, wsID, orgID, userID)
 		mustClaim(t, ctx, wsID, orgID, runID)
 
-		ap, err := svc.Create(ctx, runID, orgID, userID, "approved", "lgtm", "1.2.3.4", "test-agent")
+		ap, err := svc.Create(ctx, runID, wsID, orgID, userID, "approved", "lgtm", "1.2.3.4", "test-agent")
 		if err != nil {
 			t.Fatalf("approve: %v", err)
 		}
@@ -52,7 +52,7 @@ func TestApprovalServiceCreate(t *testing.T) {
 		next := seedPlannedRun(t, ctx, wsID, orgID, userID)
 		mustClaim(t, ctx, wsID, orgID, runID)
 
-		if _, err := svc.Create(ctx, runID, orgID, userID, "rejected", "no", "1.2.3.4", "test-agent"); err != nil {
+		if _, err := svc.Create(ctx, runID, wsID, orgID, userID, "rejected", "no", "1.2.3.4", "test-agent"); err != nil {
 			t.Fatalf("reject: %v", err)
 		}
 		if got := runStatus(t, ctx, runID); got != "discarded" {
@@ -70,7 +70,7 @@ func TestApprovalServiceCreate(t *testing.T) {
 		runID := seedPlannedRun(t, ctx, wsID, orgID, userID)
 		exec(t, ctx, `UPDATE runs SET status='applied' WHERE id=$1`, runID)
 
-		_, err := svc.Create(ctx, runID, orgID, userID, "approved", "", "", "")
+		_, err := svc.Create(ctx, runID, wsID, orgID, userID, "approved", "", "", "")
 		if apperr.KindOf(err) != apperr.KindConflict {
 			t.Fatalf("want KindConflict, got %v (kind %v)", err, apperr.KindOf(err))
 		}
@@ -80,9 +80,35 @@ func TestApprovalServiceCreate(t *testing.T) {
 		runID := seedPlannedRun(t, ctx, wsID, orgID, userID)
 		otherOrg, otherUser := seedOrg(t, ctx, "appr-other")
 
-		_, err := svc.Create(ctx, runID, otherOrg, otherUser, "approved", "", "", "")
+		_, err := svc.Create(ctx, runID, wsID, otherOrg, otherUser, "approved", "", "", "")
 		if apperr.KindOf(err) != apperr.KindNotFound {
 			t.Fatalf("want KindNotFound for cross-org, got %v (kind %v)", err, apperr.KindOf(err))
+		}
+	})
+
+	// The approval route lives under /workspaces/{workspaceID}/runs/{runID}, so
+	// the run has to belong to the workspace the caller was authorized on.
+	// Approving releases a gated apply; naming another workspace's run must not
+	// reach it.
+	t.Run("a run on another workspace is not found", func(t *testing.T) {
+		runID := seedPlannedRun(t, ctx, wsID, orgID, userID)
+		otherWS := seedWorkspace(t, ctx, orgID, userID)
+
+		_, err := svc.Create(ctx, runID, otherWS, orgID, userID, "approved", "", "", "")
+		if apperr.KindOf(err) != apperr.KindNotFound {
+			t.Fatalf("want KindNotFound for cross-workspace, got %v (kind %v)", err, apperr.KindOf(err))
+		}
+		if got := runStatus(t, ctx, runID); got != "planned" {
+			t.Errorf("run status = %q, want planned (the run must not have been released)", got)
+		}
+	})
+
+	t.Run("listing approvals of another workspace's run is not found", func(t *testing.T) {
+		runID := seedPlannedRun(t, ctx, wsID, orgID, userID)
+		otherWS := seedWorkspace(t, ctx, orgID, userID)
+
+		if _, err := svc.List(ctx, runID, otherWS, orgID); apperr.KindOf(err) != apperr.KindNotFound {
+			t.Fatalf("want KindNotFound for cross-workspace list, got %v (kind %v)", err, apperr.KindOf(err))
 		}
 	})
 }

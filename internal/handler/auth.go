@@ -240,7 +240,7 @@ func (h *AuthHandler) GitHubCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Generate JWT
-	jwtToken, err := h.jwt.GenerateToken(user.ID, user.OrgID, user.Email, user.Role)
+	jwtToken, err := h.jwt.GenerateToken(user.ID, user.OrgID, user.Email)
 	if err != nil {
 		respond.Error(w, http.StatusInternalServerError, "failed to generate token")
 		return
@@ -327,7 +327,7 @@ func (h *AuthHandler) DevLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := h.jwt.GenerateToken(user.ID, user.OrgID, user.Email, user.Role)
+	token, err := h.jwt.GenerateToken(user.ID, user.OrgID, user.Email)
 	if err != nil {
 		respond.Error(w, http.StatusInternalServerError, "failed to generate token")
 		return

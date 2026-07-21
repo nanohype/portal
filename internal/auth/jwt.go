@@ -7,11 +7,14 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+// Claims is the signed identity portal issues. It answers "who is calling",
+// and nothing else: authority is resolved per request from the users table (see
+// Middleware.Authenticate), so a role change takes effect immediately instead
+// of waiting out the token's lifetime.
 type Claims struct {
 	UserID string `json:"user_id"`
 	OrgID  string `json:"org_id"`
 	Email  string `json:"email"`
-	Role   string `json:"role"`
 	jwt.RegisteredClaims
 }
 
@@ -27,12 +30,11 @@ func NewJWTAuth(secret string, expiration time.Duration) *JWTAuth {
 	}
 }
 
-func (j *JWTAuth) GenerateToken(userID, orgID, email, role string) (string, error) {
+func (j *JWTAuth) GenerateToken(userID, orgID, email string) (string, error) {
 	claims := &Claims{
 		UserID: userID,
 		OrgID:  orgID,
 		Email:  email,
-		Role:   role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(j.expiration)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),

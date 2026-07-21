@@ -64,7 +64,7 @@ func RequireWorkspaceRole(resolver WorkspaceRoleResolver, minRole string) func(h
 				return
 			}
 
-			effective := MaxRole(user.Role, workspaceGrant(r, resolver, user))
+			effective := EffectiveWorkspaceRole(r.Context(), resolver, user, chi.URLParam(r, "workspaceID"))
 			if roleLevel(effective) < roleLevel(minRole) {
 				respond.Error(w, http.StatusForbidden, "requires "+minRole+" role or higher on this workspace")
 				return
@@ -76,22 +76,29 @@ func RequireWorkspaceRole(resolver WorkspaceRoleResolver, minRole string) func(h
 	}
 }
 
-// workspaceGrant resolves the caller's team grant on the request's workspace.
-// Every failure path returns "" — no elevation — so an unavailable grant can
-// only ever deny, never allow. The lookup runs on every workspace request
-// rather than only when the org role falls short, so downstream handlers can
-// read the fully resolved role off the context (see WorkspaceRole).
-func workspaceGrant(r *http.Request, resolver WorkspaceRoleResolver, user *UserContext) string {
-	workspaceID := chi.URLParam(r, "workspaceID")
-	if workspaceID == "" || resolver == nil {
+// EffectiveWorkspaceRole returns the caller's role on ONE named workspace: the
+// higher of their org role and the best grant their teams hold there.
+//
+// The middleware covers the workspace in the URL. This is for the handful of
+// endpoints that also address a SECOND workspace named in the request body —
+// copying variables out of one workspace, importing another's outputs. Those
+// have to be authorized against the workspace they read, not only the one they
+// write, or the body becomes a way to reach past the gate.
+//
+// Every failure path yields no elevation, so an unreadable grant can only deny.
+func EffectiveWorkspaceRole(ctx context.Context, resolver WorkspaceRoleResolver, user *UserContext, workspaceID string) string {
+	if user == nil {
 		return ""
+	}
+	if workspaceID == "" || resolver == nil {
+		return user.Role
 	}
 
-	granted, err := resolver.WorkspaceTeamRole(r.Context(), workspaceID, user.UserID, user.OrgID)
+	granted, err := resolver.WorkspaceTeamRole(ctx, workspaceID, user.UserID, user.OrgID)
 	if err != nil {
-		slog.ErrorContext(r.Context(), "workspace team grant lookup failed, denying elevation",
+		slog.ErrorContext(ctx, "workspace team grant lookup failed, denying elevation",
 			"workspace_id", workspaceID, "user_id", user.UserID, "error", err)
-		return ""
+		return user.Role
 	}
-	return granted
+	return MaxRole(user.Role, granted)
 }

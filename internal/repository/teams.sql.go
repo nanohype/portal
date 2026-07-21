@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -227,11 +228,14 @@ func (q *Queries) SetWorkspaceTeamAccess(ctx context.Context, arg SetWorkspaceTe
 	return a, err
 }
 
-func (q *Queries) ListWorkspaceTeamAccess(ctx context.Context, workspaceID string) ([]WorkspaceTeamAccess, error) {
+// ListWorkspaceTeamAccess returns a workspace's grants. The teams join is
+// org-scoped like the read side of the grant itself, so the panel can only ever
+// name teams from the caller's own org.
+func (q *Queries) ListWorkspaceTeamAccess(ctx context.Context, workspaceID, orgID string) ([]WorkspaceTeamAccess, error) {
 	rows, err := q.db.Query(ctx,
 		`SELECT wta.id, wta.workspace_id, wta.team_id, wta.role, wta.created_at, t.name, t.slug
 		FROM workspace_team_access wta JOIN teams t ON t.id = wta.team_id
-		WHERE wta.workspace_id = $1 ORDER BY t.name`, workspaceID,
+		WHERE wta.workspace_id = $1 AND t.org_id = $2 ORDER BY t.name`, workspaceID, orgID,
 	)
 	if err != nil {
 		return nil, err
@@ -296,23 +300,40 @@ func (q *Queries) ListApprovalsByRun(ctx context.Context, runID string) ([]Appro
 	return approvals, rows.Err()
 }
 
-// GetWorkspaceTeamRole returns the highest workspace_team_access role held by
-// any team the user belongs to on one workspace, or "" when no grant applies.
+// roleLevelSQL maps a user_role column to the same numeric ladder
+// auth.roleLevel uses, so ordering and capping happen on one scale.
+const roleLevelSQL = `CASE %s WHEN 'owner' THEN 4 WHEN 'admin' THEN 3 WHEN 'operator' THEN 2 WHEN 'viewer' THEN 1 ELSE 0 END`
+
+// GetWorkspaceTeamRole returns the role a user picks up on one workspace
+// through workspace_team_access, or "" when no grant applies.
+//
+// A grant names a team; a membership names what that person is within the team.
+// The effective grant is the LOWER of the two, so a team granted operator on a
+// workspace hands operator to its operators and viewer to its viewers. Reading
+// only the grant would mean the members panel says "viewer" while the person
+// holds operator, and the only way to reduce anyone would be to remove them
+// from the team.
+//
+// A user on several granted teams keeps the best of those capped results.
 //
 // Both the workspace and the granting team are matched against the caller's
-// org. workspace_team_access carries no org_id of its own, so without those
-// two joins a grant could be read across an org boundary.
+// org. workspace_team_access carries no org_id of its own, so without those two
+// joins a grant could be read across an org boundary.
 func (q *Queries) GetWorkspaceTeamRole(ctx context.Context, workspaceID, userID, orgID string) (string, error) {
+	grantLevel := fmt.Sprintf(roleLevelSQL, "wta.role")
+	memberLevel := fmt.Sprintf(roleLevelSQL, "tm.role")
+	effective := "LEAST(" + grantLevel + ", " + memberLevel + ")"
+
 	row := q.db.QueryRow(ctx,
-		`SELECT wta.role::text
+		`SELECT CASE `+effective+`
+			WHEN 4 THEN 'owner' WHEN 3 THEN 'admin' WHEN 2 THEN 'operator' WHEN 1 THEN 'viewer' ELSE ''
+		END
 		FROM workspace_team_access wta
 		JOIN team_members tm ON tm.team_id = wta.team_id
 		JOIN teams t ON t.id = wta.team_id
 		JOIN workspaces w ON w.id = wta.workspace_id
 		WHERE wta.workspace_id = $1 AND tm.user_id = $2 AND t.org_id = $3 AND w.org_id = $3
-		ORDER BY CASE wta.role
-			WHEN 'owner' THEN 4 WHEN 'admin' THEN 3 WHEN 'operator' THEN 2 WHEN 'viewer' THEN 1 ELSE 0
-		END DESC
+		ORDER BY `+effective+` DESC
 		LIMIT 1`,
 		workspaceID, userID, orgID,
 	)

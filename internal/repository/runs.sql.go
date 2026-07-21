@@ -34,6 +34,37 @@ func (q *Queries) GetRunForUpdate(ctx context.Context, arg GetRunParams) (Run, e
 	return scanRun(row)
 }
 
+// GetRunInWorkspaceParams keys a run by the workspace it belongs to as well as
+// its org.
+type GetRunInWorkspaceParams struct {
+	ID          string `json:"id"`
+	WorkspaceID string `json:"workspace_id"`
+	OrgID       string `json:"org_id"`
+}
+
+// GetRunInWorkspace is the lookup for HTTP routes under
+// /workspaces/{workspaceID}/runs/{runID}: those are authorized against the
+// workspace in the path, so the run has to belong to it. GetRun (org-scoped)
+// stays for the worker and the pipeline advance path, which hold a run id
+// straight off the job args and have no workspace in hand to check against.
+func (q *Queries) GetRunInWorkspace(ctx context.Context, arg GetRunInWorkspaceParams) (Run, error) {
+	row := q.db.QueryRow(ctx,
+		`SELECT `+runColumns+` FROM runs WHERE id = $1 AND workspace_id = $2 AND org_id = $3`,
+		arg.ID, arg.WorkspaceID, arg.OrgID,
+	)
+	return scanRun(row)
+}
+
+// GetRunInWorkspaceForUpdate is GetRunInWorkspace with the row lock the
+// approval transaction takes.
+func (q *Queries) GetRunInWorkspaceForUpdate(ctx context.Context, arg GetRunInWorkspaceParams) (Run, error) {
+	row := q.db.QueryRow(ctx,
+		`SELECT `+runColumns+` FROM runs WHERE id = $1 AND workspace_id = $2 AND org_id = $3 FOR UPDATE`,
+		arg.ID, arg.WorkspaceID, arg.OrgID,
+	)
+	return scanRun(row)
+}
+
 type ListRunsByWorkspaceParams struct {
 	WorkspaceID string `json:"workspace_id"`
 	OrgID       string `json:"org_id"`
@@ -132,15 +163,19 @@ func (q *Queries) UpdateRunStatus(ctx context.Context, arg UpdateRunStatusParams
 	return scanRun(row)
 }
 
-// CancelRun atomically sets status to 'cancelled' only if the run is in a cancellable state.
-// Returns pgx.ErrNoRows if the run was already in a terminal status.
-func (q *Queries) CancelRun(ctx context.Context, id, orgID string) (Run, error) {
+// CancelRun atomically sets status to 'cancelled' only if the run is in a
+// cancellable state and belongs to the named workspace. Returns pgx.ErrNoRows
+// if the run was already in a terminal status, does not exist, or lives on a
+// different workspace — the caller cannot tell those apart, which is the point:
+// cancelling is reachable through the workspace that was authorized, and no
+// other.
+func (q *Queries) CancelRun(ctx context.Context, id, workspaceID, orgID string) (Run, error) {
 	row := q.db.QueryRow(ctx,
 		`UPDATE runs SET status = 'cancelled', updated_at = NOW()
-		WHERE id = $1 AND org_id = $2
+		WHERE id = $1 AND workspace_id = $2 AND org_id = $3
 		AND status IN ('pending', 'queued', 'planning', 'planned', 'applying', 'awaiting_approval')
 		RETURNING `+runColumns,
-		id, orgID,
+		id, workspaceID, orgID,
 	)
 	return scanRun(row)
 }

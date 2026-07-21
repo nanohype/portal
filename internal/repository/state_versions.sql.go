@@ -34,14 +34,20 @@ func (q *Queries) CreateStateVersion(ctx context.Context, arg CreateStateVersion
 }
 
 type GetStateVersionParams struct {
-	ID    string `json:"id"`
-	OrgID string `json:"org_id"`
+	ID          string `json:"id"`
+	WorkspaceID string `json:"workspace_id"`
+	OrgID       string `json:"org_id"`
 }
 
+// GetStateVersion returns one state version of one workspace. The workspace is
+// part of the key, not just the org: the route that reaches this is authorized
+// against the workspace in its path, and a tfstate blob carries every provider
+// credential the run used, so a state-version id belonging to a different
+// workspace must miss rather than resolve.
 func (q *Queries) GetStateVersion(ctx context.Context, arg GetStateVersionParams) (StateVersion, error) {
 	row := q.db.QueryRow(ctx,
-		`SELECT `+stateVersionColumns+` FROM state_versions WHERE id = $1 AND org_id = $2`,
-		arg.ID, arg.OrgID,
+		`SELECT `+stateVersionColumns+` FROM state_versions WHERE id = $1 AND workspace_id = $2 AND org_id = $3`,
+		arg.ID, arg.WorkspaceID, arg.OrgID,
 	)
 	return scanStateVersion(row)
 }

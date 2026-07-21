@@ -226,7 +226,12 @@ func (s *seeder) seed() {
 	mem(tPlatform, admin, "admin", "")
 	mem(tPlatform, op1, "operator", "")
 	mem(tData, op2, "operator", "arn:aws:iam::222222222222:role/data-eng")
-	mem(tData, viewer, "viewer", "")
+	// Robin is an org viewer but an operator inside Data Engineering. A team
+	// grant is capped by the member's role within that team, so this is what
+	// makes the data-eng grant below actually raise Robin on that one
+	// workspace — and their viewer membership in Security below is what keeps
+	// any grant Security holds down at viewer for them.
+	mem(tData, viewer, "operator", "")
 	mem(tSec, admin, "admin", "")
 	mem(tSec, viewer, "viewer", "")
 
@@ -538,6 +543,10 @@ func (s *seeder) seed() {
 	orgVar("slack_webhook_url", s.enc8("https://hooks.slack.com/services/T000/B000/secret"), "terraform", true, "Notifications webhook (sensitive)")
 
 	// access pivots -----------------------------------------------------------
+	// A workspace grant raises what a team may do on ONE workspace, capped by
+	// each member's role inside that team. Data Engineering holds operator on
+	// wss[4], so Robin (org viewer, team operator) is an operator there and a
+	// viewer everywhere else.
 	s.ins("workspace_team_access", map[string]any{"id": id(), "workspace_id": wss[6].id, "team_id": tPlatform, "role": "operator", "created_at": s.ago(10 * d)})
 	s.ins("workspace_team_access", map[string]any{"id": id(), "workspace_id": wss[4].id, "team_id": tData, "role": "operator", "created_at": s.ago(10 * d)})
 	s.ins("tenant_team_access", map[string]any{"id": id(), "org_id": orgID, "cluster_id": cData, "tenant_name": "data-ingest", "team_id": tData, "granted_by": admin, "granted_at": s.ago(10 * d)})

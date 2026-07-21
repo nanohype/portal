@@ -57,9 +57,10 @@ type ApprovalRequest struct {
 
 func (h *ApprovalHandler) List(w http.ResponseWriter, r *http.Request) {
 	userCtx := auth.GetUser(r.Context())
+	workspaceID := chi.URLParam(r, "workspaceID")
 	runID := chi.URLParam(r, "runID")
 
-	approvals, err := h.svc.List(r.Context(), runID, userCtx.OrgID)
+	approvals, err := h.svc.List(r.Context(), runID, workspaceID, userCtx.OrgID)
 	if err != nil {
 		respond.FromError(w, r, err)
 		return
@@ -73,6 +74,7 @@ func (h *ApprovalHandler) List(w http.ResponseWriter, r *http.Request) {
 
 func (h *ApprovalHandler) Create(w http.ResponseWriter, r *http.Request) {
 	userCtx := auth.GetUser(r.Context())
+	workspaceID := chi.URLParam(r, "workspaceID")
 	runID := chi.URLParam(r, "runID")
 
 	var req ApprovalRequest
@@ -88,7 +90,7 @@ func (h *ApprovalHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// IP/UA are threaded into the service so the audit row is written inside the
 	// same transaction as the decision — see ApprovalService.Create.
 	ip, ua := auditContext(r)
-	approval, err := h.svc.Create(r.Context(), runID, userCtx.OrgID, userCtx.UserID, req.Status, req.Comment, ip, ua)
+	approval, err := h.svc.Create(r.Context(), runID, workspaceID, userCtx.OrgID, userCtx.UserID, req.Status, req.Comment, ip, ua)
 	if err != nil {
 		respond.FromError(w, r, err)
 		return

@@ -203,11 +203,20 @@ func (h *PipelineHandler) Create(w http.ResponseWriter, r *http.Request) {
 			respond.Error(w, http.StatusBadRequest, "on_failure must be 'stop' or 'continue'")
 			return
 		}
+		// A stage's auto_apply overrides the workspace's own setting for that
+		// run, so writing it is the same act as flipping auto_apply on the
+		// workspace and carries the same bar. (A workspace that requires
+		// approval still parks the run for a human — the override cannot open
+		// that gate — but an ungated workspace would apply for real.)
+		if s.AutoApply && !auth.CanPerform(userCtx.Role, auth.ActionApplyProd) {
+			respond.Error(w, http.StatusForbidden, "setting auto_apply on a stage requires admin role or higher")
+			return
+		}
 	}
 
 	pipeline, err := h.pipelineSvc.Create(r.Context(), userCtx.OrgID, req.Name, req.Description, userCtx.UserID, req.Stages)
 	if err != nil {
-		respond.Error(w, http.StatusInternalServerError, "failed to create pipeline")
+		respond.FromError(w, r, err)
 		return
 	}
 
@@ -275,11 +284,20 @@ func (h *PipelineHandler) Update(w http.ResponseWriter, r *http.Request) {
 			respond.Error(w, http.StatusBadRequest, "on_failure must be 'stop' or 'continue'")
 			return
 		}
+		// A stage's auto_apply overrides the workspace's own setting for that
+		// run, so writing it is the same act as flipping auto_apply on the
+		// workspace and carries the same bar. (A workspace that requires
+		// approval still parks the run for a human — the override cannot open
+		// that gate — but an ungated workspace would apply for real.)
+		if s.AutoApply && !auth.CanPerform(userCtx.Role, auth.ActionApplyProd) {
+			respond.Error(w, http.StatusForbidden, "setting auto_apply on a stage requires admin role or higher")
+			return
+		}
 	}
 
 	pipeline, err := h.pipelineSvc.Update(r.Context(), pipelineID, userCtx.OrgID, req.Name, req.Description, req.Stages)
 	if err != nil {
-		respond.Error(w, http.StatusInternalServerError, "failed to update pipeline")
+		respond.FromError(w, r, err)
 		return
 	}
 

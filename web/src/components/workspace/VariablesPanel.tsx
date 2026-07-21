@@ -75,8 +75,13 @@ export function VariablesPanel({ workspaceId, role }: Props) {
   // Variable writes feed the worker's tfvars file and process environment, so
   // the API holds them at admin. Reads stay open, with values redacted.
   const canManage = roleAtLeast(role, 'admin');
-  // Revealing a stored secret is one tier lower, matching the reveal endpoint.
-  const canReveal = roleAtLeast(role, 'operator');
+  // Handing back a decrypted secret is at least as sensitive as editing it, so
+  // reveal sits at the same bar as the writes.
+  const canReveal = canManage;
+  // Discover parses the workspace's config and returns the variable names it
+  // declares. It writes nothing, so it sits on the read bar — the step that
+  // tells an operator what to fill in has to be reachable by one.
+  const canDiscover = roleAtLeast(role, 'viewer');
   const uid = useId();
   const queryClient = useQueryClient();
   const [showForm, setShowForm] = useState(false);
@@ -412,21 +417,23 @@ export function VariablesPanel({ workspaceId, role }: Props) {
           </button>
         </div>
         <div className="flex items-center gap-2">
+          {canDiscover && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => discoverMutation.mutate()}
+              disabled={discoverMutation.isPending}
+            >
+              {discoverMutation.isPending ? (
+                <Spinner className="w-3.5 h-3.5" />
+              ) : (
+                <Search className="w-3.5 h-3.5" />
+              )}
+              Discover
+            </Button>
+          )}
           {canManage && (
             <>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => discoverMutation.mutate()}
-                disabled={discoverMutation.isPending}
-              >
-                {discoverMutation.isPending ? (
-                  <Spinner className="w-3.5 h-3.5" />
-                ) : (
-                  <Search className="w-3.5 h-3.5" />
-                )}
-                Discover
-              </Button>
               <Button
                 size="sm"
                 variant="outline"
@@ -538,7 +545,9 @@ export function VariablesPanel({ workspaceId, role }: Props) {
                       )}
                     </div>
                     <div className="shrink-0 ml-3">
-                      {!v.configured && (
+                      {/* Discovery is a read; creating the variable it found is
+                          still a write, so the Add button keeps the write bar. */}
+                      {!v.configured && canManage && (
                         <Button
                           size="sm"
                           variant="outline"

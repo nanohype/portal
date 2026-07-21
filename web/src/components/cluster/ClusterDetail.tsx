@@ -166,7 +166,10 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
       if (error) throw error;
       return ops?.data ?? [];
     },
-    enabled: !!data,
+    // The vend timeline is an admin-only read, and this page is reachable by
+    // any role from a tenant. Non-admins get the page without the timeline
+    // rather than a failed request behind it.
+    enabled: !!data && isAdmin,
     refetchInterval: (query) =>
       (query.state.data ?? []).some(
         (o) =>

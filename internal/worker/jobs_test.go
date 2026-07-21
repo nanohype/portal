@@ -16,9 +16,12 @@ func TestPostPlanAction(t *testing.T) {
 		want             string
 	}{
 		{"default: neither set", false, false, "planned"},
-		{"auto_apply wins", true, false, "queued"},
-		{"requires_approval", false, true, "awaiting_approval"},
-		{"both set: auto_apply wins", true, true, "queued"},
+		{"auto_apply alone queues the apply", true, false, "queued"},
+		{"requires_approval parks for a human", false, true, "awaiting_approval"},
+		// The workspace gate outranks the convenience flag: a workspace whose
+		// owner asked for an approval gets one even when auto_apply is on, so
+		// auto_apply cannot be used to skip the approval.
+		{"both set: requires_approval wins", true, true, "awaiting_approval"},
 	}
 
 	for _, tt := range tests {
@@ -42,7 +45,9 @@ func TestPostPlanAction_WithOverride(t *testing.T) {
 	}{
 		{"override true on non-auto workspace", false, boolPtr(true), false, "queued"},
 		{"override false on auto workspace", true, boolPtr(false), false, "planned"},
-		{"override true with requires_approval", false, boolPtr(true), true, "queued"},
+		// A pipeline stage's auto_apply override cannot open a workspace's
+		// approval gate — the run still parks for a human.
+		{"override true with requires_approval", false, boolPtr(true), true, "awaiting_approval"},
 		{"nil override uses workspace setting", false, nil, false, "planned"},
 		{"nil override uses workspace auto_apply", true, nil, false, "queued"},
 	}

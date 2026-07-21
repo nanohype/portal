@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { screen } from '@testing-library/react';
 import { renderWithClient } from '@/test/render';
-import type { Cluster } from '@/api/models';
+import { useAuthStore } from '@/stores/auth';
+import type { Cluster, User } from '@/api/models';
 import { FleetOverview } from './FleetOverview';
 
 const { apiMock } = vi.hoisted(() => ({
@@ -36,7 +37,14 @@ function mock(clusters: Cluster[]) {
   });
 }
 
-beforeEach(() => vi.clearAllMocks());
+function setRole(role: string) {
+  useAuthStore.setState({ token: null, user: { id: 'u1', role } as User, isAuthenticated: true });
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  setRole('admin');
+});
 
 describe('FleetOverview', () => {
   it('shows a green verdict for an all-healthy fleet', async () => {
@@ -56,5 +64,16 @@ describe('FleetOverview', () => {
     renderWithClient(<FleetOverview />);
     expect(await screen.findByText('1.30')).toBeInTheDocument();
     expect(screen.getByText('1.29')).toBeInTheDocument();
+  });
+
+  // Vend orders are an admin-only read on the API. A non-admin renders the
+  // fleet without them rather than firing a request that comes back 403.
+  it('does not request vend orders as a non-admin', async () => {
+    setRole('operator');
+    mock([cl({})]);
+    renderWithClient(<FleetOverview />);
+    expect(await screen.findByText(/all 1 cluster healthy/i)).toBeInTheDocument();
+    expect(apiMock.GET).toHaveBeenCalledWith('/clusters', expect.anything());
+    expect(apiMock.GET).not.toHaveBeenCalledWith('/cluster-orders');
   });
 });

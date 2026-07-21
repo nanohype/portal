@@ -1,3 +1,11 @@
+// Hand-written pgx queries (sqlc-style); not generated, edit directly.
+//
+// A variable is addressed by (id, workspace_id, org_id), never by (id, org_id).
+// The route that reaches these carries the workspace in its path and is
+// authorized against that workspace, so the workspace has to be part of the
+// lookup too — otherwise a caller authorized on one workspace could name any
+// variable id in the org and the query would happily return it.
+
 package repository
 
 import "context"
@@ -11,14 +19,19 @@ func scanVariable(row interface{ Scan(...interface{}) error }) (WorkspaceVariabl
 }
 
 type GetWorkspaceVariableParams struct {
-	ID    string
-	OrgID string
+	ID          string
+	WorkspaceID string
+	OrgID       string
 }
 
+// GetWorkspaceVariable returns one variable of one workspace. A variable that
+// exists in the org but on a different workspace is pgx.ErrNoRows, exactly like
+// one that does not exist — the caller reports both as 404, so the response
+// never tells an attacker which of the two it was.
 func (q *Queries) GetWorkspaceVariable(ctx context.Context, arg GetWorkspaceVariableParams) (WorkspaceVariable, error) {
 	row := q.db.QueryRow(ctx,
-		`SELECT `+varColumns+` FROM workspace_variables WHERE id = $1 AND org_id = $2`,
-		arg.ID, arg.OrgID,
+		`SELECT `+varColumns+` FROM workspace_variables WHERE id = $1 AND workspace_id = $2 AND org_id = $3`,
+		arg.ID, arg.WorkspaceID, arg.OrgID,
 	)
 	return scanVariable(row)
 }
@@ -75,6 +88,7 @@ func (q *Queries) CreateWorkspaceVariable(ctx context.Context, arg CreateWorkspa
 
 type UpdateWorkspaceVariableParams struct {
 	ID          string
+	WorkspaceID string
 	OrgID       string
 	Value       string
 	Sensitive   bool
@@ -84,23 +98,28 @@ type UpdateWorkspaceVariableParams struct {
 
 func (q *Queries) UpdateWorkspaceVariable(ctx context.Context, arg UpdateWorkspaceVariableParams) (WorkspaceVariable, error) {
 	row := q.db.QueryRow(ctx,
-		`UPDATE workspace_variables SET value = $3, sensitive = $4, description = $5, category = COALESCE(NULLIF($6, ''), category), updated_at = NOW()
-		WHERE id = $1 AND org_id = $2
+		`UPDATE workspace_variables SET value = $4, sensitive = $5, description = $6, category = COALESCE(NULLIF($7, ''), category), updated_at = NOW()
+		WHERE id = $1 AND workspace_id = $2 AND org_id = $3
 		RETURNING `+varColumns,
-		arg.ID, arg.OrgID, arg.Value, arg.Sensitive, arg.Description, arg.Category,
+		arg.ID, arg.WorkspaceID, arg.OrgID, arg.Value, arg.Sensitive, arg.Description, arg.Category,
 	)
 	return scanVariable(row)
 }
 
 type DeleteWorkspaceVariableParams struct {
-	ID    string
-	OrgID string
+	ID          string
+	WorkspaceID string
+	OrgID       string
 }
 
-func (q *Queries) DeleteWorkspaceVariable(ctx context.Context, arg DeleteWorkspaceVariableParams) error {
-	_, err := q.db.Exec(ctx,
-		`DELETE FROM workspace_variables WHERE id = $1 AND org_id = $2`,
-		arg.ID, arg.OrgID,
+// DeleteWorkspaceVariable removes one variable of one workspace and returns the
+// row it deleted, so a delete that matched nothing is pgx.ErrNoRows rather than
+// a silent success. Without that, deleting another workspace's variable id and
+// deleting nothing at all would look identical to the caller.
+func (q *Queries) DeleteWorkspaceVariable(ctx context.Context, arg DeleteWorkspaceVariableParams) (WorkspaceVariable, error) {
+	row := q.db.QueryRow(ctx,
+		`DELETE FROM workspace_variables WHERE id = $1 AND workspace_id = $2 AND org_id = $3 RETURNING `+varColumns,
+		arg.ID, arg.WorkspaceID, arg.OrgID,
 	)
-	return err
+	return scanVariable(row)
 }

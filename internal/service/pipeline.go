@@ -10,6 +10,7 @@ import (
 	"github.com/oklog/ulid/v2"
 	"github.com/riverqueue/river"
 
+	"github.com/nanohype/portal/internal/apperr"
 	"github.com/nanohype/portal/internal/conv"
 	"github.com/nanohype/portal/internal/repository"
 	"github.com/nanohype/portal/internal/worker"
@@ -57,6 +58,9 @@ func (s *PipelineService) Create(ctx context.Context, orgID, name, description, 
 	}
 
 	for i, stage := range stages {
+		if err := s.stageWorkspaceInOrg(ctx, txq, stage.WorkspaceID, orgID); err != nil {
+			return repository.Pipeline{}, err
+		}
 		onFailure := stage.OnFailure
 		if onFailure == "" {
 			onFailure = "stop"
@@ -79,6 +83,18 @@ func (s *PipelineService) Create(ctx context.Context, orgID, name, description, 
 	}
 
 	return pipeline, nil
+}
+
+// stageWorkspaceInOrg keeps a pipeline pointed at workspaces its own org owns.
+// pipeline_stages.workspace_id has an unscoped foreign key, so without this a
+// stage could name another org's workspace: it would never execute (the run
+// claim is org-scoped) but it would sit in the pipeline detail response
+// disclosing that the id exists.
+func (s *PipelineService) stageWorkspaceInOrg(ctx context.Context, q *repository.Queries, workspaceID, orgID string) error {
+	if _, err := q.GetWorkspace(ctx, repository.GetWorkspaceParams{ID: workspaceID, OrgID: orgID}); err != nil {
+		return apperr.Wrap(apperr.KindNotFound, "stage workspace not found", err)
+	}
+	return nil
 }
 
 func (s *PipelineService) Get(ctx context.Context, id, orgID string) (repository.Pipeline, error) {
@@ -111,6 +127,9 @@ func (s *PipelineService) Update(ctx context.Context, id, orgID, name, descripti
 			return repository.Pipeline{}, fmt.Errorf("delete stages: %w", err)
 		}
 		for i, stage := range stages {
+			if err := s.stageWorkspaceInOrg(ctx, txq, stage.WorkspaceID, orgID); err != nil {
+				return repository.Pipeline{}, err
+			}
 			onFailure := stage.OnFailure
 			if onFailure == "" {
 				onFailure = "stop"
@@ -238,7 +257,7 @@ func (s *PipelineService) CancelRun(ctx context.Context, pipelineRunID, orgID st
 	}
 	for _, stage := range stages {
 		if stage.Status == "running" && stage.RunID != nil {
-			if _, err := s.runSvc.Cancel(ctx, *stage.RunID, orgID); err != nil {
+			if _, err := s.runSvc.Cancel(ctx, *stage.RunID, stage.WorkspaceID, orgID); err != nil {
 				slog.Warn("failed to cancel workspace run in pipeline", "run_id", *stage.RunID, "error", err)
 			}
 		}

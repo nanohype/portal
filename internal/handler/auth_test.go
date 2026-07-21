@@ -193,7 +193,7 @@ func TestHandoff(t *testing.T) {
 		cfg: &config.Config{Environment: "development", WebURL: "http://localhost:5173"},
 		jwt: jwtAuth,
 	}
-	token, err := jwtAuth.GenerateToken("usr_1", "org_1", "dev@portal.local", "owner")
+	token, err := jwtAuth.GenerateToken("usr_1", "org_1", "dev@portal.local")
 	if err != nil {
 		t.Fatalf("GenerateToken: %v", err)
 	}

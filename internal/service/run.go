@@ -66,10 +66,15 @@ func (s *RunService) List(ctx context.Context, workspaceID, orgID string, page, 
 	return runs, count, nil
 }
 
-func (s *RunService) Get(ctx context.Context, id, orgID string) (repository.Run, error) {
-	return s.queries.GetRun(ctx, repository.GetRunParams{
-		ID:    id,
-		OrgID: orgID,
+// Get returns one run of one workspace. Callers come in through
+// /workspaces/{workspaceID}/runs/{runID}, which is authorized against the
+// workspace in the path, so the run is keyed on that workspace as well as the
+// org: a run id belonging to a different workspace is not found.
+func (s *RunService) Get(ctx context.Context, id, workspaceID, orgID string) (repository.Run, error) {
+	return s.queries.GetRunInWorkspace(ctx, repository.GetRunInWorkspaceParams{
+		ID:          id,
+		WorkspaceID: workspaceID,
+		OrgID:       orgID,
 	})
 }
 
@@ -131,8 +136,11 @@ func (s *RunService) Create(ctx context.Context, params CreateRunParams) (reposi
 	return run, nil
 }
 
-func (s *RunService) Cancel(ctx context.Context, runID, orgID string) (repository.Run, error) {
-	run, err := s.queries.CancelRun(ctx, runID, orgID)
+// Cancel stops a run of one workspace. Like Get, the workspace is part of the
+// key — cancelling is reachable through the workspace the caller was authorized
+// on, and no other.
+func (s *RunService) Cancel(ctx context.Context, runID, workspaceID, orgID string) (repository.Run, error) {
+	run, err := s.queries.CancelRun(ctx, runID, workspaceID, orgID)
 	if err != nil {
 		return repository.Run{}, err
 	}

@@ -138,9 +138,12 @@ func (h *RunHandler) List(w http.ResponseWriter, r *http.Request) {
 
 func (h *RunHandler) Get(w http.ResponseWriter, r *http.Request) {
 	userCtx := auth.GetUser(r.Context())
+	workspaceID := chi.URLParam(r, "workspaceID")
 	runID := chi.URLParam(r, "runID")
 
-	run, err := h.svc.Get(r.Context(), runID, userCtx.OrgID)
+	// Keyed on the workspace this request was authorized against — a run id
+	// from another workspace is not found.
+	run, err := h.svc.Get(r.Context(), runID, workspaceID, userCtx.OrgID)
 	if err != nil {
 		respond.FromError(w, r, err)
 		return
@@ -187,7 +190,6 @@ func (h *RunHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if workspace is locked
 	ws, err := h.workspaceSvc.Get(r.Context(), workspaceID, userCtx.OrgID)
 	if err != nil {
 		respond.FromError(w, r, err)
@@ -195,6 +197,23 @@ func (h *RunHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	if ws.Locked {
 		respond.Error(w, http.StatusConflict, "workspace is locked")
+		return
+	}
+
+	// A workspace with requires_approval says no apply happens on it without a
+	// human signing off. Asking for operation "apply" or "destroy" directly runs
+	// tofu against live state with no approval row ever created, so on a gated
+	// workspace those carry the bar that signing the approval carries —
+	// ActionApplyProd, org-scoped, exactly like POST .../approvals.
+	//
+	// It is the org role that is checked, not the workspace-resolved one: a
+	// per-workspace grant does not confer the authority to release a gated
+	// apply, the same rule the approval route and the settings guard follow.
+	// Operators keep the full plan → approve → apply path on gated workspaces,
+	// and every path on ungated ones.
+	if requiresApprovalGate(ws, req.Operation) && !auth.CanPerform(userCtx.Role, auth.ActionApplyProd) {
+		respond.Error(w, http.StatusForbidden,
+			"this workspace requires approval: run a plan and have it approved, or hold admin role or higher")
 		return
 	}
 
@@ -226,6 +245,17 @@ func (h *RunHandler) Create(w http.ResponseWriter, r *http.Request) {
 	respond.JSON(w, http.StatusCreated, runResponse(run))
 }
 
+// requiresApprovalGate reports whether this operation on this workspace is a
+// real apply against a workspace that gates applies behind an approval. plan,
+// test and import do not change live infrastructure through this path, so they
+// are not gated here.
+func requiresApprovalGate(ws repository.Workspace, operation string) bool {
+	if !ws.RequiresApproval {
+		return false
+	}
+	return operation == "apply" || operation == "destroy"
+}
+
 // isValidOperation returns whether an operation string is valid.
 func isValidOperation(op string) bool {
 	switch op {
@@ -251,9 +281,10 @@ func isCancellableStatus(status string) bool {
 
 func (h *RunHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 	userCtx := auth.GetUser(r.Context())
+	workspaceID := chi.URLParam(r, "workspaceID")
 	runID := chi.URLParam(r, "runID")
 
-	cancelled, err := h.svc.Cancel(r.Context(), runID, userCtx.OrgID)
+	cancelled, err := h.svc.Cancel(r.Context(), runID, workspaceID, userCtx.OrgID)
 	if err != nil {
 		// CancelRun returns ErrNoRows if the run doesn't exist or isn't in a cancellable state
 		respond.Error(w, http.StatusConflict, "run not found or cannot be cancelled in its current state")
@@ -272,9 +303,10 @@ func (h *RunHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 
 func (h *RunHandler) GetPlanJSON(w http.ResponseWriter, r *http.Request) {
 	userCtx := auth.GetUser(r.Context())
+	workspaceID := chi.URLParam(r, "workspaceID")
 	runID := chi.URLParam(r, "runID")
 
-	run, err := h.svc.Get(r.Context(), runID, userCtx.OrgID)
+	run, err := h.svc.Get(r.Context(), runID, workspaceID, userCtx.OrgID)
 	if err != nil {
 		respond.FromError(w, r, err)
 		return
@@ -302,16 +334,18 @@ func (h *RunHandler) GetPlanJSON(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *RunHandler) StreamLogs(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceID")
 	runID := chi.URLParam(r, "runID")
 
-	// Org-scope before upgrading: the run must belong to the caller's org, or
-	// any authenticated user could stream any run's live logs by guessing a ULID.
+	// Scope before upgrading: the run must belong to the workspace this request
+	// was authorized against, or a caller could stream another workspace's live
+	// logs through a workspace they do hold.
 	userCtx := auth.GetUser(r.Context())
 	if userCtx == nil {
 		respond.Error(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-	if _, err := h.svc.Get(r.Context(), runID, userCtx.OrgID); err != nil {
+	if _, err := h.svc.Get(r.Context(), runID, workspaceID, userCtx.OrgID); err != nil {
 		respond.FromError(w, r, err)
 		return
 	}

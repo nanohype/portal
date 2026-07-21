@@ -61,6 +61,9 @@ export function ClusterList() {
       if (error) throw error;
       return data?.data ?? [];
     },
+    // /accounts is admin-only on the API. Firing it as an operator just burns a
+    // retry on a 403 the page then has to render around.
+    enabled: isAdmin,
   });
 
   // Vend ORDERS (cluster_operations) — surfaces in-flight + recent provisions so
@@ -73,6 +76,9 @@ export function ClusterList() {
       if (error) throw error;
       return data?.data ?? [];
     },
+    // Vend orders project the same cluster_operations rows as the ops feed, so
+    // the API holds them at admin.
+    enabled: isAdmin,
     // Poll while anything is still moving: a pending op, or a committed
     // provision/deprovision still advancing on the hub. The in-cluster watcher
     // drives tofu_running → active (provision) and deprovisioning → deprovisioned

@@ -387,6 +387,9 @@ func (h *TeamHandler) SetWorkspaceAccess(w http.ResponseWriter, r *http.Request)
 		OrgID:       userCtx.OrgID,
 		TeamID:      req.TeamID,
 		Role:        req.Role,
+		// The route is org-scoped ManageTeams, so this is the caller's own org
+		// role — the ceiling on what they may hand out.
+		GranterRole: userCtx.Role,
 	})
 	if err != nil {
 		respond.FromError(w, r, err)

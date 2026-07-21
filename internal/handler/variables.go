@@ -24,10 +24,41 @@ type VariableHandler struct {
 	auditSvc     *service.AuditService
 	workspaceSvc *service.WorkspaceService
 	discoverySvc *service.DiscoveryService
+	authz        auth.WorkspaceRoleResolver
 }
 
-func NewVariableHandler(queries *repository.Queries, encryptor *secrets.Encryptor, auditSvc *service.AuditService, workspaceSvc *service.WorkspaceService, discoverySvc *service.DiscoveryService) *VariableHandler {
-	return &VariableHandler{queries: queries, encryptor: encryptor, auditSvc: auditSvc, workspaceSvc: workspaceSvc, discoverySvc: discoverySvc}
+// NewVariableHandler builds the workspace-variable handler. It takes the
+// workspace-role resolver because two of its endpoints — copy and
+// import-outputs — name a SECOND workspace in the request body. The route's
+// gate only covers the workspace in the path, so those two have to authorize
+// the body's workspace themselves.
+func NewVariableHandler(queries *repository.Queries, encryptor *secrets.Encryptor, auditSvc *service.AuditService, workspaceSvc *service.WorkspaceService, discoverySvc *service.DiscoveryService, authz auth.WorkspaceRoleResolver) *VariableHandler {
+	return &VariableHandler{
+		queries:      queries,
+		encryptor:    encryptor,
+		auditSvc:     auditSvc,
+		workspaceSvc: workspaceSvc,
+		discoverySvc: discoverySvc,
+		authz:        authz,
+	}
+}
+
+// authorizeSourceWorkspace checks the caller against a workspace named in the
+// request body, at the same bar the route already applied to the destination.
+//
+// Both endpoints that use it move variable material out of the source: copy
+// takes every variable including sensitive ciphertext (the encryption key is
+// org-wide, so ciphertext is portable), import-outputs takes the source's
+// latest state outputs. Reading that out of a workspace is a
+// manage-variables-grade act on THAT workspace, so it carries the same action
+// there as on the destination.
+//
+// The answer is 404, not 403, so the response cannot be used to probe which
+// workspace ids exist.
+func (h *VariableHandler) authorizeSourceWorkspace(r *http.Request, sourceWorkspaceID string) bool {
+	user := auth.GetUser(r.Context())
+	role := auth.EffectiveWorkspaceRole(r.Context(), h.authz, user, sourceWorkspaceID)
+	return role != "" && auth.CanPerform(role, auth.ActionManageVars)
 }
 
 type CreateVariableRequest struct {
@@ -165,11 +196,14 @@ func (h *VariableHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 func (h *VariableHandler) Update(w http.ResponseWriter, r *http.Request) {
 	userCtx := auth.GetUser(r.Context())
+	workspaceID := chi.URLParam(r, "workspaceID")
 	varID := chi.URLParam(r, "variableID")
 
-	// Fetch current state for audit log
+	// Fetch current state for audit log. Keyed on the workspace this request
+	// was authorized against, so a variable id from another workspace is not
+	// found rather than editable.
 	before, err := h.queries.GetWorkspaceVariable(r.Context(), repository.GetWorkspaceVariableParams{
-		ID: varID, OrgID: userCtx.OrgID,
+		ID: varID, WorkspaceID: workspaceID, OrgID: userCtx.OrgID,
 	})
 	if err != nil {
 		respond.Error(w, http.StatusNotFound, "variable not found")
@@ -206,10 +240,11 @@ func (h *VariableHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	v, err := h.queries.UpdateWorkspaceVariable(r.Context(), repository.UpdateWorkspaceVariableParams{
-		ID: varID, OrgID: userCtx.OrgID, Value: value, Sensitive: req.Sensitive, Description: req.Description, Category: req.Category,
+		ID: varID, WorkspaceID: workspaceID, OrgID: userCtx.OrgID,
+		Value: value, Sensitive: req.Sensitive, Description: req.Description, Category: req.Category,
 	})
 	if err != nil {
-		respond.Error(w, http.StatusInternalServerError, "failed to update variable")
+		respond.FromError(w, r, err)
 		return
 	}
 
@@ -234,12 +269,16 @@ func (h *VariableHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 func (h *VariableHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	userCtx := auth.GetUser(r.Context())
+	workspaceID := chi.URLParam(r, "workspaceID")
 	varID := chi.URLParam(r, "variableID")
 
-	if err := h.queries.DeleteWorkspaceVariable(r.Context(), repository.DeleteWorkspaceVariableParams{
-		ID: varID, OrgID: userCtx.OrgID,
+	// The delete returns the row it removed, so a variable id belonging to
+	// another workspace comes back as pgx.ErrNoRows → 404 instead of reporting
+	// a success that deleted nothing.
+	if _, err := h.queries.DeleteWorkspaceVariable(r.Context(), repository.DeleteWorkspaceVariableParams{
+		ID: varID, WorkspaceID: workspaceID, OrgID: userCtx.OrgID,
 	}); err != nil {
-		respond.Error(w, http.StatusInternalServerError, "failed to delete variable")
+		respond.FromError(w, r, err)
 		return
 	}
 
@@ -383,6 +422,13 @@ func (h *VariableHandler) ImportOutputs(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// The route's gate covered the destination. The source arrives in the body,
+	// so it is authorized here or not at all.
+	if !h.authorizeSourceWorkspace(r, req.SourceWorkspaceID) {
+		respond.Error(w, http.StatusNotFound, "source workspace not found")
+		return
+	}
+
 	imported, err := h.workspaceSvc.ImportOutputs(r.Context(), service.ImportOutputsParams{
 		SourceWorkspaceID: req.SourceWorkspaceID,
 		TargetWorkspaceID: workspaceID,
@@ -448,9 +494,16 @@ func (h *VariableHandler) CopyVariables(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Verify source workspace belongs to same org
-	_, err := h.workspaceSvc.Get(r.Context(), req.SourceWorkspaceID, userCtx.OrgID)
-	if err != nil {
+	// The route's gate covered the destination. The source arrives in the body,
+	// so it is authorized here — at the same bar, on that workspace — before
+	// its variables are read. Org membership alone is not enough: a caller
+	// elevated on the destination by a team grant holds nothing on the source.
+	if !h.authorizeSourceWorkspace(r, req.SourceWorkspaceID) {
+		respond.Error(w, http.StatusNotFound, "source workspace not found")
+		return
+	}
+
+	if _, err := h.workspaceSvc.Get(r.Context(), req.SourceWorkspaceID, userCtx.OrgID); err != nil {
 		respond.Error(w, http.StatusNotFound, "source workspace not found")
 		return
 	}
@@ -486,10 +539,14 @@ func (h *VariableHandler) CopyVariables(w http.ResponseWriter, r *http.Request) 
 
 func (h *VariableHandler) RevealValue(w http.ResponseWriter, r *http.Request) {
 	userCtx := auth.GetUser(r.Context())
+	workspaceID := chi.URLParam(r, "workspaceID")
 	varID := chi.URLParam(r, "variableID")
 
+	// Keyed on the workspace this request was authorized against: the caller
+	// cleared the bar on THIS workspace, so this workspace's variables are the
+	// only ones it can decrypt.
 	v, err := h.queries.GetWorkspaceVariable(r.Context(), repository.GetWorkspaceVariableParams{
-		ID: varID, OrgID: userCtx.OrgID,
+		ID: varID, WorkspaceID: workspaceID, OrgID: userCtx.OrgID,
 	})
 	if err != nil {
 		respond.Error(w, http.StatusNotFound, "variable not found")
