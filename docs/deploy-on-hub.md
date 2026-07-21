@@ -157,6 +157,7 @@ entirely (the key goes via `SSH_KEY_PATH`, secrets via `EXTRA_ARGS`).
 config:
   environment: production          # real GitHub OAuth + non-default secrets
   # set jwtSecret, encryptionKey (32 bytes), githubClientID/Secret
+  allowedGitHubOrg: nanohype       # required — limits sign-in to org members
 
 image:                             # the ECR refs from 2a ($ECR/portal/<svc>:$TAG)
   server: { repository: <ECR>/portal/server, tag: <TAG> }

@@ -10,6 +10,9 @@ data:
   SERVER_BASE_URL: {{ .Values.config.serverBaseURL | quote }}
   WEB_URL: {{ .Values.config.webURL | quote }}
   ENVIRONMENT: {{ .Values.config.environment | quote }}
+  # An org login name, not a credential — the ConfigMap is the right home. The
+  # server enforces that it is set outside development.
+  ALLOWED_GITHUB_ORG: {{ .Values.config.allowedGitHubOrg | quote }}
   S3_ENDPOINT: {{ .Values.objectStore.endpoint | quote }}
   S3_BUCKET: {{ .Values.objectStore.bucket | quote }}
   S3_USE_SSL: {{ .Values.objectStore.useSSL | quote }}

@@ -189,8 +189,9 @@ tasks:
         state bucket), REGION.
       Optional: CLUSTERS_REPO_URL + SSH_KEY_PATH (clusters-repo write deploy key),
         RELEASE (portal), NAMESPACE (default), ENVIRONMENT (development — dev-login,
-        for validation; production needs real secrets, pass them via EXTRA_ARGS),
-        EXTRA_ARGS (passed straight to helm — images, secrets, -f a values file).
+        for validation; production needs real secrets plus config.allowedGitHubOrg,
+        pass them via EXTRA_ARGS), EXTRA_ARGS (passed straight to helm — images,
+        secrets, -f a values file).
     requires:
       vars: [ROLE_ARN, STATE_BUCKET, REGION]
     vars:

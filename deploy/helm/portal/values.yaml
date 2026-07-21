@@ -38,6 +38,12 @@ config:
   # Auth — create a GitHub OAuth App and set these
   githubClientID: ""
   githubClientSecret: ""
+  # REQUIRED unless environment is "development". GitHub OAuth authenticates any
+  # GitHub account, so this org is what limits sign-in to your people: the login
+  # callback checks active membership (read:org) and rejects everyone else. The
+  # server refuses to start without it outside development rather than admitting
+  # every GitHub account.
+  allowedGitHubOrg: ""                        # e.g. "nanohype"
 
   # Security — MUST change these in production
   jwtSecret: "dev-secret-change-in-production"

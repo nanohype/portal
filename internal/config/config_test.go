@@ -79,6 +79,32 @@ func TestConfigValidate(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			// GitHub OAuth authenticates every GitHub account, so an unset
+			// ALLOWED_GITHUB_ORG leaves nothing restricting who may sign in.
+			// Startup fails instead of coming up open.
+			name: "prod env with missing allowed GitHub org fails",
+			cfg: Config{
+				Environment:        "production",
+				JWTSecret:          "prod-secret",
+				EncryptionKey:      "prod-key-exactly-32-bytesXXXXXXX",
+				GitHubClientID:     "id",
+				GitHubClientSecret: "secret",
+				WebhookSecret:      "whsec",
+				S3AccessKey:        "prod-key",
+				S3SecretKey:        "prod-secret-key",
+			},
+			wantErr: true,
+		},
+		{
+			name: "dev env without allowed GitHub org passes",
+			cfg: Config{
+				Environment:   "development",
+				JWTSecret:     "dev-secret-change-in-production",
+				EncryptionKey: "dev-encryption-key-32bytes!!!!!!",
+			},
+			wantErr: false,
+		},
+		{
 			name: "prod env with all set passes",
 			cfg: Config{
 				Environment:        "production",
@@ -86,6 +112,7 @@ func TestConfigValidate(t *testing.T) {
 				EncryptionKey:      "prod-key-exactly-32-bytesXXXXXXX",
 				GitHubClientID:     "id",
 				GitHubClientSecret: "secret",
+				AllowedGitHubOrg:   "nanohype",
 				WebhookSecret:      "whsec",
 				S3AccessKey:        "prod-key",
 				S3SecretKey:        "prod-secret-key",

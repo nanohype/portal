@@ -49,6 +49,78 @@ func TestOAuthStateVerification(t *testing.T) {
 	}
 }
 
+// TestGitHubSignInRequiresAllowedOrg pins the fail-closed behavior: GitHub
+// OAuth authenticates every GitHub account, so with no ALLOWED_GITHUB_ORG to
+// check membership against there is nothing restricting who may sign in. Both
+// entry points refuse rather than fall through to admitting everyone. An
+// explicit development environment is the only exception — dev login already
+// bypasses OAuth there.
+func TestGitHubSignInRequiresAllowedOrg(t *testing.T) {
+	tests := []struct {
+		name        string
+		environment string
+		allowedOrg  string
+		wantRefused bool
+	}{
+		{"production without an org is refused", "production", "", true},
+		{"staging without an org is refused", "staging", "", true},
+		{"unset environment without an org is refused", "", "", true},
+		{"production with an org proceeds", "production", "nanohype", false},
+		{"development without an org proceeds", "development", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{
+				Environment:      tt.environment,
+				AllowedGitHubOrg: tt.allowedOrg,
+				JWTSecret:        "test-secret-32-bytes-long-value!",
+				GitHubClientID:   "client-id",
+				WebURL:           "http://localhost:5173",
+			}
+			h := NewAuthHandler(cfg, nil, nil)
+
+			loginRec := httptest.NewRecorder()
+			h.GitHubLogin(loginRec, httptest.NewRequest(http.MethodGet, "/api/v1/auth/github", nil))
+
+			// The callback is a separate entry point, so it carries its own guard.
+			// It is driven with no code parameter: a refusal is 503, and anything
+			// else means the guard let the request through to the OAuth exchange.
+			cbRec := httptest.NewRecorder()
+			h.GitHubCallback(cbRec, httptest.NewRequest(http.MethodGet, "/api/v1/auth/github/callback", nil))
+
+			if tt.wantRefused {
+				if loginRec.Code != http.StatusServiceUnavailable {
+					t.Errorf("GitHubLogin status = %d, want %d", loginRec.Code, http.StatusServiceUnavailable)
+				}
+				// A refused login must not start the OAuth dance at all.
+				if loc := loginRec.Header().Get("Location"); loc != "" {
+					t.Errorf("refused login redirected to %q, want no redirect", loc)
+				}
+				for _, c := range loginRec.Result().Cookies() {
+					if c.Name == "oauth_state" && c.Value != "" {
+						t.Error("refused login set an oauth_state cookie")
+					}
+				}
+				if cbRec.Code != http.StatusServiceUnavailable {
+					t.Errorf("GitHubCallback status = %d, want %d", cbRec.Code, http.StatusServiceUnavailable)
+				}
+				return
+			}
+
+			if loginRec.Code != http.StatusTemporaryRedirect {
+				t.Errorf("GitHubLogin status = %d, want %d", loginRec.Code, http.StatusTemporaryRedirect)
+			}
+			if !strings.Contains(loginRec.Header().Get("Location"), "github.com/login/oauth/authorize") {
+				t.Errorf("GitHubLogin Location = %q, want the GitHub authorize URL", loginRec.Header().Get("Location"))
+			}
+			if cbRec.Code != http.StatusBadRequest {
+				t.Errorf("GitHubCallback status = %d, want %d (missing code, i.e. past the guard)", cbRec.Code, http.StatusBadRequest)
+			}
+		})
+	}
+}
+
 func TestRedirectWithToken(t *testing.T) {
 	tests := []struct {
 		name        string
