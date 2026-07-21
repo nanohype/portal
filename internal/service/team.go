@@ -170,6 +170,14 @@ func (s *TeamService) SetWorkspaceAccess(ctx context.Context, params SetWorkspac
 	})
 }
 
+// WorkspaceTeamRole reports the highest role the user's teams hold on one
+// workspace, or "" when no grant applies. It is the read side of
+// workspace_team_access: auth.RequireWorkspaceRole combines the result with
+// the caller's org role to decide a workspace-scoped request.
+func (s *TeamService) WorkspaceTeamRole(ctx context.Context, workspaceID, userID, orgID string) (string, error) {
+	return s.queries.GetWorkspaceTeamRole(ctx, workspaceID, userID, orgID)
+}
+
 func (s *TeamService) RemoveWorkspaceAccess(ctx context.Context, workspaceID, orgID, teamID string) error {
 	if err := s.workspaceExists(ctx, workspaceID, orgID); err != nil {
 		return err

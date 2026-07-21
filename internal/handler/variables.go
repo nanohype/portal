@@ -412,6 +412,12 @@ func (h *VariableHandler) ImportOutputs(w http.ResponseWriter, r *http.Request) 
 			Action: "variable.import", EntityType: "variable", EntityID: v.ID,
 			After: workspaceVariableResponse(auditVar), IPAddress: ip, UserAgent: ua,
 		})
+
+		// Same redaction the list and copy responses apply: an imported output
+		// marked sensitive stays behind the reveal endpoint.
+		if v.Sensitive {
+			v.Value = "***"
+		}
 		data[i] = workspaceVariableResponse(v)
 	}
 

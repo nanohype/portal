@@ -8,12 +8,20 @@ import { Select } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Spinner } from '@/components/ui/spinner';
 import { Users, Plus, Shield, X } from 'lucide-react';
+import { roleAtLeast } from '@/lib/roles';
+import { useAuth } from '@/hooks/useAuth';
 
 interface Props {
   workspaceId: string;
 }
 
 export function AccessPanel({ workspaceId }: Props) {
+  const { user } = useAuth();
+  // Handing a team access to a workspace is an org-admin act, so this reads the
+  // org role rather than the effective role on this workspace: holding a grant
+  // here does not let you widen it. Showing the controls to anyone else offers
+  // a button whose only outcome is a 403.
+  const canManage = roleAtLeast(user?.role, 'admin');
   const uid = useId();
   const queryClient = useQueryClient();
   const [showForm, setShowForm] = useState(false);
@@ -108,7 +116,7 @@ export function AccessPanel({ workspaceId }: Props) {
     <div>
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-sm font-medium text-muted-foreground">Team Access</h3>
-        {!showForm && (
+        {canManage && !showForm && (
           <Button size="sm" variant="outline" onClick={() => setShowForm(true)}>
             <Plus className="w-3.5 h-3.5" />
             Grant access
@@ -116,7 +124,7 @@ export function AccessPanel({ workspaceId }: Props) {
         )}
       </div>
 
-      {showForm && (
+      {canManage && showForm && (
         <div className="rounded-lg border border-border p-4 mb-4 space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -187,7 +195,9 @@ export function AccessPanel({ workspaceId }: Props) {
           <Users className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
           <h3 className="font-medium mb-1">No teams have access</h3>
           <p className="text-sm text-muted-foreground">
-            Grant team access to control who can manage this workspace.
+            {canManage
+              ? 'Grant team access to control who can manage this workspace.'
+              : 'An admin can grant a team access to this workspace.'}
           </p>
         </div>
       ) : (
@@ -207,14 +217,16 @@ export function AccessPanel({ workspaceId }: Props) {
                 <Badge variant="outline" className={roleColor(access.role)}>
                   {access.role}
                 </Badge>
-                <button
-                  onClick={() => revokeMutation.mutate(access.team_id)}
-                  disabled={revokeMutation.isPending}
-                  className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors cursor-pointer"
-                  aria-label={`Revoke ${access.team_name} access`}
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
+                {canManage && (
+                  <button
+                    onClick={() => revokeMutation.mutate(access.team_id)}
+                    disabled={revokeMutation.isPending}
+                    className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors cursor-pointer"
+                    aria-label={`Revoke ${access.team_name} access`}
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
             </div>
           ))}

@@ -2,7 +2,10 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 type Team struct {
@@ -293,20 +296,32 @@ func (q *Queries) ListApprovalsByRun(ctx context.Context, runID string) ([]Appro
 	return approvals, rows.Err()
 }
 
-func (q *Queries) GetUserEffectiveRole(ctx context.Context, workspaceID, userID string) (string, error) {
+// GetWorkspaceTeamRole returns the highest workspace_team_access role held by
+// any team the user belongs to on one workspace, or "" when no grant applies.
+//
+// Both the workspace and the granting team are matched against the caller's
+// org. workspace_team_access carries no org_id of its own, so without those
+// two joins a grant could be read across an org boundary.
+func (q *Queries) GetWorkspaceTeamRole(ctx context.Context, workspaceID, userID, orgID string) (string, error) {
 	row := q.db.QueryRow(ctx,
-		`SELECT COALESCE(
-			(SELECT wta.role FROM workspace_team_access wta
-			 JOIN team_members tm ON tm.team_id = wta.team_id
-			 WHERE wta.workspace_id = $1 AND tm.user_id = $2
-			 ORDER BY CASE wta.role
-				 WHEN 'owner' THEN 4 WHEN 'admin' THEN 3 WHEN 'operator' THEN 2 WHEN 'viewer' THEN 1
-			 END DESC LIMIT 1),
-			(SELECT u.role FROM users u WHERE u.id = $2)
-		) as effective_role`,
-		workspaceID, userID,
+		`SELECT wta.role::text
+		FROM workspace_team_access wta
+		JOIN team_members tm ON tm.team_id = wta.team_id
+		JOIN teams t ON t.id = wta.team_id
+		JOIN workspaces w ON w.id = wta.workspace_id
+		WHERE wta.workspace_id = $1 AND tm.user_id = $2 AND t.org_id = $3 AND w.org_id = $3
+		ORDER BY CASE wta.role
+			WHEN 'owner' THEN 4 WHEN 'admin' THEN 3 WHEN 'operator' THEN 2 WHEN 'viewer' THEN 1 ELSE 0
+		END DESC
+		LIMIT 1`,
+		workspaceID, userID, orgID,
 	)
 	var role string
-	err := row.Scan(&role)
-	return role, err
+	if err := row.Scan(&role); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		return "", err
+	}
+	return role, nil
 }

@@ -10,6 +10,7 @@ import type {
   ListResponse,
 } from '@/api/models';
 import { Button } from '@/components/ui/button';
+import { roleAtLeast } from '@/lib/roles';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
@@ -44,6 +45,9 @@ function isTagsKey(key: string) {
 
 interface Props {
   workspaceId: string;
+  // The caller's effective role on this workspace — their org role, or a
+  // higher role one of their teams was granted here.
+  role?: string;
 }
 
 function parseEnvFormat(text: string): { key: string; value: string }[] {
@@ -67,7 +71,12 @@ function parseEnvFormat(text: string): { key: string; value: string }[] {
   return result;
 }
 
-export function VariablesPanel({ workspaceId }: Props) {
+export function VariablesPanel({ workspaceId, role }: Props) {
+  // Variable writes feed the worker's tfvars file and process environment, so
+  // the API holds them at admin. Reads stay open, with values redacted.
+  const canManage = roleAtLeast(role, 'admin');
+  // Revealing a stored secret is one tier lower, matching the reveal endpoint.
+  const canReveal = roleAtLeast(role, 'operator');
   const uid = useId();
   const queryClient = useQueryClient();
   const [showForm, setShowForm] = useState(false);
@@ -403,44 +412,48 @@ export function VariablesPanel({ workspaceId }: Props) {
           </button>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => discoverMutation.mutate()}
-            disabled={discoverMutation.isPending}
-          >
-            {discoverMutation.isPending ? (
-              <Spinner className="w-3.5 h-3.5" />
-            ) : (
-              <Search className="w-3.5 h-3.5" />
-            )}
-            Discover
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => fetchWorkspacesMutation.mutate()}
-            disabled={fetchWorkspacesMutation.isPending}
-          >
-            {fetchWorkspacesMutation.isPending ? (
-              <Spinner className="w-3.5 h-3.5" />
-            ) : (
-              <ArrowDownToLine className="w-3.5 h-3.5" />
-            )}
-            Import Outputs
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => setShowBulkImport(true)}>
-            <Upload className="w-3.5 h-3.5" />
-            Bulk Import
-          </Button>
-          <Button size="sm" variant="outline" onClick={openCopyDialog}>
-            <Copy className="w-3.5 h-3.5" />
-            Copy Variables
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => setShowForm(!showForm)}>
-            <Plus className="w-3.5 h-3.5" />
-            Add variable
-          </Button>
+          {canManage && (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => discoverMutation.mutate()}
+                disabled={discoverMutation.isPending}
+              >
+                {discoverMutation.isPending ? (
+                  <Spinner className="w-3.5 h-3.5" />
+                ) : (
+                  <Search className="w-3.5 h-3.5" />
+                )}
+                Discover
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => fetchWorkspacesMutation.mutate()}
+                disabled={fetchWorkspacesMutation.isPending}
+              >
+                {fetchWorkspacesMutation.isPending ? (
+                  <Spinner className="w-3.5 h-3.5" />
+                ) : (
+                  <ArrowDownToLine className="w-3.5 h-3.5" />
+                )}
+                Import Outputs
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setShowBulkImport(true)}>
+                <Upload className="w-3.5 h-3.5" />
+                Bulk Import
+              </Button>
+              <Button size="sm" variant="outline" onClick={openCopyDialog}>
+                <Copy className="w-3.5 h-3.5" />
+                Copy Variables
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setShowForm(!showForm)}>
+                <Plus className="w-3.5 h-3.5" />
+                Add variable
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -745,7 +758,7 @@ export function VariablesPanel({ workspaceId }: Props) {
                   <span className="text-sm font-mono text-muted-foreground break-all">
                     {v.sensitive ? (revealedValues[v.id] ?? '***') : v.value}
                   </span>
-                  {v.sensitive && (
+                  {v.sensitive && canReveal && (
                     <button
                       onClick={() => toggleReveal(v)}
                       className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
@@ -758,19 +771,23 @@ export function VariablesPanel({ workspaceId }: Props) {
                       )}
                     </button>
                   )}
-                  <button
-                    onClick={() => startEdit(v)}
-                    className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-                    title="Edit variable"
-                  >
-                    <Pencil className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={() => setDeleteTarget(v)}
-                    className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors cursor-pointer"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  {canManage && (
+                    <>
+                      <button
+                        onClick={() => startEdit(v)}
+                        className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                        title="Edit variable"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => setDeleteTarget(v)}
+                        className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             ),

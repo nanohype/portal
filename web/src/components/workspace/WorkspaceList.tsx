@@ -13,6 +13,8 @@ import { CreateWorkspaceDialog } from './CreateWorkspaceDialog';
 import { formatRelativeTime, getEnvironmentColor } from '@/lib/utils';
 import type { RunStatus } from '@/api/models';
 import { Link } from '@/components/ui/link';
+import { useAuth } from '@/hooks/useAuth';
+import { roleAtLeast } from '@/lib/roles';
 import {
   Plus,
   GitBranch,
@@ -28,6 +30,10 @@ import {
 } from 'lucide-react';
 
 export function WorkspaceList() {
+  const { user } = useAuth();
+  // Creating a workspace stages real infrastructure, so the API gates it at
+  // operator. Nothing exists to grant against yet, so this is the org role.
+  const canCreate = roleAtLeast(user?.role, 'operator');
   const [showCreate, setShowCreate] = useState(false);
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -90,10 +96,12 @@ export function WorkspaceList() {
           <h1 className="text-lg font-semibold tracking-tight">Workspaces</h1>
           <p className="text-[12px] text-muted-foreground mt-1">Manage your OpenTofu workspaces</p>
         </div>
-        <Button onClick={() => setShowCreate(true)}>
-          <Plus className="w-4 h-4" />
-          New workspace
-        </Button>
+        {canCreate && (
+          <Button onClick={() => setShowCreate(true)}>
+            <Plus className="w-4 h-4" />
+            New workspace
+          </Button>
+        )}
       </div>
 
       {/* Search & filter bar */}

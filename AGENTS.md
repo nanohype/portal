@@ -78,6 +78,8 @@ Helpers: `task docker:build` (server/worker/web/migrate images), `task hub:insta
 - **`org_id` on EVERY query** — there is no cross-org access through the API (org comes from JWT claims).
 - HTTP responses go through `respond.JSON()` / `respond.Error(w, http.StatusXxx, msg)` / `respond.NoContent()` / `respond.FromError(w, r, err)` (maps service errors once: `pgx.ErrNoRows`→404, `apperr.*`→their codes, else→500 with the cause logged). **Never `fmt.Fprintf` raw JSON.**
 - RBAC `owner > admin > operator > viewer` via `auth.RequireRole(min)` / `auth.RequireAction(action)`; apply-to-prod gates on `ActionApplyProd` (admin).
+- Every `auth.Action` must be enforced somewhere — `TestEveryActionIsEnforced` scans the tree and fails on a constant nothing gates. Gate a route with the action rather than repeating its role as a string literal.
+- Routes under `/workspaces/{workspaceID}` use `auth.RequireWorkspaceAction` / `RequireWorkspaceRole`, which combine the org role with any `workspace_team_access` grant the caller's teams hold on that workspace. Grants **elevate only** — a grant never removes what an org role already allows — and an unreadable grant means no elevation, so the gate fails closed.
 - **JWTs never ride in URLs.** The login handoff is a short-lived `auth_token` cookie the SPA callback consumes; WebSockets authenticate via the `["bearer", <jwt>]` subprotocol (`Sec-WebSocket-Protocol`) — a `?token=` query param 401s.
 - All mutations go through `auditSvc.Log()` with before/after state, sensitive values redacted to `***`.
 - Sensitive variables + cluster creds are AES-256 encrypted via `secrets.Encryptor`, decrypted in the worker at run time.

@@ -584,8 +584,12 @@ export function WorkspaceDetail({ workspaceId }: Props) {
         </div>
       )}
 
-      {tab === 'variables' && <VariablesPanel workspaceId={workspaceId} />}
-      {tab === 'state' && <StateExplorer workspaceId={workspaceId} />}
+      {tab === 'variables' && (
+        <VariablesPanel workspaceId={workspaceId} role={workspace.effective_role} />
+      )}
+      {tab === 'state' && (
+        <StateExplorer workspaceId={workspaceId} role={workspace.effective_role} />
+      )}
       {tab === 'outputs' && <OutputsPanel workspaceId={workspaceId} />}
       {tab === 'access' && <AccessPanel workspaceId={workspaceId} />}
       {tab === 'settings' && <WorkspaceSettings workspace={workspace} />}

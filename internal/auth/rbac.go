@@ -68,6 +68,17 @@ func CanPerform(role string, action Action) bool {
 	return roleLevel(role) >= roleLevel(minRoleForAction(action))
 }
 
+// MaxRole returns the more privileged of two role names. An unrecognised or
+// empty name has level 0, so it can never win against a real role — combining
+// a role with garbage yields the real role, and combining two unknowns yields
+// an unknown that clears no gate.
+func MaxRole(a, b string) string {
+	if roleLevel(b) > roleLevel(a) {
+		return b
+	}
+	return a
+}
+
 // ActionForOperation maps a run operation to the action it requires. apply and
 // destroy are the destructive operations and carry their own (higher) min-role;
 // plan/test/import are gated at the create_run baseline.

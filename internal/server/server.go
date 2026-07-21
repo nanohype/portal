@@ -199,13 +199,25 @@ func (s *Server) setupRouter() {
 	r.Get("/healthz", healthHandler.Live)
 	r.Get("/readyz", healthHandler.Ready)
 
+	// Workspace-scoped gates. These resolve the caller's org role together with
+	// any workspace_team_access grant their teams hold on the workspace in the
+	// URL, so an admin can hand one team elevated rights on one workspace
+	// without moving anybody's org role. Grants only ever elevate — see
+	// auth.RequireWorkspaceRole.
+	wsView := auth.RequireWorkspaceAction(teamSvc, auth.ActionViewWorkspace)
+	wsRun := auth.RequireWorkspaceAction(teamSvc, auth.ActionCreateRun)
+	wsVars := auth.RequireWorkspaceAction(teamSvc, auth.ActionManageVars)
+	wsState := auth.RequireWorkspaceAction(teamSvc, auth.ActionManageState)
+	wsDelete := auth.RequireWorkspaceAction(teamSvc, auth.ActionDeleteWorkspace)
+	wsOperator := auth.RequireWorkspaceRole(teamSvc, "operator")
+
 	// API routes
 	r.Route("/api/v1", func(r chi.Router) {
 		// Config upload route (50 MB limit, separate from default 1 MB)
 		r.Group(func(r chi.Router) {
 			r.Use(BodySizeLimit(50 << 20))
 			r.Use(authMiddleware.Authenticate)
-			r.With(auth.RequireRole("operator")).Post("/workspaces/{workspaceID}/upload", workspaceHandler.Upload)
+			r.With(wsOperator).Post("/workspaces/{workspaceID}/upload", workspaceHandler.Upload)
 		})
 
 		// All other routes (1 MB limit)
@@ -236,43 +248,49 @@ func (s *Server) setupRouter() {
 				// Users (admin-only)
 				r.Route("/users", func(r chi.Router) {
 					r.With(auth.RequireRole("admin")).Get("/", userHandler.List)
-					r.With(auth.RequireRole("owner")).Put("/{userID}/role", userHandler.UpdateRole)
+					r.With(auth.RequireAction(auth.ActionManageOrg)).Put("/{userID}/role", userHandler.UpdateRole)
 				})
 
 				// Audit logs (admin-only)
 				r.With(auth.RequireRole("admin")).Get("/audit-logs", auditHandler.List)
 
-				// Org variables
+				// Org variables. The list returns keys with values redacted, so
+				// it sits at the read baseline rather than with the writes.
 				r.Route("/variables", func(r chi.Router) {
-					r.Get("/", orgVarHandler.List)
-					r.With(auth.RequireRole("admin")).Post("/", orgVarHandler.Create)
+					r.With(auth.RequireRole("viewer")).Get("/", orgVarHandler.List)
+					r.With(auth.RequireAction(auth.ActionManageVars)).Post("/", orgVarHandler.Create)
 					r.Route("/{variableID}", func(r chi.Router) {
-						r.With(auth.RequireRole("admin")).Put("/", orgVarHandler.Update)
-						r.With(auth.RequireRole("admin")).Delete("/", orgVarHandler.Delete)
+						r.With(auth.RequireAction(auth.ActionManageVars)).Put("/", orgVarHandler.Update)
+						r.With(auth.RequireAction(auth.ActionManageVars)).Delete("/", orgVarHandler.Delete)
 						r.With(auth.RequireRole("operator")).Get("/value", orgVarHandler.RevealValue)
 					})
 				})
 
-				// Teams
+				// Teams. Reads stay at the baseline: the team list is how the
+				// tenant create form populates its owning-team picker for
+				// operators, and the members list is a normal page for every
+				// role.
 				r.Route("/teams", func(r chi.Router) {
-					r.Get("/", teamHandler.List)
-					r.With(auth.RequireRole("admin")).Post("/", teamHandler.Create)
+					r.With(auth.RequireRole("viewer")).Get("/", teamHandler.List)
+					r.With(auth.RequireAction(auth.ActionManageTeams)).Post("/", teamHandler.Create)
 					r.Route("/{teamID}", func(r chi.Router) {
-						r.Get("/", teamHandler.Get)
-						r.With(auth.RequireRole("admin")).Delete("/", teamHandler.Delete)
-						r.Get("/members", teamHandler.ListMembers)
-						r.With(auth.RequireRole("admin")).Post("/members", teamHandler.AddMember)
-						r.With(auth.RequireRole("admin")).Put("/members/{userID}", teamHandler.UpdateMember)
-						r.With(auth.RequireRole("admin")).Delete("/members/{userID}", teamHandler.RemoveMember)
+						r.With(auth.RequireRole("viewer")).Get("/", teamHandler.Get)
+						r.With(auth.RequireAction(auth.ActionManageTeams)).Delete("/", teamHandler.Delete)
+						r.With(auth.RequireRole("viewer")).Get("/members", teamHandler.ListMembers)
+						r.With(auth.RequireAction(auth.ActionManageTeams)).Post("/members", teamHandler.AddMember)
+						r.With(auth.RequireAction(auth.ActionManageTeams)).Put("/members/{userID}", teamHandler.UpdateMember)
+						r.With(auth.RequireAction(auth.ActionManageTeams)).Delete("/members/{userID}", teamHandler.RemoveMember)
 					})
 				})
 
-				// Accounts (AWS account + assume-role config, admin-managed)
+				// Accounts (AWS account + assume-role config, admin-managed).
+				// Reads carry the stored assume-role ARN and AWS account id, so
+				// they sit at the same bar as the writes.
 				r.Route("/accounts", func(r chi.Router) {
-					r.Get("/", accountHandler.List)
+					r.With(auth.RequireRole("admin")).Get("/", accountHandler.List)
 					r.With(auth.RequireRole("admin")).Post("/", accountHandler.Create)
 					r.Route("/{accountID}", func(r chi.Router) {
-						r.Get("/", accountHandler.Get)
+						r.With(auth.RequireRole("admin")).Get("/", accountHandler.Get)
 						r.With(auth.RequireRole("admin")).Put("/", accountHandler.Update)
 						r.With(auth.RequireRole("admin")).Delete("/", accountHandler.Delete)
 					})
@@ -292,11 +310,13 @@ func (s *Server) setupRouter() {
 
 				// Cluster vend order desk: provision/deprovision EKS clusters by
 				// committing eks-fleet Cluster CRs to the clusters GitOps repo.
+				// Reads project the same cluster_operations rows as the ops
+				// feed, so they carry the ops feed's admin bar.
 				r.Route("/cluster-orders", func(r chi.Router) {
-					r.Get("/", clusterOrderHandler.List)
+					r.With(auth.RequireRole("admin")).Get("/", clusterOrderHandler.List)
 					r.With(auth.RequireRole("admin")).Post("/", clusterOrderHandler.Provision)
 					r.Route("/{environment}/{name}", func(r chi.Router) {
-						r.Get("/operations", clusterOrderHandler.Operations)
+						r.With(auth.RequireRole("admin")).Get("/operations", clusterOrderHandler.Operations)
 						r.With(auth.RequireRole("admin")).Delete("/", clusterOrderHandler.Deprovision)
 						// Break-glass: deletes real cloud resources outside the GitOps
 						// teardown, so owner-only — one tier above deprovision.
@@ -320,8 +340,8 @@ func (s *Server) setupRouter() {
 						r.With(auth.RequireRole("admin")).Put("/", templateHandler.Update)
 						r.With(auth.RequireRole("admin")).Delete("/", templateHandler.Delete)
 						r.Get("/access", templateHandler.ListAccess)
-						r.With(auth.RequireRole("admin")).Post("/access", templateHandler.GrantAccess)
-						r.With(auth.RequireRole("admin")).Delete("/access/{teamID}", templateHandler.RevokeAccess)
+						r.With(auth.RequireAction(auth.ActionManageTeams)).Post("/access", templateHandler.GrantAccess)
+						r.With(auth.RequireAction(auth.ActionManageTeams)).Delete("/access/{teamID}", templateHandler.RevokeAccess)
 					})
 				})
 
@@ -336,8 +356,8 @@ func (s *Server) setupRouter() {
 						r.With(auth.RequireRole("operator")).Delete("/", tenantHandler.Delete)
 						r.Get("/operations", tenantHandler.Operations)
 						r.Get("/access", tenantHandler.ListAccess)
-						r.With(auth.RequireRole("admin")).Post("/access", tenantHandler.GrantAccess)
-						r.With(auth.RequireRole("admin")).Delete("/access/{teamID}", tenantHandler.RevokeAccess)
+						r.With(auth.RequireAction(auth.ActionManageTeams)).Post("/access", tenantHandler.GrantAccess)
+						r.With(auth.RequireAction(auth.ActionManageTeams)).Delete("/access/{teamID}", tenantHandler.RevokeAccess)
 					})
 				})
 
@@ -352,7 +372,12 @@ func (s *Server) setupRouter() {
 
 						r.Route("/runs", func(r chi.Router) {
 							r.Get("/", pipelineHandler.ListRuns)
-							r.With(auth.RequireRole("operator")).Post("/", pipelineHandler.StartRun)
+							// Every stage creates its run with an auto-apply
+							// override, so starting a pipeline run applies for
+							// real. It carries the apply bar, not the
+							// create-run baseline, and stays pinned to it if
+							// that bar ever moves.
+							r.With(auth.RequireAction(auth.ActionApplyRun)).Post("/", pipelineHandler.StartRun)
 							r.Route("/{runId}", func(r chi.Router) {
 								r.Get("/", pipelineHandler.GetRun)
 								r.With(auth.RequireRole("operator")).Post("/cancel", pipelineHandler.CancelRun)
@@ -372,68 +397,88 @@ func (s *Server) setupRouter() {
 					})
 				})
 
-				// Workspaces
+				// Workspaces. Everything under /{workspaceID} runs through a
+				// workspace-scoped gate, so a workspace_team_access grant can
+				// raise what a team may do on that one workspace.
 				r.Route("/workspaces", func(r chi.Router) {
-					r.Get("/", workspaceHandler.List)
-					r.Post("/", workspaceHandler.Create)
+					r.With(auth.RequireAction(auth.ActionViewWorkspace)).Get("/", workspaceHandler.List)
+					// No workspace exists yet, so there is nothing to grant
+					// against: creation is an org-role decision, at the same
+					// bar as cloning an existing one.
+					r.With(auth.RequireRole("operator")).Post("/", workspaceHandler.Create)
 					r.Route("/{workspaceID}", func(r chi.Router) {
-						r.Get("/", workspaceHandler.Get)
-						r.Put("/", workspaceHandler.Update)
-						r.With(auth.RequireRole("admin")).Delete("/", workspaceHandler.Delete)
-						r.With(auth.RequireRole("operator")).Post("/lock", workspaceHandler.Lock)
-						r.With(auth.RequireRole("operator")).Post("/unlock", workspaceHandler.Unlock)
-						r.With(auth.RequireRole("operator")).Post("/clone", workspaceHandler.Clone)
+						r.With(wsView).Get("/", workspaceHandler.Get)
+						// Settings drive what the worker checks out and runs.
+						// The two fields that decide whether an apply needs a
+						// human — auto_apply and requires_approval — are held
+						// to the org-level approval bar inside the handler.
+						r.With(wsOperator).Put("/", workspaceHandler.Update)
+						r.With(wsDelete).Delete("/", workspaceHandler.Delete)
+						r.With(wsOperator).Post("/lock", workspaceHandler.Lock)
+						r.With(wsOperator).Post("/unlock", workspaceHandler.Unlock)
+						r.With(wsOperator).Post("/clone", workspaceHandler.Clone)
 
-						// Variables
+						// Variables. Reads redact sensitive values; writes feed
+						// the worker's tfvars file and process environment, so
+						// they carry ActionManageVars — the same bar org
+						// variables already sit at.
 						r.Route("/variables", func(r chi.Router) {
-							r.Get("/", variableHandler.List)
-							r.Get("/effective", variableHandler.Effective)
-							r.Post("/", variableHandler.Create)
-							r.Post("/discover", variableHandler.Discover)
-							r.Post("/bulk", variableHandler.BulkCreate)
-							r.Post("/import-outputs", variableHandler.ImportOutputs)
-							r.Post("/copy", variableHandler.CopyVariables)
+							r.With(wsView).Get("/", variableHandler.List)
+							r.With(wsView).Get("/effective", variableHandler.Effective)
+							r.With(wsVars).Post("/", variableHandler.Create)
+							r.With(wsVars).Post("/discover", variableHandler.Discover)
+							r.With(wsVars).Post("/bulk", variableHandler.BulkCreate)
+							r.With(wsVars).Post("/import-outputs", variableHandler.ImportOutputs)
+							r.With(wsVars).Post("/copy", variableHandler.CopyVariables)
 							r.Route("/{variableID}", func(r chi.Router) {
-								r.Put("/", variableHandler.Update)
-								r.Delete("/", variableHandler.Delete)
-								r.With(auth.RequireRole("operator")).Get("/value", variableHandler.RevealValue)
+								r.With(wsVars).Put("/", variableHandler.Update)
+								r.With(wsVars).Delete("/", variableHandler.Delete)
+								r.With(wsOperator).Get("/value", variableHandler.RevealValue)
 							})
 						})
 
-						// State versions
+						// State versions. The parsed views back the State and
+						// Outputs tabs; the raw download hands over the whole
+						// tfstate file, every provider credential in it
+						// included, so it sits with state management.
 						r.Route("/state", func(r chi.Router) {
-							r.Get("/", stateHandler.List)
-							r.Get("/current", stateHandler.GetCurrent)
-							r.Get("/current/resources", stateHandler.Resources)
-							r.Get("/current/outputs", stateHandler.Outputs)
-							r.Get("/diff", stateHandler.Diff)
-							r.Get("/{stateID}", stateHandler.Get)
-							r.Get("/{stateID}/download", stateHandler.Download)
-							r.With(auth.RequireRole("admin")).Delete("/serial/{serial}", stateHandler.Delete)
+							r.With(wsView).Get("/", stateHandler.List)
+							r.With(wsView).Get("/current", stateHandler.GetCurrent)
+							r.With(wsView).Get("/current/resources", stateHandler.Resources)
+							r.With(wsView).Get("/current/outputs", stateHandler.Outputs)
+							r.With(wsView).Get("/diff", stateHandler.Diff)
+							r.With(wsView).Get("/{stateID}", stateHandler.Get)
+							r.With(wsState).Get("/{stateID}/download", stateHandler.Download)
+							r.With(wsState).Delete("/serial/{serial}", stateHandler.Delete)
 						})
 
-						// Team access
-						r.Get("/access", teamHandler.ListWorkspaceAccess)
-						r.With(auth.RequireRole("admin")).Post("/access", teamHandler.SetWorkspaceAccess)
-						r.With(auth.RequireRole("admin")).Delete("/access/{teamID}", teamHandler.RemoveWorkspaceAccess)
+						// Team access. Handing a team rights on a workspace
+						// stays an org-admin act — deliberately not workspace
+						// scoped, so holding a grant never lets someone widen
+						// it or pass it on.
+						r.With(wsView).Get("/access", teamHandler.ListWorkspaceAccess)
+						r.With(auth.RequireAction(auth.ActionManageTeams)).Post("/access", teamHandler.SetWorkspaceAccess)
+						r.With(auth.RequireAction(auth.ActionManageTeams)).Delete("/access/{teamID}", teamHandler.RemoveWorkspaceAccess)
 
 						// Runs
 						r.Route("/runs", func(r chi.Router) {
-							r.Get("/", runHandler.List)
+							r.With(wsView).Get("/", runHandler.List)
 							// Baseline: only operator+ may create any run; the handler
 							// elevates per operation (destroy requires admin).
-							r.With(auth.RequireAction(auth.ActionCreateRun)).Post("/", runHandler.Create)
+							r.With(wsRun).Post("/", runHandler.Create)
 							r.Route("/{runID}", func(r chi.Router) {
-								r.Get("/", runHandler.Get)
-								r.Get("/plan-json", runHandler.GetPlanJSON)
-								r.Get("/logs/ws", runHandler.StreamLogs)
-								r.With(auth.RequireRole("operator")).Post("/cancel", runHandler.Cancel)
+								r.With(wsView).Get("/", runHandler.Get)
+								r.With(wsView).Get("/plan-json", runHandler.GetPlanJSON)
+								r.With(wsView).Get("/logs/ws", runHandler.StreamLogs)
+								r.With(wsOperator).Post("/cancel", runHandler.Cancel)
 
 								// Approvals
-								r.Get("/approvals", s.approvalHandler.List)
+								r.With(wsView).Get("/approvals", s.approvalHandler.List)
 								// Approving releases a gated (typically prod) apply — same bar
 								// as ActionApplyProd. Without this a viewer could self-approve
-								// and trigger a real tofu apply.
+								// and trigger a real tofu apply. Deliberately org-scoped: the
+								// authority to sign off a production apply is not something a
+								// per-workspace grant can hand out.
 								r.With(auth.RequireAction(auth.ActionApplyProd)).
 									Post("/approvals", s.approvalHandler.Create)
 							})

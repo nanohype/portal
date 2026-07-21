@@ -177,7 +177,12 @@ func (h *RunHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// apply/destroy run real tofu against live cloud state, so they elevate
 	// (apply -> apply_run, destroy -> destroy_run/admin). Without this a viewer
 	// could POST {operation: "destroy"} and tear down infrastructure.
-	if userCtx == nil || !auth.CanPerform(userCtx.Role, auth.ActionForOperation(req.Operation)) {
+	//
+	// The role comes from the workspace gate that already ran, so a team
+	// granted a higher role on this workspace elevates here too. An empty
+	// value means no gate resolved a role for this request, which denies.
+	effectiveRole := auth.WorkspaceRole(r.Context())
+	if userCtx == nil || effectiveRole == "" || !auth.CanPerform(effectiveRole, auth.ActionForOperation(req.Operation)) {
 		respond.Error(w, http.StatusForbidden, "insufficient role for "+req.Operation+" operation")
 		return
 	}

@@ -12,10 +12,14 @@ import { ResourceBrowser } from './ResourceBrowser';
 import { StateDiffViewer } from './StateDiffViewer';
 import { formatRelativeTime } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
+import { roleAtLeast } from '@/lib/roles';
 import { Database, Download, Layers, Search, GitCompare, Trash2 } from 'lucide-react';
 
 interface Props {
   workspaceId: string;
+  // The caller's effective role on this workspace — their org role, or a
+  // higher role one of their teams was granted here.
+  role?: string;
 }
 
 async function downloadState(workspaceId: string, stateId: string) {
@@ -37,14 +41,16 @@ async function downloadState(workspaceId: string, stateId: string) {
   URL.revokeObjectURL(url);
 }
 
-export function StateExplorer({ workspaceId }: Props) {
+export function StateExplorer({ workspaceId, role }: Props) {
   const uid = useId();
   const [showResources, setShowResources] = useState(false);
   const [compareMode, setCompareMode] = useState(false);
   const [fromSerial, setFromSerial] = useState<number | ''>('');
   const [toSerial, setToSerial] = useState<number | ''>('');
   const { user } = useAuth();
-  const canDrop = user?.role === 'owner' || user?.role === 'admin';
+  // Downloading hands over the raw tfstate and dropping a version deletes it;
+  // the API holds both at admin, which a workspace team grant can confer.
+  const canManageState = roleAtLeast(role ?? user?.role, 'admin');
   const qc = useQueryClient();
   const confirm = useConfirm();
 
@@ -261,14 +267,16 @@ export function StateExplorer({ workspaceId }: Props) {
                 <span className="text-xs text-muted-foreground">
                   {formatRelativeTime(sv.created_at)}
                 </span>
-                <button
-                  onClick={() => downloadState(workspaceId, sv.id)}
-                  className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-                  title="Download state file"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                </button>
-                {canDrop && (
+                {canManageState && (
+                  <button
+                    onClick={() => downloadState(workspaceId, sv.id)}
+                    className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                    title="Download state file"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                {canManageState && (
                   <button
                     onClick={async () => {
                       if (

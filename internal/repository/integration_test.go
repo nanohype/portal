@@ -361,3 +361,56 @@ func TestExpireClusterOperation(t *testing.T) {
 		t.Errorf("active op must be untouched, got (%q, %q)", st, msg)
 	}
 }
+
+// seedTeamMember creates a team in an org and puts a user in it.
+func seedTeamMember(t *testing.T, ctx context.Context, orgID, userID string) string {
+	t.Helper()
+	teamID := id()
+	exec(t, ctx, `INSERT INTO teams (id,org_id,name,slug) VALUES ($1,$2,$3,$4)`, teamID, orgID, "team-"+teamID[:8], "team-"+teamID)
+	exec(t, ctx, `INSERT INTO team_members (id,team_id,user_id,role) VALUES ($1,$2,$3,'viewer')`, id(), teamID, userID)
+	return teamID
+}
+
+// TestGetWorkspaceTeamRole covers the read side of workspace_team_access, the
+// query a workspace-scoped gate consults before deciding a request. The table
+// carries no org_id of its own, so the org scoping has to come from the joins.
+func TestGetWorkspaceTeamRole(t *testing.T) {
+	requireDB(t)
+	ctx := context.Background()
+	orgA, userA := seedOrg(t, ctx, "a")
+	wsID := seedWorkspace(t, ctx, orgA, userA)
+
+	// No grant anywhere: an empty role, not an error, so the caller falls back
+	// to the org role rather than treating this as a lookup failure.
+	role, err := testQueries.GetWorkspaceTeamRole(ctx, wsID, userA, orgA)
+	if err != nil {
+		t.Fatalf("ungranted workspace should not error, got: %v", err)
+	}
+	if role != "" {
+		t.Fatalf("ungranted workspace returned role %q, want empty", role)
+	}
+
+	teamID := seedTeamMember(t, ctx, orgA, userA)
+	exec(t, ctx, `INSERT INTO workspace_team_access (id,workspace_id,team_id,role) VALUES ($1,$2,$3,'operator')`, id(), wsID, teamID)
+
+	if role, err = testQueries.GetWorkspaceTeamRole(ctx, wsID, userA, orgA); err != nil || role != "operator" {
+		t.Fatalf("granted workspace returned (%q, %v), want operator", role, err)
+	}
+
+	// A second team grants more: the highest grant wins, not the newest.
+	higherTeam := seedTeamMember(t, ctx, orgA, userA)
+	exec(t, ctx, `INSERT INTO workspace_team_access (id,workspace_id,team_id,role) VALUES ($1,$2,$3,'admin')`, id(), wsID, higherTeam)
+	if role, err = testQueries.GetWorkspaceTeamRole(ctx, wsID, userA, orgA); err != nil || role != "admin" {
+		t.Fatalf("two grants returned (%q, %v), want the higher one (admin)", role, err)
+	}
+
+	// A caller in another org reads no grant even with the exact workspace id.
+	orgB, userB := seedOrg(t, ctx, "b")
+	if role, err = testQueries.GetWorkspaceTeamRole(ctx, wsID, userA, orgB); err != nil || role != "" {
+		t.Fatalf("cross-org read returned (%q, %v), want empty", role, err)
+	}
+	// And a user who is in no granted team reads nothing either.
+	if role, err = testQueries.GetWorkspaceTeamRole(ctx, wsID, userB, orgA); err != nil || role != "" {
+		t.Fatalf("non-member read returned (%q, %v), want empty", role, err)
+	}
+}

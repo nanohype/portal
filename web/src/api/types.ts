@@ -298,7 +298,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List AWS accounts */
+        /** List AWS accounts (admin) */
         get: operations["listAccounts"];
         put?: never;
         /** Register an AWS account (admin) */
@@ -316,7 +316,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get an account */
+        /** Get an account (admin) */
         get: operations["getAccount"];
         /** Update an account (admin) */
         put: operations["updateAccount"];
@@ -389,7 +389,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Recent cluster operations across the org */
+        /** Recent cluster operations across the org (admin) */
         get: operations["listClusterOrders"];
         put?: never;
         /**
@@ -427,7 +427,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Vend log for one cluster, newest first */
+        /** Vend log for one cluster, newest first (admin) */
         get: operations["listClusterOrderOperations"];
         put?: never;
         post?: never;
@@ -792,7 +792,7 @@ export interface paths {
         /** List workspaces */
         get: operations["listWorkspaces"];
         put?: never;
-        /** Create a workspace */
+        /** Create a workspace (operator) */
         post: operations["createWorkspace"];
         delete?: never;
         options?: never;
@@ -809,7 +809,7 @@ export interface paths {
         };
         /** Get a workspace */
         get: operations["getWorkspace"];
-        /** Update a workspace */
+        /** Update a workspace (operator; auto_apply and requires_approval need admin) */
         put: operations["updateWorkspace"];
         post?: never;
         /** Delete a workspace (admin) */
@@ -900,7 +900,7 @@ export interface paths {
         /** List workspace variables */
         get: operations["listWorkspaceVariables"];
         put?: never;
-        /** Create a workspace variable */
+        /** Create a workspace variable (admin) */
         post: operations["createWorkspaceVariable"];
         delete?: never;
         options?: never;
@@ -935,7 +935,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Discover the config's variable surface
+         * Discover the config's variable surface (admin)
          * @description Parses the staged config (terragrunt render + variables.tf, or plain tofu) and returns every module variable with its configured state. Synchronous; intentionally not list-enveloped.
          */
         post: operations["discoverWorkspaceVariables"];
@@ -954,7 +954,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Create up to 50 variables in one call */
+        /** Create up to 50 variables in one call (admin) */
         post: operations["bulkCreateWorkspaceVariables"];
         delete?: never;
         options?: never;
@@ -971,7 +971,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Import another workspace's outputs as variables */
+        /** Import another workspace's outputs as variables (admin) */
         post: operations["importWorkspaceOutputs"];
         delete?: never;
         options?: never;
@@ -988,7 +988,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Copy another workspace's variables into this one */
+        /** Copy another workspace's variables into this one (admin) */
         post: operations["copyWorkspaceVariables"];
         delete?: never;
         options?: never;
@@ -1004,10 +1004,10 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** Update a workspace variable */
+        /** Update a workspace variable (admin) */
         put: operations["updateWorkspaceVariable"];
         post?: never;
-        /** Delete a workspace variable */
+        /** Delete a workspace variable (admin) */
         delete: operations["deleteWorkspaceVariable"];
         options?: never;
         head?: never;
@@ -1140,7 +1140,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Download the raw tfstate blob */
+        /** Download the raw tfstate blob (admin) */
         get: operations["downloadStateVersion"];
         put?: never;
         post?: never;
@@ -1386,6 +1386,11 @@ export interface components {
             last_run_at?: string | null;
             /** @description List-view rollup. */
             resource_count?: number;
+            /**
+             * @description The caller's role on this workspace: their org role, or a higher role one of their teams holds through a workspace team grant. Single-workspace reads only.
+             * @enum {string}
+             */
+            effective_role?: "viewer" | "operator" | "admin" | "owner";
         };
         CreateWorkspaceRequest: {
             name: string;

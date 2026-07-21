@@ -136,6 +136,13 @@ type WorkspaceResponse struct {
 	CurrentConfigVersionID string    `json:"current_config_version_id,omitempty"`
 	CreatedAt              time.Time `json:"created_at"`
 	UpdatedAt              time.Time `json:"updated_at"`
+
+	// EffectiveRole is the caller's role on this one workspace: their org role,
+	// or a higher role one of their teams was granted through
+	// workspace_team_access. Only the single-workspace read fills it in — it is
+	// what the UI uses to decide which controls to offer, so it must describe
+	// the workspace on screen.
+	EffectiveRole string `json:"effective_role,omitempty"`
 }
 
 // WorkspaceSummaryResponse is the list-view projection: the workspace plus its
@@ -145,6 +152,35 @@ type WorkspaceSummaryResponse struct {
 	LastRunStatus *string    `json:"last_run_status"`
 	LastRunAt     *time.Time `json:"last_run_at"`
 	ResourceCount int32      `json:"resource_count"`
+}
+
+// approvalGateChangeAllowed decides whether a caller may make this particular
+// workspace update.
+//
+// auto_apply and requires_approval together decide whether an apply waits for a
+// human. Turning the wait off removes exactly the approval that ActionApplyProd
+// protects, so moving either one asks for the same org-level authority as
+// signing an approval — a per-workspace team grant does not carry it. Every
+// other field on the settings form stays at the route's operator bar.
+func approvalGateChangeAllowed(current repository.Workspace, req UpdateWorkspaceRequest, orgRole string) bool {
+	if !changesApprovalGate(current, req) {
+		return true
+	}
+	return auth.CanPerform(orgRole, auth.ActionApplyProd)
+}
+
+// changesApprovalGate reports whether an update actually moves auto_apply or
+// requires_approval away from what the workspace stores today. The settings
+// form submits every field on every save, so a nil-pointer check would flag
+// each save; only a real change is an authorization event.
+func changesApprovalGate(current repository.Workspace, req UpdateWorkspaceRequest) bool {
+	if req.AutoApply != nil && *req.AutoApply != current.AutoApply {
+		return true
+	}
+	if req.RequiresApproval != nil && *req.RequiresApproval != current.RequiresApproval {
+		return true
+	}
+	return false
 }
 
 func workspaceResponse(ws repository.Workspace) WorkspaceResponse {
@@ -257,7 +293,9 @@ func (h *WorkspaceHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respond.JSON(w, http.StatusOK, workspaceResponse(workspace))
+	resp := workspaceResponse(workspace)
+	resp.EffectiveRole = auth.WorkspaceRole(r.Context())
+	respond.JSON(w, http.StatusOK, resp)
 }
 
 func (h *WorkspaceHandler) Create(w http.ResponseWriter, r *http.Request) {
@@ -370,6 +408,17 @@ func (h *WorkspaceHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Environment != "" && req.Environment != "development" && req.Environment != "staging" && req.Environment != "production" {
 		respond.Error(w, http.StatusBadRequest, "environment must be development, staging, or production")
+		return
+	}
+
+	current, err := h.svc.Get(r.Context(), workspaceID, userCtx.OrgID)
+	if err != nil {
+		respond.FromError(w, r, err)
+		return
+	}
+
+	if !approvalGateChangeAllowed(current, req, userCtx.Role) {
+		respond.Error(w, http.StatusForbidden, "changing auto_apply or requires_approval requires admin role or higher")
 		return
 	}
 
