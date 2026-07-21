@@ -178,11 +178,10 @@ func (s *TemplateService) ApplyToValues(template repository.Template, overrides 
 
 	if template.MaxBudgetUSD > 0 {
 		// budget.monthlyUsd comes through after a JSON round-trip
-		// (`deepCopy`), so the runtime type is float64. The old code also
-		// had an `int` branch as a half-defense in case the caller built
-		// the map in Go directly; in practice that path was dead.
-		// asFloat handles every numeric shape a caller could plausibly
-		// pass without us silently bypassing the cap.
+		// (`deepCopy`), so the runtime type is usually float64. asFloat must
+		// accept every numeric shape a caller could plausibly pass — an
+		// in-process caller can build the map in Go with `int` literals — so
+		// no numeric type slips past the cap.
 		if got, ok := asFloat(getPath(merged, "budget.monthlyUsd")); ok {
 			if got > float64(template.MaxBudgetUSD) {
 				return nil, fmt.Errorf("budget.monthlyUsd %v exceeds template cap %d", got, template.MaxBudgetUSD)

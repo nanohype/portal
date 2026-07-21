@@ -52,8 +52,7 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: npm ci
         working-directory: web
-      # Fail the build on a high/critical CVE in an npm dependency (the class
-      # that produced the vite Dependabot alerts).
+      # Fail the build on a high/critical CVE in an npm dependency.
       - run: npm audit --audit-level=high
         working-directory: web
       - run: npm run lint

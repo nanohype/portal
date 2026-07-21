@@ -14,13 +14,14 @@
 # Requires: curl, jq, tar; portal server reachable; ENVIRONMENT=development
 # so the /auth/dev login endpoint is enabled.
 #
-# Configure via env vars (defaults match the typical stxkxs setup):
+# Configure via env vars (defaults match a typical local setup):
 #   PORTAL_API           default http://localhost:8080
 #   LANDING_ZONE_PATH   default $HOME/codes/nanohype/landing-zone
 #   LZ_ACCOUNT          default workload-production
 #   LZ_REGION           default us-west-2
 #   LZ_ENV              default production
-#   AWS_PROFILE_NAME    default stxkxs
+#   AWS_PROFILE_NAME    default default — the AWS shared-config profile the
+#                       seeded workspaces run under
 #   TOFU_VERSION        default 1.11.0
 #   REUPLOAD            default false — when true, existing workspaces get
 #                       the freshly-packed archive uploaded over them
@@ -34,7 +35,7 @@ LZ_PATH=${LANDING_ZONE_PATH:-$HOME/codes/nanohype/landing-zone}
 ACCOUNT=${LZ_ACCOUNT:-workload-production}
 REGION=${LZ_REGION:-us-west-2}
 ENV=${LZ_ENV:-production}
-PROFILE=${AWS_PROFILE_NAME:-stxkxs}
+PROFILE=${AWS_PROFILE_NAME:-default}
 TOFU_VERSION=${TOFU_VERSION:-1.11.0}
 REUPLOAD=${REUPLOAD:-false}
 

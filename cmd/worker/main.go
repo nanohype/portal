@@ -257,7 +257,7 @@ func main() {
 
 	clusterOrderSvc := service.NewClusterOrderService(queries, dbPool)
 
-	// Tenant write path (phase 2c): renders the eks-agent-platform `charts/tenant` chart
+	// Tenant write path: renders the eks-agent-platform `charts/tenant` chart
 	// with the user-supplied values, commits the rendered manifest into the
 	// tenants repo, lets ArgoCD reconcile. Two git repos are involved:
 	//  * eks-agent-platform charts repo — read-only mirror, cloned at startup, pulled on

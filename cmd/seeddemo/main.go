@@ -531,7 +531,7 @@ func (s *seeder) seed() {
 			"category": cat, "description": desc, "created_at": s.ago(30 * d),
 		})
 	}
-	orgVar("AWS_PROFILE", "stxkxs", "env", false, "AWS profile used by all workspaces")
+	orgVar("AWS_PROFILE", "default", "env", false, "AWS profile used by all workspaces")
 	orgVar("AWS_REGION", "us-west-2", "env", false, "Region for the AWS provider")
 	orgVar("AWS_DEFAULT_REGION", "us-west-2", "env", false, "Region fallback")
 	orgVar("TF_LOG", "INFO", "env", false, "OpenTofu log verbosity")

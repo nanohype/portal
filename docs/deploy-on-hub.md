@@ -1,9 +1,9 @@
 # Deploying portal on a production EKS hub
 
-This stands portal up on a real eks-fleet **hub EKS cluster** with
-its IAM codified (portal#41), so the full surface works — including the parts that
-stay dark on kx: cross-account EKS reads, the per-cluster EKS control-plane badge,
-and tenant inventory from spoke clusters. It's the production counterpart to
+This stands portal up on a real eks-fleet **hub EKS cluster** with its IAM
+codified, so the full surface works — including the parts that stay dark on kx:
+cross-account EKS reads, the per-cluster EKS control-plane badge, and tenant
+inventory from spoke clusters. It's the production counterpart to
 `in-cluster-on-kx.md` (kind, no IRSA).
 
 You drive this. The new, error-prone part is the four-repo IAM wiring (§1, §3, §4)
@@ -225,9 +225,9 @@ In portal (admin): **Accounts → add** one per workload account —
 ## 4. Vend a cluster wired for portal
 
 Provision through portal as usual, but set the Cluster's `portalAccessRoleArn` so
-the cluster-stack grants `portal-spoke` its read access entry. If you order via
-portal's form today it doesn't set this field yet — set it on the `Cluster` CR in
-the clusters repo (or via the eks-fleet example), e.g.:
+the cluster-stack grants `portal-spoke` its read access entry. Portal's provision
+form doesn't expose this field — set it on the `Cluster` CR in the clusters repo
+(or via the eks-fleet example), e.g.:
 
 ```yaml
 spec:

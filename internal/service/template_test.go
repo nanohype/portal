@@ -8,11 +8,10 @@ import (
 	"github.com/nanohype/portal/internal/repository"
 )
 
-// TestAsFloat guards the budget-cap numeric coercion. After a quality-review
-// pass found the old code had a dead `int` branch that would silently bypass
-// the cap when a caller built the values map in Go with `int` literals,
-// `asFloat` now accepts every plausible numeric runtime type. The test makes
-// sure no future "tightening" accidentally drops a case.
+// TestAsFloat guards the budget-cap numeric coercion. `asFloat` must accept
+// every plausible numeric runtime type — a values map built in Go with `int`
+// literals has to trip the cap just like a JSON-derived float64 does — so no
+// future "tightening" may drop a case.
 func TestAsFloat(t *testing.T) {
 	cases := []struct {
 		name string
@@ -47,8 +46,6 @@ func TestAsFloat(t *testing.T) {
 
 // TestApplyToValuesBudgetCapWithIntOverride ensures the cap is enforced
 // when an in-process caller hands us an int (not a JSON-derived float64).
-// Before the asFloat refactor this would silently pass — exactly the
-// regression the helper exists to prevent.
 func TestApplyToValuesBudgetCapWithIntOverride(t *testing.T) {
 	svc := &TemplateService{}
 	template := tpl(t,
@@ -56,9 +53,8 @@ func TestApplyToValuesBudgetCapWithIntOverride(t *testing.T) {
 		5000, nil, nil,
 		map[string]interface{}{"budget": map[string]interface{}{"monthlyUsd": 2500.0}},
 	)
-	// Hand in an integer override. Without the asFloat fix the old code
-	// would have matched only float64 and silently let the cap-violating
-	// integer through.
+	// Hand in an integer override: it must still trip the cap. Matching only
+	// float64 would silently admit it.
 	_, err := svc.ApplyToValues(template, map[string]interface{}{
 		"budget": map[string]interface{}{"monthlyUsd": int(9999)},
 	})

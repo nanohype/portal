@@ -28,6 +28,7 @@ To use GitHub sign-in locally, set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`
 | `DATABASE_URL` | `postgres://portal:portal@localhost:5432/portal?sslmode=disable` | Postgres connection string |
 | `DB_MAX_CONNS` | `25` | Maximum open connections |
 | `DB_MIN_CONNS` | `5` | Minimum idle connections |
+| `TEST_DATABASE_URL` | `postgres://portal:portal@localhost:5432/postgres?sslmode=disable` | Test-only. Admin DSN the repository/service integration tests use to create throwaway databases; when the server is unreachable those tests skip. |
 | `DB_MAX_CONN_IDLE_TIME` | `5m` | Close idle connections after this duration |
 | `DB_HEALTH_CHECK_PERIOD` | `30s` | How often to ping idle connections |
 
@@ -59,6 +60,9 @@ Config is wired through the `objectStore` Helm block (and surfaces as the `S3_*`
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `GITHUB_CLIENT_ID` | _(empty)_ | Client ID of the GitHub OAuth App backing sign-in. Required in non-dev environments. |
+| `GITHUB_CLIENT_SECRET` | _(empty)_ | Client secret of that OAuth App. Required in non-dev environments. |
+| `ALLOWED_GITHUB_ORG` | _(empty)_ | When set, only active members of this GitHub org may sign in — the callback checks membership with the `read:org` scope and returns 403 to everyone else. Empty admits any GitHub account that completes the flow. |
 | `JWT_SECRET` | `dev-secret-change-in-production` | Signing key for JWT tokens. **Must be changed in non-dev environments.** |
 | `JWT_EXPIRATION` | `24h` | Token lifetime |
 
@@ -107,6 +111,7 @@ Distributed tracing is opt-in (off by default). When enabled, server and worker 
 | `EXECUTOR_NAMESPACE` | `portal` | Kubernetes namespace for executor pods (K8s executor only) |
 | `EXECUTOR_IMAGE` | `portal-executor:tofu-1.11` | Default container image for executor pods |
 | `EXECUTOR_IMAGE_PREFIX` | `portal-executor` | Image name prefix. When a workspace specifies a tofu version, the pod uses `{prefix}:tofu-{version}` as the image tag. |
+| `TF_PLUGIN_CACHE_DIR` | `<tmpdir>/portal-plugin-cache` | Provider plugin cache shared across runs. Read by tofu/terragrunt; the worker creates the directory and injects this value when it isn't already set, so providers aren't re-downloaded every run. |
 
 ## GitOps — tenant write path
 

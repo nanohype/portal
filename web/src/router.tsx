@@ -28,7 +28,7 @@ import { LoginPage } from '@/routes/Login';
 import { AuthCallbackPage } from '@/routes/AuthCallback';
 
 // In-app pages are lazy-loaded so each becomes its own chunk: the initial
-// bundle no longer carries every detail view (xterm.js, cmdk, charts) up front.
+// bundle doesn't carry every detail view (xterm.js, cmdk, charts) up front.
 // The Suspense boundary in AppLayoutRoute renders the fallback while a chunk loads.
 const named = <T,>(p: Promise<Record<string, T>>, key: string) =>
   p.then((m) => ({ default: m[key] }));

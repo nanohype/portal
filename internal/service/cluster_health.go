@@ -67,7 +67,7 @@ func (s *ClusterHealthService) Sync(ctx context.Context) (int, error) {
 			"cap", clusterHealthTargetCap)
 	}
 	// Per-cluster work is independent and I/O-bound, so fan out with a bounded
-	// pool instead of a serial pass — wall-clock no longer grows linearly with
+	// pool instead of a serial pass — wall-clock doesn't grow linearly with
 	// cluster count, and the assume-role config cache means the EKS describes
 	// share temporary credentials. Each reconcile logs its own errors and never
 	// returns one, so Wait can't fail.

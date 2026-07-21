@@ -97,9 +97,8 @@ export function ClusterProvisionDrawer({
     },
     onSuccess: (op) => {
       // The order renders from the ['cluster-operations'] surface — seed the new
-      // op into that cache so it appears instantly (the old bug invalidated only
-      // ['clusters'], so a fresh order didn't show until the next poll tick),
-      // then invalidate the order surfaces to reconcile with the server.
+      // op into that cache so it appears instantly rather than on the next poll
+      // tick, then invalidate the order surfaces to reconcile with the server.
       queryClient.setQueryData<ClusterOperation[]>(['cluster-operations'], (prev) => [
         op,
         ...(prev ?? []).filter((o) => o.id !== op.id),
