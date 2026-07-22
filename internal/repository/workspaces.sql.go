@@ -234,17 +234,52 @@ func (q *Queries) SetWorkspaceCurrentRun(ctx context.Context, arg SetWorkspaceCu
 }
 
 // ClaimWorkspaceForRun atomically takes the workspace's single run slot for
-// runID, but only if the slot is free or runID already holds it. Returns the
-// workspace id when claimed and pgx.ErrNoRows when a DIFFERENT run holds it. The
-// conditional UPDATE serializes concurrent claimers on the workspace row — the
-// basis for run serialization, so two runs can never execute against the same
-// tofu state.
+// runID, but only if the slot is free. Returns the workspace id when claimed and
+// pgx.ErrNoRows when ANY run holds it — including runID itself. The conditional
+// UPDATE serializes concurrent claimers on the workspace row — the basis for run
+// serialization, so two runs can never execute against the same tofu state.
 //
-// Re-claiming for the run that already holds the slot succeeds because it grants
-// nothing: the caller is the holder, so no other run can be executing. That
-// matters on the approval path, where a plan that finished but whose slot
-// release failed would otherwise be parked forever behind its own claim.
+// The predicate is mutual exclusion, and it has to stay that way. Postgres
+// re-evaluates it against the committed row when a blocked claimer gets the
+// lock, so "free" is the only condition under which a second claimer for the
+// same run id can be refused. A predicate that also accepted the caller's own
+// run id would let two callers that read the same pending run both claim it and
+// both enqueue it — nothing downstream catches that: RunJobArgs declares no
+// UniqueOpts, RunJobWorker.Work takes no lock, and UpdateRunStarted has no
+// status guard, so the two jobs run one tofu state concurrently.
+//
+// The one caller that legitimately needs to re-take a slot it already holds is
+// the approval path, and it has its own query for that — ReclaimWorkspaceForRun.
 func (q *Queries) ClaimWorkspaceForRun(ctx context.Context, id, orgID, runID string) (string, error) {
+	var claimed string
+	err := q.db.QueryRow(ctx,
+		`UPDATE workspaces SET current_run_id = $3, updated_at = NOW()
+		 WHERE id = $1 AND org_id = $2 AND current_run_id IS NULL
+		 RETURNING id`,
+		id, orgID, runID,
+	).Scan(&claimed)
+	return claimed, err
+}
+
+// ReclaimWorkspaceForRun is ClaimWorkspaceForRun widened by exactly one case:
+// the slot may also be taken when runID is already the holder. Returns
+// pgx.ErrNoRows only when a DIFFERENT run holds it.
+//
+// It exists for the approval path and belongs to nothing else. A plan that
+// parked at awaiting_approval normally released the slot on its way there, but
+// that release is best-effort — the worker logs a failed ReleaseWorkspaceRun and
+// moves on — so a plan can sit waiting for a signature while still holding its
+// own slot. Under the strict claim the approval could never take it and the run
+// would be parked behind itself until the stale-slot reaper came around hours
+// later.
+//
+// Widening the predicate here is safe in a way it is not in the hand-off,
+// because the approval transaction is already exclusive on the run: it holds the
+// run row FOR UPDATE and admits only 'planned' / 'awaiting_approval', so a
+// second approval of the same run reads it as 'queued' and is refused before it
+// ever reaches this claim. Re-taking a slot the caller already holds grants
+// nothing either — the holder is this run, so no other run can be executing.
+func (q *Queries) ReclaimWorkspaceForRun(ctx context.Context, id, orgID, runID string) (string, error) {
 	var claimed string
 	err := q.db.QueryRow(ctx,
 		`UPDATE workspaces SET current_run_id = $3, updated_at = NOW()

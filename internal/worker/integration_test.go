@@ -24,6 +24,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/oklog/ulid/v2"
+	"github.com/riverqueue/river/riverdriver/riverpgxv5"
+	"github.com/riverqueue/river/rivermigrate"
 
 	"github.com/nanohype/portal/internal/repository"
 )
@@ -31,6 +33,7 @@ import (
 var (
 	testPool    *pgxpool.Pool
 	testQueries *repository.Queries
+	testDBURL   string
 )
 
 func TestMain(m *testing.M) {
@@ -73,6 +76,18 @@ func TestMain(m *testing.M) {
 		panic("connect test pool: " + err.Error())
 	}
 	testQueries = repository.New(testPool)
+	testDBURL = dbURL
+
+	// River's own tables, migrated the same way the migrate binary does it. The
+	// enqueue paths under test insert through a real River client, so the proof
+	// that a run was enqueued once is a row count in river_job, not a stub.
+	riverMigrator, err := rivermigrate.New[pgx.Tx](riverpgxv5.New(testPool), nil)
+	if err != nil {
+		panic("river migrator: " + err.Error())
+	}
+	if _, err := riverMigrator.Migrate(ctx, rivermigrate.DirectionUp, nil); err != nil {
+		panic("river migrate up: " + err.Error())
+	}
 
 	code := m.Run()
 

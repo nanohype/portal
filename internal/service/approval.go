@@ -131,8 +131,17 @@ func (s *ApprovalService) Create(ctx context.Context, runID, workspaceID, orgID,
 		// (ClaimAndEnqueueNextRun) picks it up as the oldest pending run. Either
 		// way the operation moves to 'apply', which is what the signature
 		// authorized and what both enqueue paths read.
+		//
+		// This is the one path that reclaims rather than claims. Releasing the
+		// slot on the way to awaiting_approval is best-effort, so the plan being
+		// signed may still be holding its own slot; under the strict claim it
+		// would be parked behind itself until the reaper freed it. The reclaim is
+		// bounded to this transaction, which is already exclusive on the run —
+		// the row is held FOR UPDATE and only 'planned' / 'awaiting_approval' gets
+		// this far, so a second approval of the same run is refused above rather
+		// than reaching a second enqueue.
 		queued := true
-		if _, err := qtx.ClaimWorkspaceForRun(ctx, run.WorkspaceID, run.OrgID, runID); err != nil {
+		if _, err := qtx.ReclaimWorkspaceForRun(ctx, run.WorkspaceID, run.OrgID, runID); err != nil {
 			if !errors.Is(err, pgx.ErrNoRows) {
 				return repository.Approval{}, fmt.Errorf("claim workspace for approved run: %w", err)
 			}

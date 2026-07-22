@@ -135,6 +135,19 @@ func seedRun(t *testing.T, ctx context.Context, wsID, orgID, userID string) stri
 	return runID
 }
 
+// currentRunID reads the workspace's run slot, "" when it is free.
+func currentRunID(t *testing.T, ctx context.Context, wsID string) string {
+	t.Helper()
+	var current *string
+	if err := testPool.QueryRow(ctx, `SELECT current_run_id FROM workspaces WHERE id = $1`, wsID).Scan(&current); err != nil {
+		t.Fatalf("read workspace slot: %v", err)
+	}
+	if current == nil {
+		return ""
+	}
+	return *current
+}
+
 func exec(t *testing.T, ctx context.Context, sql string, args ...any) {
 	t.Helper()
 	if _, err := testPool.Exec(ctx, sql, args...); err != nil {
@@ -206,6 +219,57 @@ func TestWorkspaceRunClaim(t *testing.T) {
 	}
 	if _, err := testQueries.ClaimWorkspaceForRun(ctx, wsID, orgID, r2); err != nil {
 		t.Fatalf("r2 should claim the freed slot, got: %v", err)
+	}
+}
+
+// TestWorkspaceRunClaimRefusesItsOwnHolder pins the exclusion the enqueue paths
+// are built on: the claim succeeds for at most one caller per held slot, and
+// that includes a second caller naming the run that already holds it.
+//
+// The hand-off (ClaimAndEnqueueNextRun) reads the oldest pending run without a
+// row lock, so two callers routinely reach the claim with the same run id. Only
+// the predicate separates them — Postgres re-checks it against the committed row
+// when the second caller gets the workspace lock, and "the slot is free" is the
+// only condition that fails there. Accept the caller's own run id and both
+// enqueue it: two River jobs, no dedupe, two tofu processes on one state file.
+func TestWorkspaceRunClaimRefusesItsOwnHolder(t *testing.T) {
+	requireDB(t)
+	ctx := context.Background()
+	orgID, userID := seedOrg(t, ctx, "claim-self")
+	wsID := seedWorkspace(t, ctx, orgID, userID)
+	r1 := seedRun(t, ctx, wsID, orgID, userID)
+
+	if _, err := testQueries.ClaimWorkspaceForRun(ctx, wsID, orgID, r1); err != nil {
+		t.Fatalf("first claim should win, got: %v", err)
+	}
+	if _, err := testQueries.ClaimWorkspaceForRun(ctx, wsID, orgID, r1); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("re-claiming a held slot for its own holder must return no rows, got: %v", err)
+	}
+}
+
+// TestReclaimWorkspaceForRun covers the approval path's widened claim: it takes
+// a free slot, takes back one the same run already holds — the case a plan whose
+// release failed would otherwise be parked behind forever — and still refuses a
+// slot held by anything else.
+func TestReclaimWorkspaceForRun(t *testing.T) {
+	requireDB(t)
+	ctx := context.Background()
+	orgID, userID := seedOrg(t, ctx, "reclaim")
+	wsID := seedWorkspace(t, ctx, orgID, userID)
+	r1 := seedRun(t, ctx, wsID, orgID, userID)
+	r2 := seedRun(t, ctx, wsID, orgID, userID)
+
+	if _, err := testQueries.ReclaimWorkspaceForRun(ctx, wsID, orgID, r1); err != nil {
+		t.Fatalf("reclaim of a free slot should win, got: %v", err)
+	}
+	if _, err := testQueries.ReclaimWorkspaceForRun(ctx, wsID, orgID, r1); err != nil {
+		t.Fatalf("the holder must be able to re-take its own slot, got: %v", err)
+	}
+	if _, err := testQueries.ReclaimWorkspaceForRun(ctx, wsID, orgID, r2); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("reclaim by a different run must return no rows, got: %v", err)
+	}
+	if got := currentRunID(t, ctx, wsID); got != r1 {
+		t.Fatalf("workspace slot = %q, want the original holder (%q)", got, r1)
 	}
 }
 

@@ -24,6 +24,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/oklog/ulid/v2"
+	"github.com/riverqueue/river/riverdriver/riverpgxv5"
+	"github.com/riverqueue/river/rivermigrate"
 
 	"github.com/nanohype/portal/internal/repository"
 )
@@ -73,6 +75,16 @@ func TestMain(m *testing.M) {
 		panic("connect test pool: " + err.Error())
 	}
 	testQueries = repository.New(testPool)
+
+	// River's own tables, migrated the way the migrate binary does it, so the
+	// tests that hand the service a real River client can count what it enqueued.
+	riverMigrator, err := rivermigrate.New[pgx.Tx](riverpgxv5.New(testPool), nil)
+	if err != nil {
+		panic("river migrator: " + err.Error())
+	}
+	if _, err := riverMigrator.Migrate(ctx, rivermigrate.DirectionUp, nil); err != nil {
+		panic("river migrate up: " + err.Error())
+	}
 
 	code := m.Run()
 

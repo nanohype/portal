@@ -2,7 +2,12 @@ package service_test
 
 import (
 	"context"
+	"sync"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 
 	"github.com/nanohype/portal/internal/apperr"
 	"github.com/nanohype/portal/internal/service"
@@ -174,10 +179,16 @@ func TestApprovalWaitsForTheWorkspaceRunSlot(t *testing.T) {
 	_ = testQueries.ReleaseWorkspaceRun(ctx, wsID, orgID, parked)
 }
 
-// A plan whose slot release failed still holds its own slot when the admin
-// signs. Re-claiming for the run that already holds it grants nothing — nothing
-// else can be running — so the approval proceeds instead of parking the run
-// behind itself forever.
+// Releasing the run slot on the way to awaiting_approval is best-effort — the
+// worker logs a failed ReleaseWorkspaceRun and carries on — so a plan can sit
+// waiting for a signature while still holding its own slot. The approval takes
+// it back (ReclaimWorkspaceForRun) rather than treating the run as blocked by
+// itself, which under the strict claim would park it until the stale-slot reaper
+// came around hours later.
+//
+// This is the property that makes the strict claim safe everywhere else: revert
+// the approval path to ClaimWorkspaceForRun and the run below stops at 'pending'
+// instead of 'queued'.
 func TestApprovalReclaimsTheSlotItAlreadyHolds(t *testing.T) {
 	requireDB(t)
 	ctx := context.Background()
@@ -198,6 +209,99 @@ func TestApprovalReclaimsTheSlotItAlreadyHolds(t *testing.T) {
 		t.Errorf("workspace slot = %q, want the approved run (%q)", got, runID)
 	}
 	_ = testQueries.ReleaseWorkspaceRun(ctx, wsID, orgID, runID)
+}
+
+// The approval path is the one caller allowed to re-take a slot it already
+// holds, so it carries the burden of showing that widening the predicate there
+// cannot turn into a second enqueue. It can't, because the transaction is
+// already exclusive on the run itself: the row is taken FOR UPDATE and only
+// 'planned' / 'awaiting_approval' gets past the status guard, so a second signer
+// arriving at the same moment reads the run as 'queued' and is refused before
+// reaching the claim.
+//
+// Two signers race here against a run that holds its own slot — the exact
+// arrangement where the widened predicate would say yes twice — and the apply
+// must reach the queue once.
+func TestConcurrentApprovalsEnqueueTheApplyOnce(t *testing.T) {
+	requireDB(t)
+	ctx := context.Background()
+
+	riverClient, err := river.NewClient[pgx.Tx](riverpgxv5.New(testPool), &river.Config{})
+	if err != nil {
+		t.Fatalf("river client: %v", err)
+	}
+	svc := service.NewApprovalService(testQueries, testPool, service.NewAuditService(testQueries))
+	svc.SetRiverClient(riverClient)
+
+	orgID, userID := seedOrg(t, ctx, "appr-race")
+	wsID := seedWorkspace(t, ctx, orgID, userID)
+	runID := seedPlannedRun(t, ctx, wsID, orgID, userID)
+	mustClaim(t, ctx, wsID, orgID, runID)
+
+	var (
+		wg      sync.WaitGroup
+		mu      sync.Mutex
+		errs    []error
+		signers = 2
+	)
+	wg.Add(signers)
+	for range signers {
+		go func() {
+			defer wg.Done()
+			_, err := svc.Create(ctx, runID, wsID, orgID, userID, "approved", "lgtm", "", "")
+			mu.Lock()
+			errs = append(errs, err)
+			mu.Unlock()
+		}()
+	}
+	wg.Wait()
+
+	var accepted, conflicted int
+	for _, err := range errs {
+		switch {
+		case err == nil:
+			accepted++
+		case apperr.KindOf(err) == apperr.KindConflict:
+			conflicted++
+		default:
+			t.Fatalf("unexpected approval error: %v", err)
+		}
+	}
+	if accepted != 1 || conflicted != signers-1 {
+		t.Fatalf("approvals accepted=%d conflicted=%d, want 1 accepted and %d conflicted", accepted, conflicted, signers-1)
+	}
+	if got := approvalCount(t, ctx, runID); got != 1 {
+		t.Errorf("approval rows = %d, want 1", got)
+	}
+	if got := runJobCount(t, ctx, runID); got != 1 {
+		t.Fatalf("apply enqueued %d times, want exactly 1", got)
+	}
+	if got := runStatus(t, ctx, runID); got != "queued" {
+		t.Errorf("run status = %q, want queued", got)
+	}
+	_ = testQueries.ReleaseWorkspaceRun(ctx, wsID, orgID, runID)
+}
+
+// approvalCount returns how many approval rows a run collected.
+func approvalCount(t *testing.T, ctx context.Context, runID string) int {
+	t.Helper()
+	var n int
+	if err := testPool.QueryRow(ctx, `SELECT count(*) FROM approvals WHERE run_id=$1`, runID).Scan(&n); err != nil {
+		t.Fatalf("count approvals: %v", err)
+	}
+	return n
+}
+
+// runJobCount returns how many River jobs name this run — the count that has to
+// stay at one, because nothing downstream of the enqueue would notice a second.
+func runJobCount(t *testing.T, ctx context.Context, runID string) int {
+	t.Helper()
+	var n int
+	if err := testPool.QueryRow(ctx,
+		`SELECT count(*) FROM river_job WHERE kind='run' AND args->>'run_id' = $1`, runID).Scan(&n); err != nil {
+		t.Fatalf("count river jobs: %v", err)
+	}
+	return n
 }
 
 // runOperation reads a run's stored operation — what every enqueue path runs.
