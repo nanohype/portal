@@ -96,8 +96,22 @@ func (w *RunJobWorker) Work(ctx context.Context, job *river.Job[RunJobArgs]) err
 	if args.Operation == "apply" || args.Operation == "destroy" || args.Operation == "import" || args.Operation == "test" {
 		status = "applying"
 	}
-	if _, err := w.queries.UpdateRunStarted(ctx, repository.UpdateRunStartedParams{ID: args.RunID, Status: status}); err != nil {
+	run, err := w.queries.UpdateRunStarted(ctx, repository.UpdateRunStartedParams{ID: args.RunID, Status: status})
+	if err != nil {
 		return fmt.Errorf("failed to update run started: %w", err)
+	}
+
+	// The configuration to execute comes off the run row, where RunService.Create
+	// froze it, not off the workspace. The workspace is still read for the
+	// approval-gate decision after a plan, which is a question about the
+	// workspace as it stands now, not about the tree this run holds.
+	//
+	// An unpinned row can only be one written outside the run service (seeded
+	// demo history), and there is no safe guess for what it meant to run — the
+	// only fallback available is the live workspace, which is exactly what the
+	// pin exists to stop the worker reading. So it fails.
+	if run.ConfigSource == "" {
+		return w.failRun(ctx, args, logger, errors.New("run has no pinned configuration"), "")
 	}
 
 	// Get workspace
@@ -189,14 +203,14 @@ func (w *RunJobWorker) Work(ctx context.Context, job *river.Job[RunJobArgs]) err
 
 	// Download config archive for upload workspaces
 	var archiveData []byte
-	if workspace.Source == "upload" && workspace.CurrentConfigVersionID != "" && w.storage != nil {
-		key := fmt.Sprintf("configs/%s/%s.tar.gz", args.WorkspaceID, workspace.CurrentConfigVersionID)
+	if run.ConfigSource == "upload" && run.ConfigVersionID != "" && w.storage != nil {
+		key := fmt.Sprintf("configs/%s/%s.tar.gz", args.WorkspaceID, run.ConfigVersionID)
 		data, err := w.storage.GetConfigArchive(ctx, key)
 		if err != nil {
 			return w.failRun(ctx, args, logger, fmt.Errorf("failed to download config archive: %w", err), "")
 		}
 		archiveData = data
-		logger.Info("downloaded config archive", "config_version", workspace.CurrentConfigVersionID, "size", len(data))
+		logger.Info("downloaded config archive", "config_version", run.ConfigVersionID, "size", len(data))
 	}
 
 	// Derive state encryption passphrase if encryption is configured
@@ -218,15 +232,15 @@ func (w *RunJobWorker) Work(ctx context.Context, job *river.Job[RunJobArgs]) err
 		RunID:                     args.RunID,
 		WorkspaceID:               args.WorkspaceID,
 		Operation:                 args.Operation,
-		RepoURL:                   workspace.RepoURL,
-		RepoBranch:                workspace.RepoBranch,
-		WorkingDir:                workspace.WorkingDir,
-		TofuVersion:               workspace.TofuVersion,
+		RepoURL:                   run.ConfigRepoURL,
+		RepoBranch:                run.ConfigRepoBranch,
+		WorkingDir:                run.ConfigWorkingDir,
+		TofuVersion:               run.ConfigTofuVersion,
 		Variables:                 execVars,
 		LogCallback:               logCallback,
 		PreviousState:             previousState,
 		StateEncryptionPassphrase: stateEncPassphrase,
-		Source:                    workspace.Source,
+		Source:                    run.ConfigSource,
 		ArchiveData:               archiveData,
 		ImportResources:           toExecutorImports(args.Imports),
 	})

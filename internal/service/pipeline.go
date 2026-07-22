@@ -170,6 +170,14 @@ func (s *PipelineService) ListStages(ctx context.Context, pipelineID string) ([]
 	return s.queries.ListPipelineStages(ctx, pipelineID)
 }
 
+// StageWorkspaceGates returns, for the workspaces a submitted stage list points
+// at, which of them exist in this org and which of those gate their applies.
+// The pipeline write path uses it to decide the bar for a stage that carries
+// auto_apply, and to refuse a stage naming a workspace this org does not have.
+func (s *PipelineService) StageWorkspaceGates(ctx context.Context, orgID string, workspaceIDs []string) ([]repository.WorkspaceGateRow, error) {
+	return s.queries.ListWorkspaceGates(ctx, orgID, workspaceIDs)
+}
+
 func (s *PipelineService) StartRun(ctx context.Context, pipelineID, orgID, createdBy string) (repository.PipelineRun, error) {
 	// Check for active run
 	_, err := s.queries.GetActivePipelineRunForPipeline(ctx, pipelineID, orgID)

@@ -159,12 +159,12 @@ type WorkspaceSummaryResponse struct {
 // workspace update.
 //
 // auto_apply and requires_approval together decide whether an apply waits for a
-// human. Turning the wait off removes exactly the approval that ActionApplyProd
-// protects, so moving either one asks for the same org-level authority as
-// signing an approval — a per-workspace team grant does not carry it. Every
-// other field on the settings form stays at the route's operator bar.
+// human. Removing that wait removes exactly the approval that ActionApplyProd
+// protects, so it asks for the same org-level authority as signing one — a
+// per-workspace team grant does not carry it. Every other field on the settings
+// form stays at the route's operator bar.
 func approvalGateChangeAllowed(current repository.Workspace, req UpdateWorkspaceRequest, orgRole string) bool {
-	if !changesApprovalGate(current, req) {
+	if !opensApprovalGate(current, req) {
 		return true
 	}
 	return auth.CanPerform(orgRole, auth.ActionApplyProd)
@@ -193,10 +193,19 @@ func approvalGateAtCreateAllowed(autoApply bool, orgRole string) bool {
 //
 // requires_approval lives on the workspace row, but what it protects is the
 // infrastructure the config manages, and a workspace row is not a boundary
-// around that. Two workspaces on the same repo + working_dir drive the same
-// backend (terragrunt declares remote_state in the tree), so an ungated twin is
-// a second door onto the gated workspace's own resources, opened at the
-// operator bar the create and update routes sit at.
+// around that. Two workspaces on the same repo + working_dir run the same
+// resource addresses against the same cloud accounts, so an ungated twin is a
+// second door onto the gated workspace's own resources, opened at the operator
+// bar the create and update routes sit at.
+//
+// Whether they also share state varies — a terragrunt tree declares remote_state
+// itself, and so does any .tf with a backend block, while portal keeps state per
+// workspace for a plain-tofu leaf. It does not change the answer: plenty of
+// creates are overwrites at the provider API (a bucket policy, an inline role
+// policy, a DNS record), so an apply from the twin lands on the gated
+// workspace's infrastructure either way, and org-scoped variables are inherited
+// by any new workspace, so the twin does not need variables of its own to
+// resolve to the same target.
 //
 // Two ways through: carry the gate too — an operator may always create the twin
 // gated, since requires_approval only ever adds a wait — or hold the authority
@@ -257,15 +266,30 @@ func movesConfigTarget(current repository.Workspace, repoURL, workingDir string,
 		requiresApproval != current.RequiresApproval
 }
 
-// changesApprovalGate reports whether an update actually moves auto_apply or
-// requires_approval away from what the workspace stores today. The settings
-// form submits every field on every save, so a nil-pointer check would flag
-// each save; only a real change is an authorization event.
-func changesApprovalGate(current repository.Workspace, req UpdateWorkspaceRequest) bool {
-	if req.AutoApply != nil && *req.AutoApply != current.AutoApply {
+// opensApprovalGate reports whether an update takes the human out of an apply on
+// this workspace: turning auto_apply on, or turning requires_approval off.
+//
+// The direction is the whole point, and it is the same direction
+// approvalGateAtCreateAllowed reads at creation. Adding a wait — gating a
+// workspace that was not gated, or dropping auto-apply — hands out no authority
+// the caller did not already have; it only costs them the ability to apply
+// unattended, on a workspace the operator route already lets them repoint. So it
+// is theirs to do.
+//
+// Holding both directions at admin looked symmetric but made the twin check's
+// documented way out unreachable: gatedTwinMessage tells an operator to set
+// requires_approval on their workspace too, and the update route would then
+// refuse the very field it asked for. It also meant an operator could never
+// raise protection on a workspace they own.
+//
+// The settings form submits every field on every save, so a nil-pointer check
+// would flag each save; only a real change in that direction is an
+// authorization event.
+func opensApprovalGate(current repository.Workspace, req UpdateWorkspaceRequest) bool {
+	if req.AutoApply != nil && *req.AutoApply && !current.AutoApply {
 		return true
 	}
-	if req.RequiresApproval != nil && *req.RequiresApproval != current.RequiresApproval {
+	if req.RequiresApproval != nil && !*req.RequiresApproval && current.RequiresApproval {
 		return true
 	}
 	return false

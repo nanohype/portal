@@ -650,7 +650,7 @@ export interface paths {
         /** List pipelines */
         get: operations["listPipelines"];
         put?: never;
-        /** Create a pipeline (operator; stage auto_apply needs admin) */
+        /** Create a pipeline (operator; a stage auto_apply on a gated workspace needs admin) */
         post: operations["createPipeline"];
         delete?: never;
         options?: never;
@@ -667,7 +667,7 @@ export interface paths {
         };
         /** Get a pipeline with its stages */
         get: operations["getPipeline"];
-        /** Update a pipeline (operator; stage auto_apply needs admin) */
+        /** Update a pipeline (operator; a stage auto_apply on a gated workspace needs admin) */
         put: operations["updatePipeline"];
         post?: never;
         /** Delete a pipeline (admin) */
@@ -809,7 +809,7 @@ export interface paths {
         };
         /** Get a workspace */
         get: operations["getWorkspace"];
-        /** Update a workspace (operator; auto_apply and requires_approval need admin) */
+        /** Update a workspace (operator; turning auto_apply on or requires_approval off needs admin) */
         put: operations["updateWorkspace"];
         post?: never;
         /** Delete a workspace (admin) */

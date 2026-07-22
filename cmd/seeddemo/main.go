@@ -379,6 +379,13 @@ func (s *seeder) seed() {
 		s.insRun(latestRun, w.id, orgID, w.lastStatus, op1, s.ago(time.Duration(i)*h+30*m), add, chg, del, errMsg)
 		s.exec("UPDATE workspaces SET current_run_id=$1 WHERE id=$2", latestRun, w.id)
 
+		// Every run carries the configuration it executed — the worker runs the
+		// run's copy, not the workspace's, so a seeded run an admin approves in
+		// the demo behaves like a real one.
+		s.exec(`UPDATE runs SET config_source=$1, config_repo_url=$2, config_repo_branch=$3,
+			config_working_dir=$4, config_tofu_version=$5 WHERE workspace_id=$6`,
+			w.source, w.repo, orDefault(w.branch, "main"), w.dir, w.tofu, w.id)
+
 		// state version (drives resource_count) for anything that has applied
 		if w.resources > 0 && w.lastStatus != "errored" {
 			s.ins("state_versions", map[string]any{

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -63,9 +64,11 @@ func (s *ApprovalService) List(ctx context.Context, runID, workspaceID, orgID st
 // Create records an approve/reject decision. The run is locked FOR UPDATE, its
 // status is guarded (must be planned / awaiting_approval), the approval row is
 // written, the run is transitioned (queued on approval, discarded on rejection),
-// and on approval the apply job is enqueued — all in one transaction, so two
-// concurrent approvals can't both apply. status must be "approved" or "rejected"
-// (the handler validates the request shape).
+// and on approval the workspace's run slot is claimed and the apply job enqueued
+// — all in one transaction, so two concurrent approvals can't both apply, and an
+// approved apply can't start alongside whatever took the workspace while the run
+// was parked. status must be "approved" or "rejected" (the handler validates the
+// request shape).
 //
 // On rejection, the run is done with its workspace, so the workspace run slot is
 // released (only if this run still holds it) and the next pending run is claimed
@@ -114,10 +117,38 @@ func (s *ApprovalService) Create(ctx context.Context, runID, workspaceID, orgID,
 	}
 
 	if status == "approved" {
-		if _, err := qtx.UpdateRunStatus(ctx, repository.UpdateRunStatusParams{ID: runID, Status: "queued"}); err != nil {
-			return repository.Approval{}, fmt.Errorf("update run status to queued: %w", err)
+		// Take the workspace's single run slot before enqueueing, in this
+		// transaction. Parking at awaiting_approval released the slot and handed
+		// it to the next pending run, so by the time an admin signs, something
+		// else may be running against this workspace's state — and nothing
+		// downstream would stop the approved apply joining it. Plain-tofu
+		// workspaces restore their state per run from object storage with no
+		// backend lock, so two concurrent runs simply race and the later
+		// CreateStateVersion wins.
+		//
+		// Losing the claim is not a failure: the run keeps its approval and stays
+		// 'pending', and the hand-off that runs on every release
+		// (ClaimAndEnqueueNextRun) picks it up as the oldest pending run. Either
+		// way the operation moves to 'apply', which is what the signature
+		// authorized and what both enqueue paths read.
+		queued := true
+		if _, err := qtx.ClaimWorkspaceForRun(ctx, run.WorkspaceID, run.OrgID, runID); err != nil {
+			if !errors.Is(err, pgx.ErrNoRows) {
+				return repository.Approval{}, fmt.Errorf("claim workspace for approved run: %w", err)
+			}
+			queued = false
+			slog.Info("workspace has an active run, approved apply stays pending",
+				"workspace_id", run.WorkspaceID, "run_id", runID)
 		}
-		if s.riverClient != nil {
+
+		runStatus := "pending"
+		if queued {
+			runStatus = "queued"
+		}
+		if _, err := qtx.MarkRunApproved(ctx, runID, runStatus); err != nil {
+			return repository.Approval{}, fmt.Errorf("transition approved run to %s: %w", runStatus, err)
+		}
+		if queued && s.riverClient != nil {
 			if _, err := s.riverClient.InsertTx(ctx, tx, worker.RunJobArgs{
 				RunID:       runID,
 				WorkspaceID: run.WorkspaceID,

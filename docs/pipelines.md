@@ -17,7 +17,7 @@ Use a pipeline when multiple workspaces must deploy in order, and later stages d
 3. Name it and add an optional description
 4. Add workspace stages in order using the dropdown
 5. For each stage, configure:
-   - **Auto-apply**: if enabled, the plan automatically applies without waiting for approval
+   - **Auto-apply**: if enabled, the plan automatically applies without waiting for approval. On a workspace that requires approval the stage parks for a signature regardless, and setting the flag there is an admin action; on any other workspace it is the apply an operator may already start by hand, so the toggle is theirs
    - **On failure**: `stop` (default) halts the pipeline, `continue` skips the failed stage and moves on
 6. Drag stages to reorder using the grip handle
 
@@ -47,6 +47,8 @@ For each stage, the pipeline:
 ### Auto-Apply Override
 
 Each pipeline stage has its own `auto_apply` setting that overrides the workspace's setting for that run. This means a workspace that normally requires manual apply can auto-apply when run as part of a pipeline.
+
+The override does not reach `requires_approval`. A workspace whose owner asked for a human parks the stage at `awaiting_approval` no matter what the stage says — the gate outranks the convenience flag, or auto-apply would be a way around it.
 
 ## Pipeline Variables
 

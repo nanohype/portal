@@ -75,12 +75,22 @@ type Run struct {
 	ResourcesDeleted int32
 	ErrorMessage     string
 	CommitSHA        string
-	PlanJSONURL      string
-	CreatedBy        string
-	StartedAt        *time.Time
-	FinishedAt       *time.Time
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+
+	// The configuration this run executes, frozen from the workspace at
+	// creation. The worker runs these, not the live workspace row.
+	ConfigSource      string
+	ConfigRepoURL     string
+	ConfigRepoBranch  string
+	ConfigWorkingDir  string
+	ConfigVersionID   string
+	ConfigTofuVersion string
+
+	PlanJSONURL string
+	CreatedBy   string
+	StartedAt   *time.Time
+	FinishedAt  *time.Time
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 type StateVersion struct {

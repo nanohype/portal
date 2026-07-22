@@ -892,7 +892,7 @@ paths:
         default: { $ref: "#/components/responses/Error" }
     post:
       operationId: createPipeline
-      summary: Create a pipeline (operator; stage auto_apply needs admin)
+      summary: Create a pipeline (operator; a stage auto_apply on a gated workspace needs admin)
       requestBody:
         required: true
         content:
@@ -921,7 +921,7 @@ paths:
         default: { $ref: "#/components/responses/Error" }
     put:
       operationId: updatePipeline
-      summary: Update a pipeline (operator; stage auto_apply needs admin)
+      summary: Update a pipeline (operator; a stage auto_apply on a gated workspace needs admin)
       parameters:
         - { name: pipelineId, in: path, required: true, schema: { type: string } }
       requestBody:
@@ -1130,7 +1130,7 @@ paths:
         default: { $ref: "#/components/responses/Error" }
     put:
       operationId: updateWorkspace
-      summary: Update a workspace (operator; auto_apply and requires_approval need admin)
+      summary: Update a workspace (operator; turning auto_apply on or requires_approval off needs admin)
       parameters:
         - { name: workspaceId, in: path, required: true, schema: { type: string } }
       requestBody:

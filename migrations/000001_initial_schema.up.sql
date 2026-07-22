@@ -90,25 +90,36 @@ CREATE INDEX idx_workspaces_vcs_trigger ON workspaces(repo_url, repo_branch) WHE
 
 -- Runs
 CREATE TABLE runs (
-    id                 TEXT PRIMARY KEY,
-    workspace_id       TEXT NOT NULL REFERENCES workspaces(id),
-    org_id             TEXT NOT NULL REFERENCES organizations(id),
-    operation          run_operation NOT NULL DEFAULT 'plan',
-    status             run_status NOT NULL DEFAULT 'pending',
-    plan_output        TEXT NOT NULL DEFAULT '',
-    plan_log_url       TEXT NOT NULL DEFAULT '',
-    apply_log_url      TEXT NOT NULL DEFAULT '',
-    plan_json_url      TEXT NOT NULL DEFAULT '',
-    resources_added    INT NOT NULL DEFAULT 0,
-    resources_changed  INT NOT NULL DEFAULT 0,
-    resources_deleted  INT NOT NULL DEFAULT 0,
-    error_message      TEXT NOT NULL DEFAULT '',
-    commit_sha         TEXT NOT NULL DEFAULT '',
-    created_by         TEXT NOT NULL REFERENCES users(id),
-    started_at         TIMESTAMPTZ,
-    finished_at        TIMESTAMPTZ,
-    created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id                  TEXT PRIMARY KEY,
+    workspace_id        TEXT NOT NULL REFERENCES workspaces(id),
+    org_id              TEXT NOT NULL REFERENCES organizations(id),
+    operation           run_operation NOT NULL DEFAULT 'plan',
+    status              run_status NOT NULL DEFAULT 'pending',
+    plan_output         TEXT NOT NULL DEFAULT '',
+    plan_log_url        TEXT NOT NULL DEFAULT '',
+    apply_log_url       TEXT NOT NULL DEFAULT '',
+    plan_json_url       TEXT NOT NULL DEFAULT '',
+    resources_added     INT NOT NULL DEFAULT 0,
+    resources_changed   INT NOT NULL DEFAULT 0,
+    resources_deleted   INT NOT NULL DEFAULT 0,
+    error_message       TEXT NOT NULL DEFAULT '',
+    commit_sha          TEXT NOT NULL DEFAULT '',
+    -- The configuration this run executes, resolved from the workspace when the
+    -- run was created and frozen here. The worker reads these, never the live
+    -- workspace row: a run that parks for an approval is applied from the tree
+    -- the plan was produced against, so editing the workspace between the plan
+    -- and the signature changes the next run, not this one.
+    config_source       TEXT NOT NULL DEFAULT '',
+    config_repo_url     TEXT NOT NULL DEFAULT '',
+    config_repo_branch  TEXT NOT NULL DEFAULT '',
+    config_working_dir  TEXT NOT NULL DEFAULT '',
+    config_version_id   TEXT NOT NULL DEFAULT '',
+    config_tofu_version TEXT NOT NULL DEFAULT '',
+    created_by          TEXT NOT NULL REFERENCES users(id),
+    started_at          TIMESTAMPTZ,
+    finished_at         TIMESTAMPTZ,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX idx_runs_workspace_id ON runs(workspace_id);

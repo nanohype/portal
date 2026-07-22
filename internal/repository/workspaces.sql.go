@@ -31,6 +31,43 @@ func (q *Queries) GetWorkspace(ctx context.Context, arg GetWorkspaceParams) (Wor
 	return scanWorkspace(row)
 }
 
+// WorkspaceGateRow names a workspace and says whether it gates its applies. It
+// is what an authorization check needs about a workspace it is not otherwise
+// reading — the id to match on, the name to put in an error message, and the
+// gate to decide the bar.
+type WorkspaceGateRow struct {
+	ID               string `json:"id"`
+	Name             string `json:"name"`
+	RequiresApproval bool   `json:"requires_approval"`
+}
+
+// ListWorkspaceGates returns the gate rows for the named workspaces in one org.
+// Ids that name nothing in this org are simply absent from the result, so a
+// caller can tell "not mine" from "mine and ungated" and refuse the first.
+func (q *Queries) ListWorkspaceGates(ctx context.Context, orgID string, ids []string) ([]WorkspaceGateRow, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	rows, err := q.db.Query(ctx,
+		`SELECT id, name, requires_approval FROM workspaces WHERE org_id = $1 AND id = ANY($2)`,
+		orgID, ids,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var gates []WorkspaceGateRow
+	for rows.Next() {
+		var g WorkspaceGateRow
+		if err := rows.Scan(&g.ID, &g.Name, &g.RequiresApproval); err != nil {
+			return nil, err
+		}
+		gates = append(gates, g)
+	}
+	return gates, rows.Err()
+}
+
 type ListWorkspacesParams struct {
 	OrgID  string `json:"org_id"`
 	Limit  int32  `json:"limit"`
@@ -197,15 +234,21 @@ func (q *Queries) SetWorkspaceCurrentRun(ctx context.Context, arg SetWorkspaceCu
 }
 
 // ClaimWorkspaceForRun atomically takes the workspace's single run slot for
-// runID, but only if the slot is free. Returns the workspace id when claimed and
-// pgx.ErrNoRows when another run already holds it. The conditional UPDATE
-// serializes concurrent claimers on the workspace row — the basis for run
-// serialization, so two runs can never execute against the same tofu state.
+// runID, but only if the slot is free or runID already holds it. Returns the
+// workspace id when claimed and pgx.ErrNoRows when a DIFFERENT run holds it. The
+// conditional UPDATE serializes concurrent claimers on the workspace row — the
+// basis for run serialization, so two runs can never execute against the same
+// tofu state.
+//
+// Re-claiming for the run that already holds the slot succeeds because it grants
+// nothing: the caller is the holder, so no other run can be executing. That
+// matters on the approval path, where a plan that finished but whose slot
+// release failed would otherwise be parked forever behind its own claim.
 func (q *Queries) ClaimWorkspaceForRun(ctx context.Context, id, orgID, runID string) (string, error) {
 	var claimed string
 	err := q.db.QueryRow(ctx,
 		`UPDATE workspaces SET current_run_id = $3, updated_at = NOW()
-		 WHERE id = $1 AND org_id = $2 AND current_run_id IS NULL
+		 WHERE id = $1 AND org_id = $2 AND (current_run_id IS NULL OR current_run_id = $3)
 		 RETURNING id`,
 		id, orgID, runID,
 	).Scan(&claimed)

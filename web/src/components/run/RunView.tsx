@@ -109,7 +109,9 @@ export function RunView({ workspaceId, runId }: Props) {
       toast.success('Retry run created');
       navigate(`/workspaces/${workspaceId}/runs/${newRun.id}`);
     },
-    onError: () => toast.error('Failed to retry run'),
+    // Retrying repeats the operation, and an apply on a workspace that requires
+    // approval is refused with a reason — a plan and a signature. Say it.
+    onError: (e) => toast.error((e as { message?: string })?.message ?? 'Failed to retry run'),
   });
 
   const handleData = useCallback((data: string) => {

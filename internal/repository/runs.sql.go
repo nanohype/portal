@@ -4,11 +4,11 @@ package repository
 
 import "context"
 
-const runColumns = `id, workspace_id, org_id, operation, status, plan_output, plan_log_url, apply_log_url, resources_added, resources_changed, resources_deleted, error_message, commit_sha, plan_json_url, created_by, started_at, finished_at, created_at, updated_at`
+const runColumns = `id, workspace_id, org_id, operation, status, plan_output, plan_log_url, apply_log_url, resources_added, resources_changed, resources_deleted, error_message, commit_sha, config_source, config_repo_url, config_repo_branch, config_working_dir, config_version_id, config_tofu_version, plan_json_url, created_by, started_at, finished_at, created_at, updated_at`
 
 func scanRun(row interface{ Scan(...interface{}) error }) (Run, error) {
 	var r Run
-	err := row.Scan(&r.ID, &r.WorkspaceID, &r.OrgID, &r.Operation, &r.Status, &r.PlanOutput, &r.PlanLogURL, &r.ApplyLogURL, &r.ResourcesAdded, &r.ResourcesChanged, &r.ResourcesDeleted, &r.ErrorMessage, &r.CommitSHA, &r.PlanJSONURL, &r.CreatedBy, &r.StartedAt, &r.FinishedAt, &r.CreatedAt, &r.UpdatedAt)
+	err := row.Scan(&r.ID, &r.WorkspaceID, &r.OrgID, &r.Operation, &r.Status, &r.PlanOutput, &r.PlanLogURL, &r.ApplyLogURL, &r.ResourcesAdded, &r.ResourcesChanged, &r.ResourcesDeleted, &r.ErrorMessage, &r.CommitSHA, &r.ConfigSource, &r.ConfigRepoURL, &r.ConfigRepoBranch, &r.ConfigWorkingDir, &r.ConfigVersionID, &r.ConfigTofuVersion, &r.PlanJSONURL, &r.CreatedBy, &r.StartedAt, &r.FinishedAt, &r.CreatedAt, &r.UpdatedAt)
 	return r, err
 }
 
@@ -102,22 +102,33 @@ func (q *Queries) CountRunsByWorkspace(ctx context.Context, arg CountRunsByWorks
 	return count, err
 }
 
+// CreateRunParams carries the run's identity and the configuration it will
+// execute. The config fields are resolved from the workspace by the service
+// layer and frozen on the row — see RunService.Create.
 type CreateRunParams struct {
-	ID          string `json:"id"`
-	WorkspaceID string `json:"workspace_id"`
-	OrgID       string `json:"org_id"`
-	Operation   string `json:"operation"`
-	Status      string `json:"status"`
-	CreatedBy   string `json:"created_by"`
-	CommitSHA   string `json:"commit_sha"`
+	ID                string `json:"id"`
+	WorkspaceID       string `json:"workspace_id"`
+	OrgID             string `json:"org_id"`
+	Operation         string `json:"operation"`
+	Status            string `json:"status"`
+	CreatedBy         string `json:"created_by"`
+	CommitSHA         string `json:"commit_sha"`
+	ConfigSource      string `json:"config_source"`
+	ConfigRepoURL     string `json:"config_repo_url"`
+	ConfigRepoBranch  string `json:"config_repo_branch"`
+	ConfigWorkingDir  string `json:"config_working_dir"`
+	ConfigVersionID   string `json:"config_version_id"`
+	ConfigTofuVersion string `json:"config_tofu_version"`
 }
 
 func (q *Queries) CreateRun(ctx context.Context, arg CreateRunParams) (Run, error) {
 	row := q.db.QueryRow(ctx,
-		`INSERT INTO runs (id, workspace_id, org_id, operation, status, created_by, commit_sha)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		`INSERT INTO runs (id, workspace_id, org_id, operation, status, created_by, commit_sha,
+			config_source, config_repo_url, config_repo_branch, config_working_dir, config_version_id, config_tofu_version)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING `+runColumns,
 		arg.ID, arg.WorkspaceID, arg.OrgID, arg.Operation, arg.Status, arg.CreatedBy, arg.CommitSHA,
+		arg.ConfigSource, arg.ConfigRepoURL, arg.ConfigRepoBranch, arg.ConfigWorkingDir, arg.ConfigVersionID, arg.ConfigTofuVersion,
 	)
 	return scanRun(row)
 }
@@ -150,6 +161,23 @@ func (q *Queries) UpdateRunStatus(ctx context.Context, arg UpdateRunStatusParams
 	row := q.db.QueryRow(ctx,
 		`UPDATE runs SET status = $2, updated_at = NOW() WHERE id = $1 RETURNING `+runColumns,
 		arg.ID, arg.Status,
+	)
+	return scanRun(row)
+}
+
+// MarkRunApproved transitions a signed-off run to the apply it was approved
+// for: the operation becomes 'apply' and the status becomes whatever the
+// approval transaction could take — 'queued' when it also took the workspace's
+// run slot, 'pending' when another run holds it.
+//
+// The operation has to move with the status. Every path that enqueues a run
+// reads the operation off the row (ClaimAndEnqueueNextRun), so a run left as
+// 'plan' would be re-planned instead of applied when the slot frees up, and the
+// approval would silently do nothing.
+func (q *Queries) MarkRunApproved(ctx context.Context, id, status string) (Run, error) {
+	row := q.db.QueryRow(ctx,
+		`UPDATE runs SET operation = 'apply', status = $2, updated_at = NOW() WHERE id = $1 RETURNING `+runColumns,
+		id, status,
 	)
 	return scanRun(row)
 }

@@ -83,11 +83,16 @@ function WebhookURLField() {
 
 export function WorkspaceSettings({ workspace }: Props) {
   const { user } = useAuth();
-  // auto_apply and requires_approval decide whether an apply waits for a human,
-  // so the API holds them at the same org-level bar as signing an approval —
-  // a workspace team grant does not confer it. The rest of the form is
-  // operator-level, which the route already checked to get here.
-  const canChangeApprovalGate = roleAtLeast(user?.role, 'admin');
+  // auto_apply and requires_approval decide whether an apply waits for a human.
+  // Taking the human out is what the API holds at the org-level bar that signs
+  // approvals — a workspace team grant does not confer it. Putting one back is
+  // an operator's to do: it hands out no authority, and it is what the 403 on a
+  // config another workspace gates tells them to do. So each field is theirs
+  // while the move left on it adds the wait, and the rest of the form stays at
+  // the operator bar the route already checked.
+  const isAdmin = roleAtLeast(user?.role, 'admin');
+  const canRaiseApproval = isAdmin || !workspace.requires_approval;
+  const canDropAutoApply = isAdmin || workspace.auto_apply;
   const uid = useId();
   const queryClient = useQueryClient();
   const [deleteConfirm, setDeleteConfirm] = useState('');
@@ -234,14 +239,14 @@ export function WorkspaceSettings({ workspace }: Props) {
             id={`${uid}-auto-apply`}
             type="checkbox"
             {...register('auto_apply')}
-            disabled={!canChangeApprovalGate}
+            disabled={!canDropAutoApply}
             className="w-4 h-4 rounded border-border disabled:cursor-not-allowed disabled:opacity-50"
           />
           <div>
             <div className="text-sm font-medium">Auto-apply</div>
             <div className="text-xs text-muted-foreground">
               Automatically apply changes after a successful plan
-              {canChangeApprovalGate ? '' : ' — admins change this'}
+              {canDropAutoApply ? '' : ' — admins turn this on'}
             </div>
           </div>
         </label>
@@ -254,14 +259,14 @@ export function WorkspaceSettings({ workspace }: Props) {
             id={`${uid}-requires-approval`}
             type="checkbox"
             {...register('requires_approval')}
-            disabled={!canChangeApprovalGate}
+            disabled={!canRaiseApproval}
             className="w-4 h-4 rounded border-border disabled:cursor-not-allowed disabled:opacity-50"
           />
           <div>
             <div className="text-sm font-medium">Require approval</div>
             <div className="text-xs text-muted-foreground">
               Require manual approval before applying changes
-              {canChangeApprovalGate ? '' : ' — admins change this'}
+              {canRaiseApproval ? '' : ' — admins turn this off'}
             </div>
           </div>
         </label>

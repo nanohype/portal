@@ -115,7 +115,8 @@ Key behaviors:
 - A workspace can only have one active run. Others queue as `pending`.
 - When a run finishes, the worker automatically dequeues the next pending run.
 - Cancel uses a conditional `UPDATE ... WHERE status IN (cancellable)` — no TOCTOU race.
-- Approval uses `SELECT FOR UPDATE` in a transaction to prevent race conditions.
+- Approval uses `SELECT FOR UPDATE` in a transaction to prevent race conditions, and takes the workspace's run slot in the same transaction (parking at `awaiting_approval` released it, so something else may hold it by the time an admin signs). An approval that loses the slot leaves the run `pending` as an `apply`, and the usual hand-off picks it up.
+- A run carries the configuration it executes — source, repo, branch, working dir, config version, tofu version — resolved from the workspace when the run is created. The worker runs that, not the live workspace row, so the apply an admin approves is the tree the plan they read was produced from. Editing the workspace moves the next run.
 
 ## Pipeline Orchestration
 

@@ -9,34 +9,48 @@ import (
 func boolPtr(b bool) *bool { return &b }
 
 // The settings form posts every field on every save, so "the request carries a
-// value" is not the same as "the request changes the approval gate".
-func TestChangesApprovalGate(t *testing.T) {
-	current := repository.Workspace{AutoApply: false, RequiresApproval: true}
+// value" is not the same as "the request takes the human out of an apply".
+// Direction is what counts: adding a wait is an operator's to make, removing one
+// is the act ActionApplyProd protects.
+func TestOpensApprovalGate(t *testing.T) {
+	gated := repository.Workspace{AutoApply: false, RequiresApproval: true}
+	ungated := repository.Workspace{AutoApply: true, RequiresApproval: false}
 
 	tests := []struct {
-		name string
-		req  UpdateWorkspaceRequest
-		want bool
+		name    string
+		current repository.Workspace
+		req     UpdateWorkspaceRequest
+		want    bool
 	}{
-		{"no approval fields submitted", UpdateWorkspaceRequest{Name: "renamed"}, false},
-		{"resubmits the stored values", UpdateWorkspaceRequest{
+		{"no approval fields submitted", gated, UpdateWorkspaceRequest{Name: "renamed"}, false},
+		{"resubmits the stored values", gated, UpdateWorkspaceRequest{
 			AutoApply: boolPtr(false), RequiresApproval: boolPtr(true),
 		}, false},
-		{"turns auto_apply on", UpdateWorkspaceRequest{AutoApply: boolPtr(true)}, true},
-		{"turns requires_approval off", UpdateWorkspaceRequest{RequiresApproval: boolPtr(false)}, true},
-		{"flips both", UpdateWorkspaceRequest{
+		{"turns auto_apply on", gated, UpdateWorkspaceRequest{AutoApply: boolPtr(true)}, true},
+		{"turns requires_approval off", gated, UpdateWorkspaceRequest{RequiresApproval: boolPtr(false)}, true},
+		{"flips both open", gated, UpdateWorkspaceRequest{
 			AutoApply: boolPtr(true), RequiresApproval: boolPtr(false),
 		}, true},
-		{"changes other fields alongside stored approval values", UpdateWorkspaceRequest{
+		{"changes other fields alongside stored approval values", gated, UpdateWorkspaceRequest{
 			RepoURL: "https://example.test/repo.git", RepoBranch: "main",
 			AutoApply: boolPtr(false), RequiresApproval: boolPtr(true),
+		}, false},
+
+		// The other direction only ever adds a wait. It is what the twin
+		// check's 403 tells an operator to do, so it cannot itself be
+		// admin-only.
+		{"turns requires_approval on", ungated, UpdateWorkspaceRequest{RequiresApproval: boolPtr(true)}, false},
+		{"turns auto_apply off", ungated, UpdateWorkspaceRequest{AutoApply: boolPtr(false)}, false},
+		{"gates the workspace while repointing it", ungated, UpdateWorkspaceRequest{
+			RepoURL: "https://example.test/infra.git", WorkingDir: "modules/vpc",
+			RequiresApproval: boolPtr(true), AutoApply: boolPtr(false),
 		}, false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := changesApprovalGate(current, tt.req); got != tt.want {
-				t.Errorf("changesApprovalGate = %v, want %v", got, tt.want)
+			if got := opensApprovalGate(tt.current, tt.req); got != tt.want {
+				t.Errorf("opensApprovalGate = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -197,6 +211,50 @@ func TestGatedTwinAllowed(t *testing.T) {
 					tt.hasGatedTwin, tt.requiresApproval, tt.role, got, tt.want)
 			}
 		})
+	}
+}
+
+// gatedTwinMessage tells an operator to "set requires_approval on this one too".
+// Update runs the gate check before the twin check, so if adding a gate were an
+// admin act the advice would be impossible to follow: leave the gate off and the
+// twin check refuses, turn it on and the gate check refuses. This pins the way
+// out the message documents, on the route that has to offer it — and pins that
+// the door it is an alternative to stays shut.
+func TestOperatorCanTakeTheGatedTwinEscapeHatch(t *testing.T) {
+	const role = "operator"
+	current := repository.Workspace{
+		RepoURL:    "https://example.test/scratch.git",
+		WorkingDir: ".",
+	}
+	onto := func(gate *bool) UpdateWorkspaceRequest {
+		return UpdateWorkspaceRequest{
+			RepoURL:          "https://example.test/infra.git",
+			WorkingDir:       "modules/vpc",
+			RequiresApproval: gate,
+		}
+	}
+
+	// Repointing onto the gated config, carrying the gate.
+	withGate := onto(boolPtr(true))
+	if !approvalGateChangeAllowed(current, withGate, role) {
+		t.Fatal("an operator must be allowed to add the gate the twin check asks for")
+	}
+	_, _, gated := effectiveConfigTarget(current, withGate)
+	if !gatedTwinAllowed(true, gated, role) {
+		t.Fatal("carrying the gate must satisfy the twin check — it is the way out the 403 names")
+	}
+
+	// The same move without the gate is the exploit, and stays refused.
+	withoutGate := onto(nil)
+	if _, _, stillUngated := effectiveConfigTarget(current, withoutGate); gatedTwinAllowed(true, stillUngated, role) {
+		t.Fatal("an operator must not repoint an ungated workspace onto a gated config")
+	}
+
+	// And the gate they raised is still theirs to raise only — clearing it
+	// afterwards is the act that removes the human, and stays at admin.
+	gatedNow := repository.Workspace{RepoURL: "https://example.test/infra.git", WorkingDir: "modules/vpc", RequiresApproval: true}
+	if approvalGateChangeAllowed(gatedNow, UpdateWorkspaceRequest{RequiresApproval: boolPtr(false)}, role) {
+		t.Fatal("an operator must not clear the gate again")
 	}
 }
 

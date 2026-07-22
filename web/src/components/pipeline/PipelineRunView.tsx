@@ -9,6 +9,8 @@ import { isPipelineRunInFlight, pipelineRunStatus, pipelineStageStatus } from '@
 import { Spinner } from '@/components/ui/spinner';
 import { Link } from '@/components/ui/link';
 import { formatDuration } from '@/lib/utils';
+import { roleAtLeast } from '@/lib/roles';
+import { useAuth } from '@/hooks/useAuth';
 import {
   ArrowLeft,
   CheckCircle2,
@@ -82,6 +84,12 @@ function stageBorderStyle(status: string) {
 
 export function PipelineRunView({ pipelineId, runId }: { pipelineId: string; runId: string }) {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  // Signing a stage is the same POST .../approvals ApprovalPanel makes, and it
+  // sits at ActionApplyProd, org-scoped — so this reads the org role, not any
+  // per-workspace grant. Offering the buttons to everyone made a 403 the only
+  // way to find out.
+  const canDecide = roleAtLeast(user?.role, 'admin');
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['pipeline-run', pipelineId, runId],
@@ -140,7 +148,8 @@ export function PipelineRunView({ pipelineId, runId }: { pipelineId: string; run
       });
       toast.success(vars.status === 'approved' ? 'Stage approved' : 'Stage rejected');
     },
-    onError: () => toast.error('Failed to submit approval'),
+    onError: (e) =>
+      toast.error((e as { message?: string })?.message ?? 'Failed to submit approval'),
   });
 
   if (isLoading) {
@@ -240,6 +249,7 @@ export function PipelineRunView({ pipelineId, runId }: { pipelineId: string; run
           {stages.map((stage: PipelineRunStage, i: number) => {
             const isActive = stage.status === 'running' || stage.status === 'importing_outputs';
             const isAwaitingApproval = stage.status === 'awaiting_approval' && !!stage.run_id;
+            const canSignThisStage = isAwaitingApproval && canDecide;
             const isPending =
               approveMutation.isPending && approveMutation.variables?.stageRunId === stage.run_id;
             return (
@@ -283,7 +293,12 @@ export function PipelineRunView({ pipelineId, runId }: { pipelineId: string; run
                       <Badge variant={stage.auto_apply ? 'success' : 'secondary'}>
                         {stage.auto_apply ? 'auto' : 'manual'}
                       </Badge>
-                      {isAwaitingApproval && (
+                      {isAwaitingApproval && !canDecide && (
+                        <span className="text-[11px] text-muted-foreground/70">
+                          waiting on an admin
+                        </span>
+                      )}
+                      {canSignThisStage && (
                         <>
                           <Button
                             size="sm"
