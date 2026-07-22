@@ -151,9 +151,15 @@ export function WorkspaceList() {
             <p className="text-muted-foreground mb-6 max-w-sm mx-auto">
               {debouncedSearch || envFilter
                 ? 'Try adjusting your search or filter.'
-                : 'Create your first workspace to start managing OpenTofu infrastructure.'}
+                : canCreate
+                  ? 'Create your first workspace to start managing OpenTofu infrastructure.'
+                  : 'Nothing here yet. Creating a workspace takes an operator role or higher.'}
             </p>
-            {!debouncedSearch && !envFilter && (
+            {/* Same bar as the header button: POST /workspaces is operator+.
+                On a fresh install the first thing a viewer sees is this empty
+                state, so an ungated button here offers them the one action the
+                API is certain to refuse. */}
+            {!debouncedSearch && !envFilter && canCreate && (
               <Button onClick={() => setShowCreate(true)}>
                 <Plus className="w-4 h-4" />
                 Create workspace

@@ -12,7 +12,6 @@ import (
 	"github.com/nanohype/portal/internal/apperr"
 	"github.com/nanohype/portal/internal/conv"
 	"github.com/nanohype/portal/internal/repository"
-	"github.com/nanohype/portal/internal/secrets"
 	"github.com/nanohype/portal/internal/storage"
 	"github.com/nanohype/portal/internal/tfstate"
 )
@@ -25,19 +24,18 @@ var ErrWorkspaceHasRuns = fmt.Errorf("workspace has existing runs")
 var ErrStorageNotConfigured = fmt.Errorf("storage not configured")
 
 type WorkspaceService struct {
-	queries   *repository.Queries
-	db        *pgxpool.Pool
-	storage   *storage.S3Storage
-	encryptor *secrets.Encryptor
+	queries *repository.Queries
+	db      *pgxpool.Pool
+	storage *storage.S3Storage
 }
 
-// NewWorkspaceService builds the workspace domain. The encryptor is what lets
-// output import carry a sensitive value across as a sensitive variable — stored
-// encrypted, redacted on read — instead of flattening it to plaintext. A nil
-// encryptor (deploy without an encryption key) makes import drop sensitive
-// outputs rather than write them in the clear.
-func NewWorkspaceService(queries *repository.Queries, db *pgxpool.Pool, store *storage.S3Storage, encryptor *secrets.Encryptor) *WorkspaceService {
-	return &WorkspaceService{queries: queries, db: db, storage: store, encryptor: encryptor}
+// NewWorkspaceService builds the workspace domain. The store is what output
+// import reads state through; without one the import paths return
+// ErrStorageNotConfigured. No encryptor: variable ciphertext is copied between
+// workspaces as-is, and state outputs the source marked sensitive arrive
+// already redacted, so nothing here ever holds a plaintext secret.
+func NewWorkspaceService(queries *repository.Queries, db *pgxpool.Pool, store *storage.S3Storage) *WorkspaceService {
+	return &WorkspaceService{queries: queries, db: db, storage: store}
 }
 
 type CreateWorkspaceParams struct {
@@ -320,53 +318,86 @@ type ImportOutputsParams struct {
 	SourceWorkspaceID string
 	TargetWorkspaceID string
 	OrgID             string
-	// SkipSensitive drops outputs marked sensitive in state instead of storing
-	// their values as plaintext variables. Pipeline stage imports skip them; the
-	// explicit import endpoint brings everything the operator asked for across.
-	SkipSensitive bool
 	// DescriptionSource names where each imported value came from in the
 	// variable's description, e.g. "workspace" or "pipeline stage".
 	DescriptionSource string
 }
 
+// importableOutputs splits parsed state outputs into the ones that can become
+// variables and a count of the ones that cannot.
+//
+// tfstate.ParseOutputs blanks the value of every output the state marks
+// sensitive, so by the time an output reaches here a sensitive one carries no
+// value at all. Importing it would store the JSON encoding of nothing — the
+// four characters "null" — under the source's key, and the worker would hand
+// that to the next run as TF_VAR_<key>=null. There is nothing to import once
+// the parser has redacted it, so sensitive outputs are dropped here and
+// counted, and the caller says so rather than writing a plausible-looking
+// variable whose content is garbage.
+func importableOutputs(outputs []tfstate.Output) ([]tfstate.Output, int) {
+	importable := make([]tfstate.Output, 0, len(outputs))
+	skipped := 0
+	for _, out := range outputs {
+		if out.Sensitive {
+			skipped++
+			continue
+		}
+		importable = append(importable, out)
+	}
+	return importable, skipped
+}
+
 // ImportOutputs reads the source workspace's latest state, parses its outputs,
-// and upserts each one as a terraform-category variable on the target (update
-// by key when it exists, create otherwise). Both the import-outputs endpoint
-// and pipeline stage advancement run through here. A failed upsert is logged
-// and skipped so one bad output doesn't abort the rest; the returned slice
-// holds the variables actually written. A source with no outputs returns an
-// empty result — callers decide whether that is an error.
-func (s *WorkspaceService) ImportOutputs(ctx context.Context, params ImportOutputsParams) ([]repository.WorkspaceVariable, error) {
+// and upserts each importable one as a terraform-category variable on the
+// target (update by key when it exists, create otherwise). Both the
+// import-outputs endpoint and pipeline stage advancement run through here. A
+// failed upsert is logged and skipped so one bad output doesn't abort the rest.
+//
+// It returns the variables actually written and how many outputs were dropped
+// for being sensitive — state redacts those, so there is no value to carry
+// across. A source with no outputs returns an empty result; callers decide
+// whether that is an error.
+func (s *WorkspaceService) ImportOutputs(ctx context.Context, params ImportOutputsParams) ([]repository.WorkspaceVariable, int, error) {
 	if s.storage == nil {
-		return nil, ErrStorageNotConfigured
+		return nil, 0, ErrStorageNotConfigured
 	}
 
 	sv, err := s.queries.GetLatestStateVersion(ctx, repository.GetLatestStateVersionParams{
 		WorkspaceID: params.SourceWorkspaceID, OrgID: params.OrgID,
 	})
 	if err != nil {
-		return nil, apperr.Wrap(apperr.KindNotFound, "source workspace has no state", err)
+		return nil, 0, apperr.Wrap(apperr.KindNotFound, "source workspace has no state", err)
 	}
 
 	data, err := s.storage.GetState(ctx, sv.StateURL)
 	if err != nil {
-		return nil, fmt.Errorf("fetch source state: %w", err)
+		return nil, 0, fmt.Errorf("fetch source state: %w", err)
 	}
 
 	outputs, err := tfstate.ParseOutputs(data)
 	if err != nil {
-		return nil, fmt.Errorf("parse source outputs: %w", err)
+		return nil, 0, fmt.Errorf("parse source outputs: %w", err)
 	}
 	if len(outputs) == 0 {
 		slog.Info("no outputs to import", "source_workspace", params.SourceWorkspaceID, "target_workspace", params.TargetWorkspaceID)
-		return nil, nil
+		return nil, 0, nil
+	}
+
+	outputs, skippedSensitive := importableOutputs(outputs)
+	if skippedSensitive > 0 {
+		slog.Info("skipped sensitive outputs on import: state redacts their values",
+			"source_workspace", params.SourceWorkspaceID, "target_workspace", params.TargetWorkspaceID,
+			"skipped", skippedSensitive)
+	}
+	if len(outputs) == 0 {
+		return nil, skippedSensitive, nil
 	}
 
 	existing, err := s.queries.ListWorkspaceVariables(ctx, repository.ListWorkspaceVariablesParams{
 		WorkspaceID: params.TargetWorkspaceID, OrgID: params.OrgID,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("list target variables: %w", err)
+		return nil, skippedSensitive, fmt.Errorf("list target variables: %w", err)
 	}
 	existingByKey := make(map[string]repository.WorkspaceVariable, len(existing))
 	for _, v := range existing {
@@ -377,20 +408,6 @@ func (s *WorkspaceService) ImportOutputs(ctx context.Context, params ImportOutpu
 
 	affected := make([]repository.WorkspaceVariable, 0, len(outputs))
 	for _, out := range outputs {
-		if params.SkipSensitive && out.Sensitive {
-			continue
-		}
-		// An output the source state marks sensitive stays sensitive on the
-		// target: encrypted at rest, redacted by every list, readable only
-		// through the reveal endpoint. Storing it as an ordinary variable would
-		// republish a secret in plaintext to everyone who can read the target's
-		// variables. With no encryptor configured there is no way to store it
-		// safely, so it is skipped.
-		if out.Sensitive && s.encryptor == nil {
-			slog.Warn("skipping sensitive output: no encryptor configured", "key", out.Name)
-			continue
-		}
-
 		// Non-string outputs (lists, maps, numbers) are stored as their JSON
 		// encoding, which is also how tofu expects complex variable values.
 		var valueStr string
@@ -402,22 +419,17 @@ func (s *WorkspaceService) ImportOutputs(ctx context.Context, params ImportOutpu
 			valueStr = string(b)
 		}
 
-		if out.Sensitive {
-			encrypted, encErr := s.encryptor.Encrypt(valueStr)
-			if encErr != nil {
-				slog.Warn("failed to encrypt sensitive output", "key", out.Name, "error", encErr)
-				continue
-			}
-			valueStr = encrypted
-		}
-
 		desc := fmt.Sprintf("Imported from %s output (%s)", params.DescriptionSource, out.Type)
 
+		// Everything that gets here is a value the source state published in
+		// the clear, so it is stored in the clear: marking it sensitive would
+		// hide a public value behind the reveal endpoint without protecting
+		// anything.
 		var v repository.WorkspaceVariable
 		if ev, exists := existingByKey[out.Name]; exists {
 			v, err = s.queries.UpdateWorkspaceVariable(ctx, repository.UpdateWorkspaceVariableParams{
 				ID: ev.ID, WorkspaceID: params.TargetWorkspaceID, OrgID: params.OrgID,
-				Value: valueStr, Sensitive: out.Sensitive, Description: desc,
+				Value: valueStr, Sensitive: false, Description: desc,
 			})
 		} else {
 			v, err = s.queries.CreateWorkspaceVariable(ctx, repository.CreateWorkspaceVariableParams{
@@ -426,7 +438,7 @@ func (s *WorkspaceService) ImportOutputs(ctx context.Context, params ImportOutpu
 				OrgID:       params.OrgID,
 				Key:         out.Name,
 				Value:       valueStr,
-				Sensitive:   out.Sensitive,
+				Sensitive:   false,
 				Category:    "terraform",
 				Description: desc,
 			})
@@ -439,6 +451,7 @@ func (s *WorkspaceService) ImportOutputs(ctx context.Context, params ImportOutpu
 	}
 
 	slog.Info("imported outputs between workspaces",
-		"source", params.SourceWorkspaceID, "target", params.TargetWorkspaceID, "imported", len(affected))
-	return affected, nil
+		"source", params.SourceWorkspaceID, "target", params.TargetWorkspaceID,
+		"imported", len(affected), "skipped_sensitive", skippedSensitive)
+	return affected, skippedSensitive, nil
 }

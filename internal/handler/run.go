@@ -211,8 +211,12 @@ func (h *RunHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// It is the org role that is checked, not the workspace-resolved one: a
 	// per-workspace grant does not confer the authority to release a gated
 	// apply, the same rule the approval route and the settings guard follow.
-	// Operators keep the full plan → approve → apply path on gated workspaces,
-	// and on ungated ones every path their org role already allows.
+	//
+	// What an operator keeps on a gated workspace is the plan: they can start
+	// one, and it parks at awaiting_approval for an admin to sign — signing is
+	// ActionApplyProd at POST .../approvals, which an operator does not clear.
+	// On an ungated workspace nothing here fires and their org role decides, so
+	// apply stays theirs.
 	if requiresApprovalGate(ws, req.Operation) && !auth.CanPerform(userCtx.Role, auth.ActionApplyProd) {
 		respond.Error(w, http.StatusForbidden,
 			"this workspace requires approval: run a plan and have it approved, or hold admin role or higher")

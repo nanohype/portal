@@ -30,6 +30,13 @@ func WorkspaceRole(ctx context.Context) string {
 	return role
 }
 
+// ContextWithWorkspaceRole records the effective role a workspace gate resolved
+// for a request. The gates are the only production caller — a handler that set
+// its own would be deciding the authorization it is supposed to be reading.
+func ContextWithWorkspaceRole(ctx context.Context, role string) context.Context {
+	return context.WithValue(ctx, workspaceRoleContextKey, role)
+}
+
 // RequireWorkspaceAction gates a workspace-scoped route on an action, using the
 // caller's effective role on the workspace named by the {workspaceID} URL
 // parameter.
@@ -70,8 +77,7 @@ func RequireWorkspaceRole(resolver WorkspaceRoleResolver, minRole string) func(h
 				return
 			}
 
-			ctx := context.WithValue(r.Context(), workspaceRoleContextKey, effective)
-			next.ServeHTTP(w, r.WithContext(ctx))
+			next.ServeHTTP(w, r.WithContext(ContextWithWorkspaceRole(r.Context(), effective)))
 		})
 	}
 }

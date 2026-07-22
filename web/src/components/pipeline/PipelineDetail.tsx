@@ -15,6 +15,8 @@ import { navigate } from '@/hooks/useNavigate';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { formatDuration } from '@/lib/utils';
 import { isPipelineRunInFlight, pipelineRunStatus } from '@/lib/status';
+import { roleAtLeast } from '@/lib/roles';
+import { useAuth } from '@/hooks/useAuth';
 import { GitBranch, Play, ArrowLeft, ChevronRight, Plus, Pencil, Trash2, Lock } from 'lucide-react';
 
 export function PipelineDetail({ pipelineId }: { pipelineId: string }) {
@@ -245,6 +247,12 @@ function PipelineVariablesTab({ pipelineId }: { pipelineId: string }) {
   const uid = useId();
   const queryClient = useQueryClient();
   const confirm = useConfirm();
+  const { user } = useAuth();
+  // A pipeline variable reaches the worker's tfvars file and process
+  // environment for every stage in the pipeline, so the API holds the writes at
+  // ActionManageVars — admin, org-scoped, the same bar org and workspace
+  // variables sit at. Reads stay open with sensitive values redacted.
+  const canManage = roleAtLeast(user?.role, 'admin');
   const [showForm, setShowForm] = useState(false);
   const [editTarget, setEditTarget] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -346,11 +354,14 @@ function PipelineVariablesTab({ pipelineId }: { pipelineId: string }) {
       <div className="flex items-center justify-between mb-4">
         <p className="text-xs text-muted-foreground">
           Variables applied to all stages in this pipeline. Workspace-level values override these.
+          {!canManage && ' Editing them is an admin action.'}
         </p>
-        <Button size="sm" onClick={() => setShowForm(true)}>
-          <Plus className="w-3.5 h-3.5" />
-          Add Variable
-        </Button>
+        {canManage && (
+          <Button size="sm" onClick={() => setShowForm(true)}>
+            <Plus className="w-3.5 h-3.5" />
+            Add Variable
+          </Button>
+        )}
       </div>
 
       {showForm && (
@@ -480,21 +491,25 @@ function PipelineVariablesTab({ pipelineId }: { pipelineId: string }) {
                   <span className="text-sm font-mono text-muted-foreground break-all">
                     {v.sensitive ? '***' : v.value}
                   </span>
-                  <button
-                    onClick={() => startEdit(v)}
-                    className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-                  >
-                    <Pencil className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={async () => {
-                      if (await confirm({ title: `Delete ${v.key}?`, confirmLabel: 'Delete' }))
-                        deleteMutation.mutate(v.id);
-                    }}
-                    className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors cursor-pointer"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  {canManage && (
+                    <>
+                      <button
+                        onClick={() => startEdit(v)}
+                        className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={async () => {
+                          if (await confirm({ title: `Delete ${v.key}?`, confirmLabel: 'Delete' }))
+                            deleteMutation.mutate(v.id);
+                        }}
+                        className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             ),

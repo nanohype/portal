@@ -80,7 +80,9 @@ export function VariablesPanel({ workspaceId, role }: Props) {
   const canReveal = canManage;
   // Discover parses the workspace's config and returns the variable names it
   // declares. It writes nothing, so it sits on the read bar — the step that
-  // tells an operator what to fill in has to be reachable by one.
+  // tells an operator what a workspace still needs has to be reachable by one.
+  // Below the write bar the API strips the values from the answer, so the rows
+  // come back as names, types and provenance with no `=value` beside them.
   const canDiscover = roleAtLeast(role, 'viewer');
   const uid = useId();
   const queryClient = useQueryClient();
@@ -475,7 +477,9 @@ export function VariablesPanel({ workspaceId, role }: Props) {
               </span>
             </div>
             <div className="flex items-center gap-2">
-              {discoveredVars.filter((v) => !v.configured).length > 0 && (
+              {/* Adding what discovery found is still a write, so it keeps the
+                  write bar the per-row Add button below keeps. */}
+              {canManage && discoveredVars.filter((v) => !v.configured).length > 0 && (
                 <Button
                   size="sm"
                   variant="outline"

@@ -25,15 +25,6 @@ func (q *Queries) GetRun(ctx context.Context, arg GetRunParams) (Run, error) {
 	return scanRun(row)
 }
 
-// GetRunForUpdate acquires a row-level lock on the run for use within a transaction.
-func (q *Queries) GetRunForUpdate(ctx context.Context, arg GetRunParams) (Run, error) {
-	row := q.db.QueryRow(ctx,
-		`SELECT `+runColumns+` FROM runs WHERE id = $1 AND org_id = $2 FOR UPDATE`,
-		arg.ID, arg.OrgID,
-	)
-	return scanRun(row)
-}
-
 // GetRunInWorkspaceParams keys a run by the workspace it belongs to as well as
 // its org.
 type GetRunInWorkspaceParams struct {

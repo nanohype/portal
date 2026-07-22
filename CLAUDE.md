@@ -178,6 +178,14 @@ a "wrapper" flag.
   `tfparse.ParseTerragruntInputs` when render fails or the module source
   is remote.
 
+  The values are held at the variable-write bar. `terragrunt render`
+  evaluates the config's own `get_env()` / `run_cmd()` in the API server's
+  process, and the resolved inputs are workspace data, so the render and
+  the `default` column are both reserved for callers clearing
+  `ActionManageVars` on that workspace. Everyone else who can read the
+  workspace gets names, types, descriptions and provenance with no values
+  (`service.withoutValues`).
+
 ## Common Tasks
 
 ### Adding a new API endpoint

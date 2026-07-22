@@ -936,7 +936,7 @@ export interface paths {
         put?: never;
         /**
          * Discover the config's variable surface (viewer)
-         * @description Parses the staged config (terragrunt render + variables.tf, or plain tofu) and returns every module variable with its configured state. Synchronous; intentionally not list-enveloped.
+         * @description Parses the staged config (terragrunt render + variables.tf, or plain tofu) and returns every module variable with its configured state. The `default` field carries the value the config resolves — a terragrunt input or a module default — so it is only populated for callers who clear the variable-management bar (admin, or an admin team grant on this workspace). Below that bar the response is names, types, descriptions and provenance with no values, and the terragrunt render that would resolve them is skipped. Synchronous; intentionally not list-enveloped.
          */
         post: operations["discoverWorkspaceVariables"];
         delete?: never;
@@ -971,7 +971,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Import another workspace's outputs as variables (admin on both workspaces) */
+        /**
+         * Import another workspace's outputs as variables (admin on both workspaces)
+         * @description Upserts each of the source workspace's state outputs as a terraform-category variable on this one. Outputs the source state marks sensitive are skipped: state redacts their values, so there is nothing to carry across. A source whose outputs are all sensitive answers 400 saying so.
+         */
         post: operations["importWorkspaceOutputs"];
         delete?: never;
         options?: never;

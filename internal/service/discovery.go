@@ -56,7 +56,13 @@ type DiscoverVariableResponse struct {
 // surface. Bad-input cases (no upload, no repo URL) come back as
 // apperr.Validation so the handler maps them to 400; acquisition/parse failures
 // are plain errors (→ 500, logged). The temp dir is cleaned up before return.
-func (s *DiscoveryService) DiscoverVariables(ctx context.Context, ws repository.Workspace, orgID string) ([]DiscoverVariableResponse, error) {
+//
+// includeValues decides whether the rows carry the Default column. The names,
+// types, descriptions and configured flags describe the SHAPE of the config and
+// sit on the read bar; the values are its DATA — a resolved terragrunt input is
+// whatever get_env() or a dependency output produced — and sit on the bar that
+// writing variables sits at. The caller passes what the request's role cleared.
+func (s *DiscoveryService) DiscoverVariables(ctx context.Context, ws repository.Workspace, orgID string, includeValues bool) ([]DiscoverVariableResponse, error) {
 	tmpDir, err := os.MkdirTemp("", "portal-discover-*")
 	if err != nil {
 		return nil, fmt.Errorf("create temp directory: %w", err)
@@ -109,6 +115,15 @@ func (s *DiscoveryService) DiscoverVariables(ctx context.Context, ws repository.
 	// get the resolved inputs (merged from leaf + includes + _envcommon) and the
 	// underlying module path, then parse that module's variables.tf and merge.
 	if _, statErr := os.Stat(filepath.Join(parseDir, "terragrunt.hcl")); statErr == nil {
+		if !includeValues {
+			// Resolving inputs is the entire reason to shell out to
+			// `terragrunt render`, and resolving evaluates the config's own HCL
+			// functions — get_env() against the server's environment, run_cmd()
+			// against its filesystem — in the API server's process. A caller who
+			// is not receiving the resolved values has no reason to make that
+			// happen, so the read bar stops at parsing the leaf.
+			return withoutValues(discoverTerragruntLeafOnly(parseDir)), nil
+		}
 		return discoverTerragrunt(ctx, parseDir, configuredKeys), nil
 	}
 
@@ -131,7 +146,26 @@ func (s *DiscoveryService) DiscoverVariables(ctx context.Context, ws repository.
 			result[i].ConfiguredBy = "portal"
 		}
 	}
+	if !includeValues {
+		return withoutValues(result), nil
+	}
 	return result, nil
+}
+
+// withoutValues drops the Default column from a discovery result, leaving the
+// variable's name, type, description, required flag and who configures it.
+//
+// Default is not a schema field in practice: for a terragrunt row it holds the
+// input's resolved (or literal) value, and for a module row it holds the
+// `default =` expression out of variables.tf. Both are config data, so a
+// response that keeps them hands the caller values. Stripping the whole column
+// rather than the terragrunt rows alone keeps one rule — below the write bar,
+// discovery answers what the config declares, never what it is set to.
+func withoutValues(rows []DiscoverVariableResponse) []DiscoverVariableResponse {
+	for i := range rows {
+		rows[i].Default = nil
+	}
+	return rows
 }
 
 // shallowClone does an in-process depth-1 single-branch clone via go-git, so

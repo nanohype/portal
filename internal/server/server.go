@@ -189,7 +189,7 @@ func (s *Server) setupRouter() {
 
 	userSvc := service.NewUserService(queries)
 	authHandler := handler.NewAuthHandler(s.cfg, userSvc, jwtAuth)
-	workspaceSvc := service.NewWorkspaceService(queries, s.db, store, encryptor)
+	workspaceSvc := service.NewWorkspaceService(queries, s.db, store)
 	workspaceHandler := handler.NewWorkspaceHandler(workspaceSvc, auditSvc, store, queries)
 	accountSvc := service.NewAccountService(queries, s.db, encryptor)
 	accountHandler := handler.NewAccountHandler(accountSvc, auditSvc)
@@ -460,8 +460,11 @@ func (s *Server) setupRouter() {
 							r.With(wsView).Get("/effective", variableHandler.Effective)
 							r.With(wsVars).Post("/", variableHandler.Create)
 							// Discover parses the workspace's own config and returns
-							// the variable names it declares — no values, and nothing
-							// is written. It is the variables tab's equivalent of
+							// the variable names it declares. Nothing is written, and
+							// below ActionManageVars nothing is valued either — the
+							// handler strips the value column and skips the terragrunt
+							// render that would resolve it. That leaves a read of the
+							// config's shape, the variables tab's equivalent of
 							// /state/current/resources, so it sits on the read bar.
 							// It is a POST only because acquiring the config is the
 							// expensive part.

@@ -236,6 +236,27 @@ func effectiveConfigTarget(current repository.Workspace, req UpdateWorkspaceRequ
 	return repoURL, workingDir, requiresApproval
 }
 
+// movesConfigTarget reports whether an update actually repoints a workspace, or
+// changes whether it is gated.
+//
+// The twin check answers "may this caller put an ungated workspace on a config
+// something else gates". That is a question about a MOVE. The settings form
+// resubmits every field on every save, so without this an operator renaming a
+// workspace that already sits on such a config — a pair that predates the
+// check, or one an admin set up deliberately — would be refused an edit that
+// opens no door, and the only way out would be an admin. Same rule
+// changesApprovalGate follows for the gate itself: only a real change is an
+// authorization event.
+//
+// Turning the workspace's own gate off counts as a move, so an update that
+// clears requires_approval is still checked (it also passes through
+// approvalGateChangeAllowed, which holds that at admin on its own).
+func movesConfigTarget(current repository.Workspace, repoURL, workingDir string, requiresApproval bool) bool {
+	return repoURL != current.RepoURL ||
+		workingDir != current.WorkingDir ||
+		requiresApproval != current.RequiresApproval
+}
+
 // changesApprovalGate reports whether an update actually moves auto_apply or
 // requires_approval away from what the workspace stores today. The settings
 // form submits every field on every save, so a nil-pointer check would flag
@@ -507,17 +528,21 @@ func (h *WorkspaceHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	// Update COALESCEs empty strings to the stored value, so the twin check has
 	// to run against what the workspace will point at after the write, not
-	// against what the request happened to carry.
+	// against what the request happened to carry. An update that leaves the
+	// config target and the gate exactly where they already are is not a move,
+	// and the twin check has nothing to decide about it.
 	targetRepoURL, targetWorkingDir, targetGated := effectiveConfigTarget(current, req)
-	hasGatedTwin, err := h.svc.HasGatedTwin(r.Context(), userCtx.OrgID, targetRepoURL, targetWorkingDir, workspaceID)
-	if err != nil {
-		slog.Error("failed to check for a gated workspace on this config", "error", err)
-		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to update workspace")
-		return
-	}
-	if !gatedTwinAllowed(hasGatedTwin, targetGated, userCtx.Role) {
-		respond.Error(w, http.StatusForbidden, gatedTwinMessage)
-		return
+	if movesConfigTarget(current, targetRepoURL, targetWorkingDir, targetGated) {
+		hasGatedTwin, err := h.svc.HasGatedTwin(r.Context(), userCtx.OrgID, targetRepoURL, targetWorkingDir, workspaceID)
+		if err != nil {
+			slog.Error("failed to check for a gated workspace on this config", "error", err)
+			respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to update workspace")
+			return
+		}
+		if !gatedTwinAllowed(hasGatedTwin, targetGated, userCtx.Role) {
+			respond.Error(w, http.StatusForbidden, gatedTwinMessage)
+			return
+		}
 	}
 
 	workspace, err := h.svc.Update(r.Context(), service.UpdateWorkspaceParams{

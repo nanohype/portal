@@ -159,7 +159,7 @@ func main() {
 
 	// Set up RunService + WorkspaceService for the pipeline stage worker
 	runSvc := service.NewRunService(queries, dbPool, streamer)
-	workspaceSvc := service.NewWorkspaceService(queries, dbPool, store, encryptor)
+	workspaceSvc := service.NewWorkspaceService(queries, dbPool, store)
 
 	// Set up River workers
 	workers := river.NewWorkers()
@@ -177,11 +177,10 @@ func main() {
 		})
 	}
 	importOutputsFn := func(ctx context.Context, sourceWorkspaceID, targetWorkspaceID, orgID string) error {
-		_, err := workspaceSvc.ImportOutputs(ctx, service.ImportOutputsParams{
+		_, _, err := workspaceSvc.ImportOutputs(ctx, service.ImportOutputsParams{
 			SourceWorkspaceID: sourceWorkspaceID,
 			TargetWorkspaceID: targetWorkspaceID,
 			OrgID:             orgID,
-			SkipSensitive:     true,
 			DescriptionSource: "pipeline stage",
 		})
 		return err

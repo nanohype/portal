@@ -1,6 +1,8 @@
 package service
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/nanohype/portal/internal/tfparse"
@@ -144,5 +146,102 @@ func TestIsLocalModuleSource(t *testing.T) {
 		if isLocalModuleSource(p) {
 			t.Errorf("expected remote: %q", p)
 		}
+	}
+}
+
+// A caller below the variable-management bar gets the shape of the config, not
+// its data. Every row keeps its name, type, description and provenance; the
+// value column is gone regardless of where the value came from — a terragrunt
+// input resolves get_env() and dependency outputs, and a module default is the
+// literal RHS out of variables.tf.
+func TestWithoutValuesStripsEveryValue(t *testing.T) {
+	merged := mergeDiscovered(
+		[]tfparse.DiscoveredVariable{
+			{Name: "environment", Type: "string", Required: true},
+			{Name: "vpc_cidr", Type: "string", Default: strPtr(`"10.0.0.0/16"`)},
+			{Name: "db_password", Type: "string", Description: "database password"},
+		},
+		map[string]any{
+			"environment": "production",
+			"db_password": "hunter2",
+			"api_token":   "tok-live-abc123",
+		},
+		map[string]bool{"vpc_cidr": true},
+	)
+
+	// The unredacted answer is the exploit: it hands back values.
+	if e, _ := findByName(merged, "db_password"); e.Default == nil || *e.Default != `"hunter2"` {
+		t.Fatalf("precondition: merged result should carry the resolved value, got %v", e.Default)
+	}
+
+	got := withoutValues(merged)
+
+	if len(got) != 4 {
+		t.Fatalf("redaction must not drop rows: got %d, want 4", len(got))
+	}
+	for _, e := range got {
+		if e.Default != nil {
+			t.Errorf("%s: Default = %q, want nil", e.Name, *e.Default)
+		}
+	}
+
+	// The half that has to survive: without these the endpoint stops being
+	// useful to the reader it is there for.
+	env, ok := findByName(got, "environment")
+	if !ok {
+		t.Fatal("environment row missing")
+	}
+	if env.Type != "string" || !env.Configured || env.ConfiguredBy != "terragrunt" {
+		t.Errorf("environment: got type=%q configured=%v by=%q", env.Type, env.Configured, env.ConfiguredBy)
+	}
+	pw, _ := findByName(got, "db_password")
+	if pw.Description != "database password" {
+		t.Errorf("db_password: description = %q, want it kept", pw.Description)
+	}
+	if _, ok := findByName(got, "api_token"); !ok {
+		t.Error("api_token: an input with no matching module variable must still be listed by name")
+	}
+}
+
+// The leaf-only parse is the path the shipped API image actually takes for a
+// terragrunt workspace (the image carries no terragrunt binary), and it is the
+// only path a below-the-bar caller reaches at all. Its rows carry the literal
+// RHS of the inputs block, so redaction has to cover it too.
+func TestDiscoverTerragruntLeafOnlyRedacted(t *testing.T) {
+	dir := t.TempDir()
+	hcl := `
+include "root" { path = find_in_parent_folders("root.hcl") }
+inputs = {
+  cluster_name = "prod"
+  db_password  = "hunter2"
+  region       = "us-west-2"
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "terragrunt.hcl"), []byte(hcl), 0o600); err != nil {
+		t.Fatalf("write terragrunt.hcl: %v", err)
+	}
+
+	full := discoverTerragruntLeafOnly(dir)
+	if len(full) != 3 {
+		t.Fatalf("expected 3 inputs, got %d: %+v", len(full), full)
+	}
+	if e, _ := findByName(full, "db_password"); e.Default == nil || *e.Default != `"hunter2"` {
+		t.Fatalf("precondition: leaf parse should carry the literal value, got %v", e.Default)
+	}
+
+	redacted := withoutValues(discoverTerragruntLeafOnly(dir))
+	if len(redacted) != 3 {
+		t.Fatalf("redaction dropped rows: got %d, want 3", len(redacted))
+	}
+	for _, e := range redacted {
+		if e.Default != nil {
+			t.Errorf("%s: Default = %q, want nil", e.Name, *e.Default)
+		}
+		if !e.Configured || e.ConfiguredBy != "terragrunt" {
+			t.Errorf("%s: provenance lost (configured=%v by=%q)", e.Name, e.Configured, e.ConfiguredBy)
+		}
+	}
+	if _, ok := findByName(redacted, "db_password"); !ok {
+		t.Error("db_password must still be listed by name")
 	}
 }

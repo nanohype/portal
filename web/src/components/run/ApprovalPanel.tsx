@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 import { formatRelativeTime } from '@/lib/utils';
+import { roleAtLeast } from '@/lib/roles';
+import { useAuth } from '@/hooks/useAuth';
 import { Check, X, MessageSquare, ShieldCheck } from 'lucide-react';
 
 interface Props {
@@ -17,9 +19,16 @@ interface Props {
 
 export function ApprovalPanel({ workspaceId, runId, runStatus }: Props) {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [comment, setComment] = useState('');
 
   const needsApproval = runStatus === 'planned' || runStatus === 'awaiting_approval';
+  // POST /approvals sits at ActionApplyProd and is deliberately org-scoped —
+  // signing off a gated apply is not something a per-workspace grant hands out
+  // — so this reads the org role, not the workspace-effective one. An operator
+  // is not stuck: on a workspace with no gate, Apply on the workspace page is
+  // theirs.
+  const canDecide = roleAtLeast(user?.role, 'admin');
 
   const { data: approvals, isLoading } = useQuery({
     queryKey: ['approvals', runId],
@@ -93,7 +102,15 @@ export function ApprovalPanel({ workspaceId, runId, runStatus }: Props) {
       ) : null}
 
       {/* Approval actions */}
-      {needsApproval && (
+      {needsApproval && !canDecide && (
+        <p className="text-sm text-muted-foreground">
+          {runStatus === 'awaiting_approval'
+            ? 'This run is waiting on an admin to approve it.'
+            : 'Approving a plan is an admin action. If this workspace has no approval gate, you can start an apply from the workspace page.'}
+        </p>
+      )}
+
+      {needsApproval && canDecide && (
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <MessageSquare className="w-3.5 h-3.5 text-muted-foreground" />

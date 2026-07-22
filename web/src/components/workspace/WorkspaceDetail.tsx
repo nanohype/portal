@@ -234,12 +234,17 @@ export function WorkspaceDetail({ workspaceId }: Props) {
     );
   }
 
-  // The org role, not the workspace-resolved one: releasing a gated workspace
-  // and rewriting state are org-level authority, and a per-workspace grant does
-  // not carry either. These only decide what the page offers — the API decides
-  // the request.
+  // Releasing a gated workspace is org-level authority: handler/run.go checks
+  // the ORG role there, because a per-workspace grant does not carry the right
+  // to sign off a gated apply. Everything else on this page is authorized
+  // against the workspace-effective role — the higher of the caller's org role
+  // and a grant one of their teams holds here — which is what the API puts in
+  // workspace.effective_role. These only decide what the page offers; the API
+  // decides the request.
   const canReleaseGate = roleAtLeast(user?.role, 'admin');
-  const canManageState = roleAtLeast(user?.role, 'admin');
+  const effectiveRole = workspace.effective_role ?? user?.role;
+  const canRun = roleAtLeast(effectiveRole, 'operator');
+  const canManageState = roleAtLeast(effectiveRole, 'admin');
   // On a workspace that requires approval, a smoke test is not a dry run: it
   // shell-executes a script from the repo with the run's credentials, so it
   // carries the same bar as releasing the gate.
@@ -390,6 +395,44 @@ export function WorkspaceDetail({ workspaceId }: Props) {
               <Trash2 className="w-4 h-4" />
               Destroy
             </Button>
+            {/* Apply is the operator's half of the workflow: rbac.go puts
+                ActionApplyRun at operator, and handler/run.go only raises the
+                bar on a workspace that requires approval — where the run parks
+                for an admin to sign instead. Without this control the only
+                apply an operator could reach was auto_apply, which is admin to
+                turn on, so the plan they can start had nowhere to go. */}
+            {canRun && (
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  if (
+                    await confirm({
+                      title: 'Apply this workspace?',
+                      message:
+                        'This runs OpenTofu against live infrastructure now. It plans and applies in one run — there is no separate plan to review first.',
+                      confirmLabel: 'Apply',
+                      destructive: false,
+                    })
+                  ) {
+                    createRunMutation.mutate({ operation: 'apply' });
+                  }
+                }}
+                disabled={
+                  createRunMutation.isPending ||
+                  workspace.locked ||
+                  gatedForCaller ||
+                  (workspace.source === 'upload' && !workspace.current_config_version_id)
+                }
+                title={
+                  gatedForCaller
+                    ? 'This workspace requires approval: start a plan and have an admin approve it'
+                    : 'Plan and apply this workspace against live infrastructure'
+                }
+              >
+                <Play className="w-4 h-4" />
+                Apply
+              </Button>
+            )}
             <Button
               onClick={() => createRunMutation.mutate({ operation: 'plan' })}
               disabled={

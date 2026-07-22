@@ -95,8 +95,12 @@ Click **Discover** on the workspace Variables tab to scan the workspace's `.tf` 
 
 Works with both VCS workspaces (clones the repo) and upload workspaces (extracts the archive from S3).
 
+Discovery is a read, so anyone who can see the workspace can run it — but the values are held at the bar the variable writes are held at. Below admin (or an admin team grant on that workspace) the response carries names, types, descriptions and provenance with no values, and the `terragrunt render` that would resolve them is skipped: resolving evaluates the config's own `get_env()` and `run_cmd()` in the API server's process.
+
 ## Imported Outputs
 
 Pipeline stages automatically import outputs from the previous stage as workspace variables. These are non-sensitive terraform variables with a description noting the source. Since they're workspace-scoped, they override org and pipeline defaults.
 
 The **Import Outputs** button on the Variables tab does the same thing manually — imports outputs from any other workspace's latest state.
+
+Outputs the source state marks `sensitive` are skipped on both paths. State redacts their values at parse time, so there is nothing to carry across; importing one would store the literal text `null` under the output's name and inject `TF_VAR_<key>=null` into the next run. A source whose outputs are all sensitive answers 400 saying so. To pass a secret between workspaces, set it as a sensitive variable on the target (encrypted at rest, redacted on read) rather than publishing it as a state output.

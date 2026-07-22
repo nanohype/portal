@@ -239,3 +239,60 @@ func TestEffectiveConfigTarget(t *testing.T) {
 		})
 	}
 }
+
+// The twin check answers "may this caller put an ungated workspace onto a
+// config something else gates" — a question about a move. The settings form
+// resubmits every field on every save, so an edit that leaves the config target
+// and the gate where they already are must not be treated as one, or renaming a
+// workspace that already sits on such a config becomes an admin-only act.
+func TestMovesConfigTarget(t *testing.T) {
+	current := repository.Workspace{
+		RepoURL:          "https://example.test/infra.git",
+		WorkingDir:       "envs/prod",
+		RequiresApproval: false,
+	}
+
+	tests := []struct {
+		name             string
+		repoURL          string
+		workingDir       string
+		requiresApproval bool
+		want             bool
+	}{
+		// effectiveConfigTarget resolves an omitted field to the stored value,
+		// so "unchanged" is what a rename or a description edit looks like here.
+		{"rename only", current.RepoURL, current.WorkingDir, current.RequiresApproval, false},
+		{"resubmits the stored config", current.RepoURL, current.WorkingDir, current.RequiresApproval, false},
+
+		{"repoints at another repo", "https://example.test/other.git", current.WorkingDir, current.RequiresApproval, true},
+		{"repoints at another working dir", current.RepoURL, "envs/staging", current.RequiresApproval, true},
+		{"turns the gate on", current.RepoURL, current.WorkingDir, true, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := movesConfigTarget(current, tt.repoURL, tt.workingDir, tt.requiresApproval)
+			if got != tt.want {
+				t.Errorf("movesConfigTarget(%q, %q, gated=%v) = %v, want %v",
+					tt.repoURL, tt.workingDir, tt.requiresApproval, got, tt.want)
+			}
+		})
+	}
+}
+
+// Clearing requires_approval on a workspace that has a gated twin is still a
+// move, so the twin check keeps running on the one update that could turn the
+// last gate on a config off.
+func TestMovesConfigTargetCatchesGateRemoval(t *testing.T) {
+	gated := repository.Workspace{
+		RepoURL:          "https://example.test/infra.git",
+		WorkingDir:       "envs/prod",
+		RequiresApproval: true,
+	}
+	if !movesConfigTarget(gated, gated.RepoURL, gated.WorkingDir, false) {
+		t.Error("turning requires_approval off must count as a move")
+	}
+	if movesConfigTarget(gated, gated.RepoURL, gated.WorkingDir, true) {
+		t.Error("keeping requires_approval on is not a move")
+	}
+}

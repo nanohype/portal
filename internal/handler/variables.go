@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -292,6 +293,20 @@ func (h *VariableHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	respond.NoContent(w)
 }
 
+// discoverIncludesValues reports whether /discover answers this request with
+// the value column filled in.
+//
+// The route sits on the read bar: which variables a config declares is part of
+// reading the workspace. What they are SET to is not — a resolved terragrunt
+// input carries whatever get_env() or a dependency output produced, which is
+// the same class of data as a stored variable's value. So the values ride the
+// bar the variable writes ride, read off the effective role the workspace gate
+// computed. An empty role means no gate ran on this request, and clears
+// nothing.
+func discoverIncludesValues(ctx context.Context) bool {
+	return auth.CanPerform(auth.WorkspaceRole(ctx), auth.ActionManageVars)
+}
+
 func (h *VariableHandler) Discover(w http.ResponseWriter, r *http.Request) {
 	userCtx := auth.GetUser(r.Context())
 	workspaceID := chi.URLParam(r, "workspaceID")
@@ -302,10 +317,12 @@ func (h *VariableHandler) Discover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	includeValues := discoverIncludesValues(r.Context())
+
 	// Discover acquires the config + parses its variable surface in the service
 	// layer. It is synchronous and request-scoped — the UI consumes the array
 	// inline (no job). /discover is intentionally not list-enveloped.
-	result, err := h.discoverySvc.DiscoverVariables(r.Context(), ws, userCtx.OrgID)
+	result, err := h.discoverySvc.DiscoverVariables(r.Context(), ws, userCtx.OrgID, includeValues)
 	if err != nil {
 		respond.FromError(w, r, err)
 		return
@@ -429,7 +446,7 @@ func (h *VariableHandler) ImportOutputs(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	imported, err := h.workspaceSvc.ImportOutputs(r.Context(), service.ImportOutputsParams{
+	imported, skippedSensitive, err := h.workspaceSvc.ImportOutputs(r.Context(), service.ImportOutputsParams{
 		SourceWorkspaceID: req.SourceWorkspaceID,
 		TargetWorkspaceID: workspaceID,
 		OrgID:             userCtx.OrgID,
@@ -444,6 +461,17 @@ func (h *VariableHandler) ImportOutputs(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if len(imported) == 0 {
+		// Saying "no outputs" when the source has several would send the
+		// operator looking for a bug in the source workspace. Sensitive outputs
+		// are redacted in state, so there is no value to bring across — say
+		// that instead.
+		if skippedSensitive > 0 {
+			respond.Error(w, http.StatusBadRequest, fmt.Sprintf(
+				"every output on the source workspace is sensitive (%d skipped): "+
+					"state redacts sensitive values, so there is nothing to import",
+				skippedSensitive))
+			return
+		}
 		respond.Error(w, http.StatusBadRequest, "source workspace has no outputs")
 		return
 	}
