@@ -5,8 +5,9 @@
 //
 // Like the repository integration tests, they create a scratch database
 // (portal_svc_test) off TEST_DATABASE_URL, migrate it, and drop it afterward.
-// With no reachable server the DB-requiring tests skip, so `go test ./...` stays
-// green without one.
+// Without the variable the DB-requiring tests skip, so `go test ./...` stays
+// green on a machine with no Postgres; with it set and unreachable they fail
+// rather than skip.
 package service_test
 
 import (
@@ -36,15 +37,24 @@ var (
 )
 
 func TestMain(m *testing.M) {
-	base := os.Getenv("TEST_DATABASE_URL")
+	// An explicitly set TEST_DATABASE_URL is a caller saying "run the DB tier
+	// against this" — CI does exactly that. Falling back to skips when that
+	// server turns out to be unreachable would report a green run for tests that
+	// never executed, so an unusable explicit URL is fatal below. The dev default
+	// is a guess, and a guess that misses is allowed to skip.
+	base, pinned := os.LookupEnv("TEST_DATABASE_URL")
 	if base == "" {
 		base = "postgres://portal:portal@localhost:5432/postgres?sslmode=disable"
+		pinned = false
 	}
 	ctx := context.Background()
 
 	admin, err := pgx.Connect(ctx, base)
 	if err != nil {
-		os.Exit(m.Run()) // no server — DB tests skip via requireDB
+		if pinned {
+			panic("TEST_DATABASE_URL is set but unreachable, refusing to skip the DB tier: " + err.Error())
+		}
+		os.Exit(m.Run()) // no server and none asked for — DB tests skip via requireDB
 	}
 	const dbName = "portal_svc_test"
 	_, _ = admin.Exec(ctx, "DROP DATABASE IF EXISTS "+dbName)

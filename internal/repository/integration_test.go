@@ -6,8 +6,11 @@
 //
 // They need a database. Set TEST_DATABASE_URL to a server the test can create a
 // scratch database on (it connects to it, CREATE DATABASE portal_repo_test,
-// migrates, and drops it afterward). With no reachable server the whole package
-// skips, so `go test ./...` stays green without one.
+// migrates, and drops it afterward). Without it the package falls back to the
+// dev default and skips when nothing is listening, so `go test ./...` stays
+// green on a machine with no Postgres. Setting it and having it not answer is a
+// hard failure, not a skip — a tier that silently didn't run must not report
+// green.
 package repository_test
 
 import (
@@ -36,16 +39,24 @@ var (
 )
 
 func TestMain(m *testing.M) {
-	base := os.Getenv("TEST_DATABASE_URL")
+	// An explicitly set TEST_DATABASE_URL is a caller saying "run the DB tier
+	// against this" — CI does exactly that. Falling back to skips when that
+	// server turns out to be unreachable would report a green run for tests that
+	// never executed, so an unusable explicit URL is fatal below. The dev default
+	// is a guess, and a guess that misses is allowed to skip.
+	base, pinned := os.LookupEnv("TEST_DATABASE_URL")
 	if base == "" {
 		base = "postgres://portal:portal@localhost:5432/postgres?sslmode=disable"
+		pinned = false
 	}
 	ctx := context.Background()
 
 	admin, err := pgx.Connect(ctx, base)
 	if err != nil {
-		// No reachable server — leave testPool nil; requireDB() skips each test.
-		os.Exit(m.Run())
+		if pinned {
+			panic("TEST_DATABASE_URL is set but unreachable, refusing to skip the DB tier: " + err.Error())
+		}
+		os.Exit(m.Run()) // no server and none asked for — DB tests skip via requireDB
 	}
 	const dbName = "portal_repo_test"
 	_, _ = admin.Exec(ctx, "DROP DATABASE IF EXISTS "+dbName)
