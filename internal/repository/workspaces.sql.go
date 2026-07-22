@@ -417,12 +417,18 @@ func (q *Queries) FindWorkspacesByRepo(ctx context.Context, arg FindWorkspacesBy
 // still compares equal.
 //
 // repoURLIdentitySQL, applied outside-in: lowercase and drop trailing slashes,
-// drop a ".git" suffix, drop the scheme, drop any userinfo (a URL carrying a
-// token is the same repo), then turn scp-style "host:path" into "host/path".
-// All of these land on "github.com/acme/infra":
+// drop a ".git" suffix, drop a default-looking port from a URL that carries a
+// scheme, drop the scheme, drop any userinfo (a URL carrying a token is the
+// same repo), then turn scp-style "host:path" into "host/path". All of these
+// land on "github.com/acme/infra":
 //
-//	https://github.com/acme/infra.git    ssh://git@github.com/acme/infra
-//	https://TOKEN@github.com/acme/infra/  git@github.com:acme/infra.git
+//	https://github.com/acme/infra.git     ssh://git@github.com/acme/infra
+//	https://TOKEN@github.com/acme/infra/   git@github.com:acme/infra.git
+//	https://github.com:443/acme/infra.git  ssh://git@github.com:22/acme/infra
+//
+// The port is stripped while the scheme is still attached, and only then, so
+// the scp-style rule that follows cannot mistake a numeric path segment for
+// one: "git@github.com:2600/repo" is a repo owned by "2600", not a port.
 //
 // It normalises spelling, not remote identity: a mirror under a different host
 // or path is a different string and stays one. The check narrows the gap
@@ -432,16 +438,36 @@ const (
 		REGEXP_REPLACE(
 			REGEXP_REPLACE(
 				REGEXP_REPLACE(
-					RTRIM(LOWER(%s), '/'),
-				'\.git$', ''),
+					REGEXP_REPLACE(
+						RTRIM(LOWER(%s), '/'),
+					'\.git$', ''),
+				'^([a-z][a-z0-9+.-]*://[^/]*):[0-9]+(/|$)', '\1\2'),
 			'^[a-z][a-z0-9+.-]*://', ''),
 		'^[^/@]*@', ''),
 	'^([^/:]+):', '\1/')`
 
-	// A leaf is the repo root under every spelling of it: "", ".", "./" and "/"
-	// all reduce to ".", and "./envs/prod", "envs/prod" and "envs/prod/" all
-	// reduce to "envs/prod".
-	workingDirIdentitySQL = `COALESCE(NULLIF(BTRIM(REGEXP_REPLACE(%s, '^\.?/+', ''), '/'), ''), '.')`
+	// A leaf is one directory under every spelling of it. Applied outside-in:
+	// collapse repeated slashes, drop a leading slash, drop every "." segment,
+	// drop a trailing "/.", then trim the trailing slash and read an empty
+	// result as the repo root.
+	//
+	//	"", ".", "./", "/"                          -> "."
+	//	"envs/prod", "./envs/prod", "/envs/prod"     -> "envs/prod"
+	//	"envs//prod", "envs/./prod", "envs/prod/."   -> "envs/prod"
+	//
+	// Portal canonicalises the column on write (service.CanonicalWorkingDir), so
+	// in practice both sides of the comparison already agree; this is what makes
+	// that true for a row written before the column was canonical, and it is
+	// what a hand-run query against the table gets as well.
+	workingDirIdentitySQL = `COALESCE(NULLIF(BTRIM(
+		REGEXP_REPLACE(
+			REGEXP_REPLACE(
+				REGEXP_REPLACE(
+					REGEXP_REPLACE(%s, '/+', '/', 'g'),
+				'^/', ''),
+			'(^|/)(\./)+', '\1', 'g'),
+		'(^|/)\.$', '\1'),
+	'/'), ''), '.')`
 )
 
 type GatedTwinParams struct {
@@ -455,7 +481,9 @@ type GatedTwinParams struct {
 // already gates this exact repo + working_dir behind an approval.
 //
 // Both sides of each comparison run through the same normalising expression, so
-// the check cannot be dodged by spelling the repo URL differently.
+// the check cannot be dodged by spelling the repo URL or the working directory
+// differently — a respelled path resolves to the same `cd` in the executor, so
+// it has to resolve to the same row here.
 //
 // An empty repo_url means an upload workspace, which has no comparable config
 // identity; the query returns false rather than matching every other upload

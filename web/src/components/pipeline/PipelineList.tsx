@@ -25,6 +25,11 @@ export function PipelineList() {
   const [showCreate, setShowCreate] = useState(false);
   const queryClient = useQueryClient();
   const confirm = useConfirm();
+  const { user } = useAuth();
+  // POST /pipelines is operator+. Pipelines is a plain nav entry, so a viewer
+  // lands here — offering them a button the API is certain to refuse is a dead
+  // control, not a discovery affordance.
+  const canCreate = roleAtLeast(user?.role, 'operator');
 
   const {
     data: pipelines,
@@ -62,10 +67,12 @@ export function PipelineList() {
             Orchestrate sequential workspace deployments
           </p>
         </div>
-        <Button size="sm" onClick={() => setShowCreate(true)}>
-          <Plus className="w-3.5 h-3.5" />
-          New Pipeline
-        </Button>
+        {canCreate && (
+          <Button size="sm" onClick={() => setShowCreate(true)}>
+            <Plus className="w-3.5 h-3.5" />
+            New Pipeline
+          </Button>
+        )}
       </div>
 
       {isLoading ? (
@@ -83,12 +90,16 @@ export function PipelineList() {
           </div>
           <h2 className="text-sm font-semibold mb-1">No pipelines yet</h2>
           <p className="text-xs text-muted-foreground mb-5 max-w-[260px]">
-            Create a pipeline to orchestrate workspace deployments in sequence.
+            {canCreate
+              ? 'Create a pipeline to orchestrate workspace deployments in sequence.'
+              : 'Nothing here yet. Creating a pipeline takes an operator role or higher.'}
           </p>
-          <Button size="sm" onClick={() => setShowCreate(true)}>
-            <Plus className="w-3.5 h-3.5" />
-            Create Pipeline
-          </Button>
+          {canCreate && (
+            <Button size="sm" onClick={() => setShowCreate(true)}>
+              <Plus className="w-3.5 h-3.5" />
+              Create Pipeline
+            </Button>
+          )}
         </div>
       ) : (
         <div className="space-y-2">

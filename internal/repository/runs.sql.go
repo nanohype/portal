@@ -165,6 +165,21 @@ func (q *Queries) UpdateRunStatus(ctx context.Context, arg UpdateRunStatusParams
 	return scanRun(row)
 }
 
+// PinRunCommitSHA records the commit a run executed, once. The guard on the
+// column is the whole contract: a run's commit is set either by the VCS trigger
+// that created it or by the first execution that resolved a checkout, and after
+// that it is the tree that run means. A second execution of the same row — the
+// apply that follows an approval, or an auto-apply — reads it rather than
+// rewriting it, which is what stops the apply from landing on a branch that
+// moved while the plan sat waiting for a signature.
+func (q *Queries) PinRunCommitSHA(ctx context.Context, id, commitSHA string) error {
+	_, err := q.db.Exec(ctx,
+		`UPDATE runs SET commit_sha = $2, updated_at = NOW() WHERE id = $1 AND commit_sha = ''`,
+		id, commitSHA,
+	)
+	return err
+}
+
 // MarkRunApproved transitions a signed-off run to the apply it was approved
 // for: the operation becomes 'apply' and the status becomes whatever the
 // approval transaction could take — 'queued' when it also took the workspace's

@@ -1849,7 +1849,13 @@ components:
         source: { type: string, enum: [vcs, upload] }
         repo_url: { type: string }
         repo_branch: { type: string }
-        working_dir: { type: string }
+        working_dir:
+          type: string
+          description: >-
+            Repo-relative path to the leaf portal runs in. Stored canonical:
+            "./envs/prod", "envs//prod", "envs/./prod" and "envs/prod/" all name
+            one directory to the executor, so they are all stored as
+            "envs/prod". Omit on update to keep the stored value.
         tofu_version: { type: string }
         environment: { type: string, enum: [development, staging, production] }
         auto_apply: { type: boolean }
@@ -1864,7 +1870,13 @@ components:
         description: { type: string }
         repo_url: { type: string }
         repo_branch: { type: string }
-        working_dir: { type: string }
+        working_dir:
+          type: string
+          description: >-
+            Repo-relative path to the leaf portal runs in. Stored canonical:
+            "./envs/prod", "envs//prod", "envs/./prod" and "envs/prod/" all name
+            one directory to the executor, so they are all stored as
+            "envs/prod". Omit on update to keep the stored value.
         tofu_version: { type: string }
         environment: { type: string, enum: [development, staging, production] }
         auto_apply: { type: boolean }
@@ -1877,6 +1889,13 @@ components:
         name: { type: string }
         description: { type: string }
         environment: { type: string }
+        requires_approval:
+          type: boolean
+          description: >-
+            Approval gate for the clone. Omit to inherit the source's. Raising
+            it is an operator action — it is how a clone of a config another
+            workspace already gates gets created without an admin. Clearing a
+            gate the source holds needs admin.
       required: [name]
 
     RunStatus:

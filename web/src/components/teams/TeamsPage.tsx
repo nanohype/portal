@@ -11,12 +11,21 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { formatRelativeTime } from '@/lib/utils';
 import { Plus, Users, Trash2, ChevronRight, X, Pencil, Check } from 'lucide-react';
 import { toast } from 'sonner';
+import { roleAtLeast } from '@/lib/roles';
+import { useAuth } from '@/hooks/useAuth';
 
 export function TeamsPage() {
   const queryClient = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
   const [teamName, setTeamName] = useState('');
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
+  const { user } = useAuth();
+  // Reading teams is baseline — the list is a normal page and it populates the
+  // owning-team picker elsewhere — but every write here (create, delete, add,
+  // change or remove a member) is ActionManageTeams, which is admin. Teams is a
+  // plain nav entry, so viewers and operators land on this page; showing them
+  // controls the API will refuse is a page full of dead buttons.
+  const canManageTeams = roleAtLeast(user?.role, 'admin');
 
   const {
     data: teams,
@@ -72,10 +81,12 @@ export function TeamsPage() {
             Manage team membership and workspace access.
           </p>
         </div>
-        <Button onClick={() => setShowCreate(true)}>
-          <Plus className="w-4 h-4" />
-          Create team
-        </Button>
+        {canManageTeams && (
+          <Button onClick={() => setShowCreate(true)}>
+            <Plus className="w-4 h-4" />
+            Create team
+          </Button>
+        )}
       </div>
 
       {/* Create team dialog */}
@@ -116,6 +127,7 @@ export function TeamsPage() {
             <TeamDetail
               team={selectedTeam}
               onDelete={() => deleteMutation.mutate(selectedTeam.id)}
+              canManageTeams={canManageTeams}
             />
           </DialogContent>
         </Dialog>
@@ -138,12 +150,16 @@ export function TeamsPage() {
             <Users className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
             <h3 className="font-medium mb-1">No teams yet</h3>
             <p className="text-sm text-muted-foreground mb-4">
-              Create a team to organize workspace access.
+              {canManageTeams
+                ? 'Create a team to organize workspace access.'
+                : 'Nothing here yet. Creating a team takes an admin role or higher.'}
             </p>
-            <Button size="sm" onClick={() => setShowCreate(true)}>
-              <Plus className="w-3.5 h-3.5" />
-              Create team
-            </Button>
+            {canManageTeams && (
+              <Button size="sm" onClick={() => setShowCreate(true)}>
+                <Plus className="w-3.5 h-3.5" />
+                Create team
+              </Button>
+            )}
           </div>
         </div>
       ) : (
@@ -172,7 +188,15 @@ export function TeamsPage() {
   );
 }
 
-function TeamDetail({ team, onDelete }: { team: Team; onDelete: () => void }) {
+function TeamDetail({
+  team,
+  onDelete,
+  canManageTeams,
+}: {
+  team: Team;
+  onDelete: () => void;
+  canManageTeams: boolean;
+}) {
   const queryClient = useQueryClient();
 
   const { data: members, isLoading } = useQuery({
@@ -273,10 +297,12 @@ function TeamDetail({ team, onDelete }: { team: Team; onDelete: () => void }) {
       <div>
         <div className="flex items-center justify-between mb-2">
           <h4 className="text-sm font-medium">Members</h4>
-          <Button size="sm" variant="outline" onClick={() => setShowAddMember(!showAddMember)}>
-            <Plus className="w-3 h-3" />
-            Add member
-          </Button>
+          {canManageTeams && (
+            <Button size="sm" variant="outline" onClick={() => setShowAddMember(!showAddMember)}>
+              <Plus className="w-3 h-3" />
+              Add member
+            </Button>
+          )}
         </div>
         <p className="text-xs text-muted-foreground mb-2">
           A member's role here caps what they get from any workspace or tenant grant to this team. A
@@ -401,21 +427,25 @@ function TeamDetail({ team, onDelete }: { team: Team; onDelete: () => void }) {
                   <Badge variant="outline" className="text-xs shrink-0">
                     {m.role}
                   </Badge>
-                  <button
-                    onClick={() => startEdit(m)}
-                    className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-                    aria-label={`Edit ${m.user_name || m.email}`}
-                  >
-                    <Pencil className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={() => removeMemberMutation.mutate(m.user_id)}
-                    disabled={removeMemberMutation.isPending}
-                    className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors cursor-pointer"
-                    aria-label={`Remove ${m.user_name || m.email}`}
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
+                  {canManageTeams && (
+                    <>
+                      <button
+                        onClick={() => startEdit(m)}
+                        className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                        aria-label={`Edit ${m.user_name || m.email}`}
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => removeMemberMutation.mutate(m.user_id)}
+                        disabled={removeMemberMutation.isPending}
+                        className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors cursor-pointer"
+                        aria-label={`Remove ${m.user_name || m.email}`}
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </>
+                  )}
                 </div>
               ),
             )}
@@ -423,17 +453,19 @@ function TeamDetail({ team, onDelete }: { team: Team; onDelete: () => void }) {
         )}
       </div>
 
-      <div className="pt-2 border-t border-border">
-        <Button
-          size="sm"
-          variant="outline"
-          className="text-destructive hover:bg-destructive/10"
-          onClick={onDelete}
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-          Delete team
-        </Button>
-      </div>
+      {canManageTeams && (
+        <div className="pt-2 border-t border-border">
+          <Button
+            size="sm"
+            variant="outline"
+            className="text-destructive hover:bg-destructive/10"
+            onClick={onDelete}
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            Delete team
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

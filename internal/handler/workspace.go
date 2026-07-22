@@ -225,6 +225,33 @@ func gatedTwinAllowed(hasGatedTwin, requiresApproval bool, orgRole string) bool 
 const gatedTwinMessage = "another workspace already requires approval for this repository and working directory: " +
 	"set requires_approval on this one too, or hold admin role or higher"
 
+// cloneApprovalGate decides what gate a clone carries, and whether the caller
+// may ask for it. It returns the gate to write and whether the request is
+// allowed.
+//
+// A clone lands on the source's repo and working directory, so it is a twin by
+// construction, and gatedTwinMessage tells the caller how to clear the refusal:
+// carry the gate too. That instruction has to be followable on the route that
+// prints it, so the clone request may raise the gate — the same direction
+// opensApprovalGate treats as free, for the same reason, adding a wait hands out
+// no authority.
+//
+// The other direction is the act that takes the human out of an apply. Clearing
+// a gate the source holds sits at ActionApplyProd here, exactly where the update
+// route holds it, so cloning is not a cheaper spelling of an ungating the update
+// route would refuse. Omitting the field inherits, which is what a clone meant
+// before the field existed.
+func cloneApprovalGate(sourceGated bool, requested *bool, orgRole string) (gate bool, allowed bool) {
+	gate = sourceGated
+	if requested != nil {
+		gate = *requested
+	}
+	if sourceGated && !gate && !auth.CanPerform(orgRole, auth.ActionApplyProd) {
+		return sourceGated, false
+	}
+	return gate, true
+}
+
 // effectiveConfigTarget resolves what a workspace will point at, and whether it
 // will be gated, once an update lands. UpdateWorkspace COALESCEs empty strings
 // and nil pointers to the stored row, so a request that omits a field is a
@@ -347,6 +374,15 @@ type CloneWorkspaceRequest struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Environment string `json:"environment"`
+
+	// RequiresApproval overrides the gate the clone would otherwise inherit
+	// from its source. It exists because the twin refusal names it: cloning an
+	// ungated workspace that sits on a config something else gates is refused
+	// with "set requires_approval on this one too", and without this field
+	// there is no way to do that on the clone route — the caller would have to
+	// create the workspace by hand and copy the variables across, which is
+	// itself an admin-only call. Nil means inherit.
+	RequiresApproval *bool `json:"requires_approval"`
 }
 
 type UpdateWorkspaceRequest struct {
@@ -454,6 +490,9 @@ func (h *WorkspaceHandler) Create(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// One leaf, one spelling. The twin check below and the row it writes both
+	// have to be about the directory, not about how the request typed it.
+	req.WorkingDir = service.CanonicalWorkingDir(req.WorkingDir)
 
 	// Upload workspaces cannot have VCS trigger
 	if source == "upload" && req.VcsTriggerEnabled {
@@ -530,6 +569,12 @@ func (h *WorkspaceHandler) Update(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// Canonicalise before anything reads the field, so movesConfigTarget
+	// compares the stored leaf against the requested leaf and not one spelling
+	// against another — otherwise a resubmit of the same directory typed
+	// differently reads as a move, and a real move to the same directory typed
+	// differently reads as a new target.
+	req.WorkingDir = service.CanonicalWorkingDir(req.WorkingDir)
 	if len(req.Description) > 4096 {
 		respond.Error(w, http.StatusBadRequest, "description must be at most 4096 characters")
 		return
@@ -779,17 +824,23 @@ func (h *WorkspaceHandler) Clone(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A clone copies the source's repo, working_dir and requires_approval, so
-	// cloning a gated workspace produces a gated one. Cloning an ungated
-	// workspace that happens to sit on a config some OTHER workspace gates is
-	// the twin case, and takes the twin bar.
+	requiresApproval, ok := cloneApprovalGate(source.RequiresApproval, req.RequiresApproval, userCtx.Role)
+	if !ok {
+		respond.Error(w, http.StatusForbidden, "cloning a workspace without its requires_approval gate requires admin role or higher")
+		return
+	}
+
+	// A clone copies the source's repo and working_dir, so cloning a gated
+	// workspace produces a gated one unless the request said otherwise. Cloning
+	// an ungated workspace that happens to sit on a config some OTHER workspace
+	// gates is the twin case, and takes the twin bar.
 	hasGatedTwin, err := h.svc.HasGatedTwin(r.Context(), userCtx.OrgID, source.RepoURL, source.WorkingDir, sourceID)
 	if err != nil {
 		slog.Error("failed to check for a gated workspace on this config", "error", err)
 		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to clone workspace")
 		return
 	}
-	if !gatedTwinAllowed(hasGatedTwin, source.RequiresApproval, userCtx.Role) {
+	if !gatedTwinAllowed(hasGatedTwin, requiresApproval, userCtx.Role) {
 		respond.Error(w, http.StatusForbidden, gatedTwinMessage)
 		return
 	}
@@ -815,7 +866,7 @@ func (h *WorkspaceHandler) Clone(w http.ResponseWriter, r *http.Request) {
 		TofuVersion:       source.TofuVersion,
 		Environment:       environment,
 		AutoApply:         source.AutoApply,
-		RequiresApproval:  source.RequiresApproval,
+		RequiresApproval:  requiresApproval,
 		VcsTriggerEnabled: source.VcsTriggerEnabled,
 		CreatedBy:         userCtx.UserID,
 	})

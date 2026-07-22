@@ -1402,6 +1402,7 @@ export interface components {
             source?: "vcs" | "upload";
             repo_url?: string;
             repo_branch?: string;
+            /** @description Repo-relative path to the leaf portal runs in. Stored canonical: "./envs/prod", "envs//prod", "envs/./prod" and "envs/prod/" all name one directory to the executor, so they are all stored as "envs/prod". Omit on update to keep the stored value. */
             working_dir?: string;
             tofu_version?: string;
             /** @enum {string} */
@@ -1415,6 +1416,7 @@ export interface components {
             description?: string;
             repo_url?: string;
             repo_branch?: string;
+            /** @description Repo-relative path to the leaf portal runs in. Stored canonical: "./envs/prod", "envs//prod", "envs/./prod" and "envs/prod/" all name one directory to the executor, so they are all stored as "envs/prod". Omit on update to keep the stored value. */
             working_dir?: string;
             tofu_version?: string;
             /** @enum {string} */
@@ -1427,6 +1429,8 @@ export interface components {
             name: string;
             description?: string;
             environment?: string;
+            /** @description Approval gate for the clone. Omit to inherit the source's. Raising it is an operator action — it is how a clone of a config another workspace already gates gets created without an admin. Clearing a gate the source holds needs admin. */
+            requires_approval?: boolean;
         };
         /** @enum {string} */
         RunStatus: "pending" | "queued" | "planning" | "planned" | "awaiting_approval" | "applying" | "applied" | "errored" | "cancelled" | "discarded";

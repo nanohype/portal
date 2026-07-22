@@ -663,8 +663,17 @@ func TestHasGatedWorkspaceForConfig(t *testing.T) {
 		{"the same repo over ssh", orgA, "git@github.com:acme/infra.git", "envs/prod", "", true},
 		{"the same repo with an embedded token", orgA, "https://ghp_token@github.com/acme/infra", "envs/prod", "", true},
 		{"the same repo over the ssh:// scheme", orgA, "ssh://git@github.com/acme/infra", "envs/prod", "", true},
+		{"the same repo on its scheme's default port", orgA, "https://github.com:443/acme/infra.git", "envs/prod", "", true},
+		{"the same repo over ssh:// with an explicit port", orgA, "ssh://git@github.com:22/acme/infra", "envs/prod", "", true},
 		{"a ./ prefix on the working directory", orgA, repo, "./envs/prod", "", true},
 		{"a trailing slash on the working directory", orgA, repo, "envs/prod/", "", true},
+		// Every one of these is the same `cd` in the executor, so every one of
+		// them has to be the same row here — otherwise an ungated twin on gated
+		// infrastructure is one respelled path away.
+		{"a doubled slash inside the working directory", orgA, repo, "envs//prod", "", true},
+		{"a . segment inside the working directory", orgA, repo, "envs/./prod", "", true},
+		{"a trailing /. on the working directory", orgA, repo, "envs/prod/.", "", true},
+		{"several of them at once", orgA, repo, "./envs//./prod/.", "", true},
 
 		{"a different directory in the same repo", orgA, repo, "envs/staging", "", false},
 		{"the ungated sibling's own directory", orgA, repo, "envs/dev", "", false},
@@ -697,7 +706,7 @@ func TestHasGatedWorkspaceForConfig(t *testing.T) {
 	// gated workspace at "." cannot be twinned by one at "" or "./".
 	rootRepo := "https://github.com/acme/root-config"
 	seedConfigWorkspace(t, ctx, orgA, userA, rootRepo, ".", true)
-	for _, dir := range []string{".", "", "./", "/"} {
+	for _, dir := range []string{".", "", "./", "/", "//", "/./", "./."} {
 		got, err := testQueries.HasGatedWorkspaceForConfig(ctx, repository.GatedTwinParams{
 			OrgID: orgA, RepoURL: rootRepo, WorkingDir: dir,
 		})
@@ -707,5 +716,33 @@ func TestHasGatedWorkspaceForConfig(t *testing.T) {
 		if !got {
 			t.Errorf("working_dir %q did not match a gated workspace at the repo root", dir)
 		}
+	}
+
+	// The column is normalised too, not just the argument: a row written before
+	// the write boundary canonicalised working_dir still has to be found. Same
+	// for a stored repo URL that carries a port.
+	legacyRepo := "https://github.com:8443/acme/legacy.git"
+	seedConfigWorkspace(t, ctx, orgA, userA, legacyRepo, "envs//./prod/", true)
+	got, err := testQueries.HasGatedWorkspaceForConfig(ctx, repository.GatedTwinParams{
+		OrgID: orgA, RepoURL: "https://github.com:8443/acme/legacy", WorkingDir: "envs/prod",
+	})
+	if err != nil {
+		t.Fatalf("HasGatedWorkspaceForConfig(legacy): %v", err)
+	}
+	if !got {
+		t.Error("a canonically-spelled query missed a gated row stored with a respelled working_dir")
+	}
+
+	// Normalising the port must not collapse an scp-style remote whose owner is
+	// numeric — "git@github.com:2600/infra" is a repo, not a port.
+	seedConfigWorkspace(t, ctx, orgA, userA, "git@github.com:2600/infra.git", "envs/prod", true)
+	got, err = testQueries.HasGatedWorkspaceForConfig(ctx, repository.GatedTwinParams{
+		OrgID: orgA, RepoURL: "https://github.com/infra", WorkingDir: "envs/prod",
+	})
+	if err != nil {
+		t.Fatalf("HasGatedWorkspaceForConfig(scp numeric owner): %v", err)
+	}
+	if got {
+		t.Error("github.com/infra matched git@github.com:2600/infra — a numeric path segment was read as a port")
 	}
 }

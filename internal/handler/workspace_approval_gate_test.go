@@ -354,3 +354,76 @@ func TestMovesConfigTargetCatchesGateRemoval(t *testing.T) {
 		t.Error("keeping requires_approval on is not a move")
 	}
 }
+
+// The clone route prints gatedTwinMessage too — "set requires_approval on this
+// one too, or hold admin role or higher" — and a clone that could not carry a
+// gate made the first half of that unreachable: the request had no field for it
+// and the clone copied the source's flag. The manual way round (create the
+// workspace by hand, then copy the variables) runs through a route that is
+// itself admin-only, so an operator was told to do something they could not do.
+//
+// So the clone request may raise the gate, and only raise it.
+func TestCloneApprovalGate(t *testing.T) {
+	tests := []struct {
+		name        string
+		sourceGated bool
+		requested   *bool
+		role        string
+		wantGate    bool
+		wantAllowed bool
+	}{
+		// Omitting the field inherits, which is what a clone always meant.
+		{"inherits an ungated source", false, nil, "operator", false, true},
+		{"inherits a gated source", true, nil, "operator", true, true},
+
+		// The escape hatch the 403 names: clone the twin gated.
+		{"an operator may raise the gate", false, boolPtr(true), "operator", true, true},
+		{"a viewer may raise the gate", false, boolPtr(true), "viewer", true, true},
+		{"asking for the gate a gated source already has", true, boolPtr(true), "operator", true, true},
+
+		// The other direction is the act that removes the human from an apply.
+		{"an operator may not clone away the gate", true, boolPtr(false), "operator", true, false},
+		{"a viewer may not clone away the gate", true, boolPtr(false), "viewer", true, false},
+		{"an unknown role may not clone away the gate", true, boolPtr(false), "intern", true, false},
+		{"an admin may clone away the gate", true, boolPtr(false), "admin", false, true},
+		{"an owner may clone away the gate", true, boolPtr(false), "owner", false, true},
+
+		// Nothing to clear on an ungated source.
+		{"an operator may clone an ungated source ungated", false, boolPtr(false), "operator", false, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gate, allowed := cloneApprovalGate(tt.sourceGated, tt.requested, tt.role)
+			if allowed != tt.wantAllowed {
+				t.Errorf("allowed = %v, want %v", allowed, tt.wantAllowed)
+			}
+			if gate != tt.wantGate {
+				t.Errorf("gate = %v, want %v", gate, tt.wantGate)
+			}
+		})
+	}
+}
+
+// And the hatch actually clears the twin refusal: an operator cloning onto a
+// config something else gates gets through by carrying the gate, and no other
+// way.
+func TestCloneCanTakeTheGatedTwinEscapeHatch(t *testing.T) {
+	const role = "operator"
+
+	gate, allowed := cloneApprovalGate(false, boolPtr(true), role)
+	if !allowed {
+		t.Fatal("an operator must be allowed to raise the gate on a clone")
+	}
+	if !gatedTwinAllowed(true, gate, role) {
+		t.Fatal("carrying the gate must satisfy the twin check on the clone route")
+	}
+
+	inherited, allowed := cloneApprovalGate(false, nil, role)
+	if !allowed {
+		t.Fatal("inheriting an ungated source is not itself a refusal")
+	}
+	if gatedTwinAllowed(true, inherited, role) {
+		t.Fatal("an operator must not clone an ungated twin onto a gated config")
+	}
+}

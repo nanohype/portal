@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"path"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/oklog/ulid/v2"
@@ -102,6 +104,38 @@ func (s *WorkspaceService) Get(ctx context.Context, id, orgID string) (repositor
 	})
 }
 
+// CanonicalWorkingDir reduces a working directory to the one spelling that
+// names that leaf.
+//
+// "envs/prod", "./envs/prod", "envs//prod", "envs/./prod", "envs/prod/" and
+// "envs/prod/." are one directory to both executors — the local one joins the
+// path with filepath.Join, which cleans it, and the Kubernetes one emits
+// `cd "/work/$PORTAL_WORKING_DIR"`, where `cd envs//prod` and `cd envs/./prod`
+// are the same cd in /bin/sh. So they have to be one string to portal too:
+// the gated-twin check compares stored working_dir values, and a comparison
+// that reads those as different targets is a second door onto gated
+// infrastructure that anyone who may create a workspace can open by respelling
+// the path. Canonicalising on the way in means the column only ever holds one
+// spelling of a leaf, so the comparison sees the target and not the typing.
+//
+// Rooting the path before cleaning also neutralises "..": path.Clean resolves
+// it against "/" and can never climb above it, so a caller who reaches this
+// without the handler's validation still cannot name anything outside the
+// checkout.
+//
+// Empty in, empty out. An omitted field is a request to keep the stored value,
+// not a request to point at the repo root; Create fills the "." default itself.
+func CanonicalWorkingDir(dir string) string {
+	if dir == "" {
+		return ""
+	}
+	cleaned := strings.TrimPrefix(path.Clean("/"+dir), "/")
+	if cleaned == "" {
+		return "."
+	}
+	return cleaned
+}
+
 // HasGatedTwin reports whether another workspace in this org already gates the
 // same repo + working_dir behind an approval.
 //
@@ -111,12 +145,18 @@ func (s *WorkspaceService) Get(ctx context.Context, id, orgID string) (repositor
 // requires_approval is a property of a row anyone may stand up a second copy
 // of.
 //
+// The working directory is canonicalised here as well as on write, so a query
+// spelled "envs//prod" is asked about the same leaf the column stores as
+// "envs/prod". The repo URL is not: it is a clone target, and rewriting it
+// would break a URL that carries its own credentials or an scp-style remote,
+// so its spellings are collapsed inside the query instead.
+//
 // excludeID keeps a workspace from matching itself on update.
 func (s *WorkspaceService) HasGatedTwin(ctx context.Context, orgID, repoURL, workingDir, excludeID string) (bool, error) {
 	return s.queries.HasGatedWorkspaceForConfig(ctx, repository.GatedTwinParams{
 		OrgID:      orgID,
 		RepoURL:    repoURL,
-		WorkingDir: workingDir,
+		WorkingDir: CanonicalWorkingDir(workingDir),
 		ExcludeID:  excludeID,
 	})
 }
@@ -130,7 +170,7 @@ func (s *WorkspaceService) Create(ctx context.Context, params CreateWorkspacePar
 	if branch == "" && source == "vcs" {
 		branch = "main"
 	}
-	workDir := params.WorkingDir
+	workDir := CanonicalWorkingDir(params.WorkingDir)
 	if workDir == "" {
 		workDir = "."
 	}
@@ -161,6 +201,11 @@ func (s *WorkspaceService) Create(ctx context.Context, params CreateWorkspacePar
 	})
 }
 
+// Update writes the fields a request carried. Empty strings mean "keep what is
+// stored" (the query COALESCEs them), so the working directory is canonicalised
+// only when one was actually supplied — CanonicalWorkingDir leaves empty empty
+// so an omitted field stays omitted rather than becoming a move to the repo
+// root.
 func (s *WorkspaceService) Update(ctx context.Context, params UpdateWorkspaceParams) (repository.Workspace, error) {
 	return s.queries.UpdateWorkspace(ctx, repository.UpdateWorkspaceParams{
 		ID:                params.ID,
@@ -169,7 +214,7 @@ func (s *WorkspaceService) Update(ctx context.Context, params UpdateWorkspacePar
 		Description:       params.Description,
 		RepoURL:           params.RepoURL,
 		RepoBranch:        params.RepoBranch,
-		WorkingDir:        params.WorkingDir,
+		WorkingDir:        CanonicalWorkingDir(params.WorkingDir),
 		TofuVersion:       params.TofuVersion,
 		Environment:       params.Environment,
 		AutoApply:         params.AutoApply,

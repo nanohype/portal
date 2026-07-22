@@ -37,6 +37,10 @@ func (e *LocalExecutor) Execute(ctx context.Context, params ExecuteParams) (*Exe
 	}
 	defer os.RemoveAll(workDir)
 
+	// The commit this run ends up executing, reported back so the worker can
+	// pin the run to it. Empty for uploads — those are pinned by config version.
+	var commitSHA string
+
 	params.LogCallback([]byte(fmt.Sprintf("Preparing workspace for run %s...\r\n", params.RunID)))
 
 	// Get source code: clone repo or extract uploaded archive
@@ -60,6 +64,22 @@ func (e *LocalExecutor) Execute(ctx context.Context, params ExecuteParams) (*Exe
 			return nil, fmt.Errorf("git clone failed: %w", err)
 		}
 		params.LogCallback([]byte("Repository cloned successfully.\r\n\r\n"))
+
+		// Move onto the pinned commit if this run has one. Checking out a
+		// commit the branch no longer contains fails here, which is the point:
+		// the alternative is applying a tree nobody signed.
+		if params.CommitSHA != "" {
+			if err := checkoutCommit(ctx, workDir, params.CommitSHA, params.LogCallback); err != nil {
+				return nil, err
+			}
+		}
+
+		head, err := resolveHead(ctx, workDir)
+		if err != nil {
+			return nil, err
+		}
+		commitSHA = head
+		params.LogCallback([]byte(fmt.Sprintf("Executing commit %s.\r\n\r\n", head)))
 	}
 
 	tfDir := filepath.Join(workDir, params.WorkingDir)
@@ -177,7 +197,7 @@ func (e *LocalExecutor) Execute(ctx context.Context, params ExecuteParams) (*Exe
 	params.LogCallback([]byte("\r\n"))
 
 	// Execute operation
-	result := &ExecuteResult{}
+	result := &ExecuteResult{CommitSHA: commitSHA}
 	var tfArgs []string
 
 	switch params.Operation {
@@ -367,6 +387,58 @@ func (e *LocalExecutor) Execute(ctx context.Context, params ExecuteParams) (*Exe
 	}
 
 	return result, nil
+}
+
+// checkoutCommit moves a shallow clone onto one exact commit.
+//
+// The clone is `--depth 1` on a branch, so the pinned commit is usually not in
+// it — the branch has moved since the plan. `git fetch --depth 1 origin <sha>`
+// asks for that one object, which is what most servers allow; a server that
+// refuses a by-id fetch is handled by pulling the branch's full history and
+// looking again. Either way the checkout is the decision: if the commit is not
+// reachable — the branch was force-pushed over it, or the whole repo was
+// swapped — this returns an error and the run fails. Falling back to the branch
+// head would apply a tree that was never planned or signed.
+//
+// sha is validated as a git object id before it gets here, so it cannot be read
+// as a git option or a path.
+func checkoutCommit(ctx context.Context, dir, sha string, log func([]byte)) error {
+	if !IsCommitSHA(sha) {
+		return fmt.Errorf("refusing to check out %q: not a git commit id", sha)
+	}
+	log([]byte(fmt.Sprintf("Checking out pinned commit %s...\r\n", sha)))
+
+	fetch := exec.CommandContext(ctx, "git", "-C", dir, "fetch", "--depth", "1", "origin", sha)
+	if out, err := fetch.CombinedOutput(); err != nil {
+		slog.Info("by-id fetch refused, retrying with full branch history",
+			"commit", sha, "output", strings.TrimSpace(string(out)))
+		unshallow := exec.CommandContext(ctx, "git", "-C", dir, "fetch", "--unshallow", "origin")
+		if out, err := unshallow.CombinedOutput(); err != nil {
+			log([]byte(fmt.Sprintf("\033[31mFetching commit %s failed: %s\033[0m\r\n", sha, string(out))))
+			return fmt.Errorf("fetch pinned commit %s: %w", sha, err)
+		}
+	}
+
+	checkout := exec.CommandContext(ctx, "git", "-C", dir, "checkout", "--detach", sha)
+	if out, err := checkout.CombinedOutput(); err != nil {
+		log([]byte(fmt.Sprintf("\033[31mChecking out commit %s failed: %s\033[0m\r\n", sha, string(out))))
+		return fmt.Errorf("checkout pinned commit %s: %w", sha, err)
+	}
+	return nil
+}
+
+// resolveHead reports the commit a checkout is sitting on, so the worker can
+// pin the run to the tree it actually ran.
+func resolveHead(ctx context.Context, dir string) (string, error) {
+	out, err := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", "HEAD").Output()
+	if err != nil {
+		return "", fmt.Errorf("resolve checked-out commit: %w", err)
+	}
+	head := strings.TrimSpace(string(out))
+	if !IsCommitSHA(head) {
+		return "", fmt.Errorf("resolve checked-out commit: %q is not a commit id", head)
+	}
+	return head, nil
 }
 
 // isHCLLiteral returns true if the value looks like an HCL literal

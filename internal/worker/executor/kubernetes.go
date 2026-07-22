@@ -68,8 +68,26 @@ func NewKubernetesExecutor(cfg KubernetesExecutorConfig) (*KubernetesExecutor, e
 	}, nil
 }
 
+// commitMarker prefixes the one line the run script prints with the commit it
+// checked out, so the worker can read it back out of the pod log.
+const commitMarker = "===PORTAL_COMMIT==="
+
+// commitMarkerRe matches that line anywhere in the log. The commit is reported
+// right after the clone rather than at the end, so unlike the state and plan
+// markers this one is cut out of the middle of the output rather than
+// truncating everything after it.
+var commitMarkerRe = regexp.MustCompile(`(?m)^` + commitMarker + `([0-9a-fA-F]{7,64})\r?\n?`)
+
 func (e *KubernetesExecutor) Execute(ctx context.Context, params ExecuteParams) (*ExecuteResult, error) {
 	logger := slog.With("run_id", params.RunID, "operation", params.Operation)
+
+	// A pin that is not an object id never reaches git. The value is referenced
+	// as a quoted shell variable so it cannot be read as shell, but git itself
+	// would still read a leading-dash value as an option, and a pin portal
+	// cannot resolve has to stop the run rather than degrade to branch head.
+	if params.CommitSHA != "" && !IsCommitSHA(params.CommitSHA) {
+		return nil, fmt.Errorf("refusing to check out %q: not a git commit id", params.CommitSHA)
+	}
 
 	podName := fmt.Sprintf("portal-run-%s", params.RunID)
 
@@ -89,6 +107,7 @@ func (e *KubernetesExecutor) Execute(ctx context.Context, params ExecuteParams) 
 		{Name: "PORTAL_REPO_URL", Value: params.RepoURL},
 		{Name: "PORTAL_REPO_BRANCH", Value: params.RepoBranch},
 		{Name: "PORTAL_WORKING_DIR", Value: params.WorkingDir},
+		{Name: "PORTAL_COMMIT_SHA", Value: params.CommitSHA},
 		// Terragrunt-specific defaults. Harmless for tofu runs (tofu
 		// ignores TG_*-prefixed env vars). See local.go for rationale.
 		{Name: "TG_NON_INTERACTIVE", Value: "true"},
@@ -200,6 +219,14 @@ func (e *KubernetesExecutor) Execute(ctx context.Context, params ExecuteParams) 
 	// Parse result
 	result := &ExecuteResult{Output: output}
 
+	// Lift the executed commit out of the log and drop the marker line from what
+	// the user reads.
+	if m := commitMarkerRe.FindStringSubmatch(output); m != nil {
+		result.CommitSHA = m[1]
+		output = commitMarkerRe.ReplaceAllString(output, "")
+		result.Output = output
+	}
+
 	planSummaryRe := regexp.MustCompile(`Plan: (\d+) to add, (\d+) to change, (\d+) to destroy`)
 	matches := planSummaryRe.FindStringSubmatch(output)
 	if len(matches) == 4 {
@@ -274,6 +301,20 @@ func (e *KubernetesExecutor) buildScript(params ExecuteParams) string {
 	} else {
 		sb.WriteString("echo \"Cloning $PORTAL_REPO_URL (branch: $PORTAL_REPO_BRANCH)...\"\n")
 		sb.WriteString("git clone --depth 1 --branch=\"$PORTAL_REPO_BRANCH\" -- \"$PORTAL_REPO_URL\" /work\n")
+		// Move onto the pinned commit when the run carries one. The shallow
+		// clone almost never contains it — the branch has moved since the plan —
+		// so fetch that one object, falling back to the branch's full history
+		// for a server that refuses a by-id fetch. `set -e` makes a failed
+		// checkout fail the pod, which is the point: a commit the branch no
+		// longer contains must stop the run, not silently become branch head.
+		sb.WriteString("if [ -n \"$PORTAL_COMMIT_SHA\" ]; then\n")
+		sb.WriteString("  echo \"Checking out pinned commit $PORTAL_COMMIT_SHA...\"\n")
+		sb.WriteString("  git -C /work fetch --depth 1 origin \"$PORTAL_COMMIT_SHA\" || git -C /work fetch --unshallow origin\n")
+		sb.WriteString("  git -C /work checkout --detach \"$PORTAL_COMMIT_SHA\"\n")
+		sb.WriteString("fi\n")
+		// Report the commit actually executed on one line, so the worker can pin
+		// the run to it and a later apply of the same run gets this tree.
+		sb.WriteString("echo \"" + commitMarker + "$(git -C /work rev-parse HEAD)\"\n")
 		sb.WriteString("cd \"/work/$PORTAL_WORKING_DIR\"\n\n")
 	}
 

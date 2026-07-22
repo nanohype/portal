@@ -4,7 +4,20 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"regexp"
 )
+
+// commitSHAPattern is what a git object id looks like: hex, abbreviated at
+// worst, sha-256 at longest. The value reaches `git checkout` as an argument
+// and, in the Kubernetes executor, as a shell variable, so anything that is not
+// an object id is refused rather than passed through — a pin that cannot be
+// resolved must stop the run, never quietly fall back to the branch.
+var commitSHAPattern = regexp.MustCompile(`^[0-9a-fA-F]{7,64}$`)
+
+// IsCommitSHA reports whether s can be a git commit id.
+func IsCommitSHA(s string) bool {
+	return commitSHAPattern.MatchString(s)
+}
 
 // DetectBinary returns the binary the worker should invoke for a workspace
 // rooted at workDir. When a terragrunt.hcl is present at the root, the run
@@ -45,6 +58,15 @@ type ExecuteParams struct {
 	Variables   []Variable
 	LogCallback func([]byte)
 
+	// CommitSHA is the exact commit to execute. A branch is a moving target —
+	// the plan an admin signed and the apply that follows the signature are two
+	// clones, and between them anyone with write access to the branch can move
+	// it. When this is set the executor checks the commit out and runs that
+	// tree; a branch that no longer contains it fails the run rather than
+	// silently applying something else. Empty means branch head, which is what a
+	// first plan gets before there is anything to pin to.
+	CommitSHA string
+
 	// PreviousState is the state file from the last successful apply.
 	// If non-nil, it is restored as terraform.tfstate before execution.
 	PreviousState []byte
@@ -65,6 +87,13 @@ type ExecuteParams struct {
 
 // ExecuteResult holds the outcome of an OpenTofu execution.
 type ExecuteResult struct {
+	// CommitSHA is the commit the run actually executed, resolved from the
+	// checkout. The worker records it on the run row so a later apply of the
+	// same run — an approval release or an auto-apply — executes the tree the
+	// plan was produced from and not whatever the branch points at by then.
+	// Empty for upload-source runs, which are pinned by config version instead.
+	CommitSHA string
+
 	Output           string
 	ResourcesAdded   int32
 	ResourcesChanged int32

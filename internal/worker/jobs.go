@@ -226,6 +226,25 @@ func (w *RunJobWorker) Work(ctx context.Context, job *river.Job[RunJobArgs]) err
 		w.streamer.Publish(args.RunID, line)
 	}
 
+	// The commit to execute. For a VCS run the branch on the run row is only
+	// half a pin: a branch moves, and the window between a plan parking at
+	// awaiting_approval and the apply that follows the signature is exactly when
+	// it moves. run.commit_sha is what closes that — set by the VCS trigger for
+	// a webhook run, and otherwise filled in below from the commit the first
+	// execution of this run resolved. Either way the apply re-runs the same run
+	// row, so it reads the same pin the plan was produced under.
+	//
+	// A value that is not an object id fails the run. There is no safe reading
+	// of it: ignoring it applies branch head, which is the tree nobody planned.
+	pinnedCommit := ""
+	if run.ConfigSource == "vcs" && run.CommitSHA != "" {
+		if !executor.IsCommitSHA(run.CommitSHA) {
+			return w.failRun(ctx, args, logger,
+				fmt.Errorf("run is pinned to %q, which is not a git commit id", run.CommitSHA), "")
+		}
+		pinnedCommit = run.CommitSHA
+	}
+
 	// Execute
 	execStart := time.Now()
 	result, err := w.executor.Execute(ctx, executor.ExecuteParams{
@@ -234,6 +253,7 @@ func (w *RunJobWorker) Work(ctx context.Context, job *river.Job[RunJobArgs]) err
 		Operation:                 args.Operation,
 		RepoURL:                   run.ConfigRepoURL,
 		RepoBranch:                run.ConfigRepoBranch,
+		CommitSHA:                 pinnedCommit,
 		WorkingDir:                run.ConfigWorkingDir,
 		TofuVersion:               run.ConfigTofuVersion,
 		Variables:                 execVars,
@@ -295,6 +315,26 @@ func (w *RunJobWorker) Work(ctx context.Context, job *river.Job[RunJobArgs]) err
 			autoApply = *args.AutoApplyOverride
 		}
 		finalStatus = postPlanAction(autoApply, workspace.RequiresApproval)
+	}
+
+	// Pin the run to the commit it just executed, if it wasn't already pinned.
+	// This is what makes an approval mean a tree: the admin reads a plan of this
+	// commit, and the apply that follows re-runs this same run row, so it reads
+	// this same commit back out even if the branch has moved. PinRunCommitSHA
+	// only writes an empty column, so a webhook-supplied pin is never rewritten
+	// by what the checkout resolved.
+	//
+	// If the write fails and an apply is going to follow off this row — a plan
+	// parked for approval, or one queued for auto-apply — the run fails instead:
+	// an unpinned approvable run is the moving target this exists to remove.
+	if pinnedCommit == "" && result.CommitSHA != "" {
+		if err := w.queries.PinRunCommitSHA(ctx, args.RunID, result.CommitSHA); err != nil {
+			if finalStatus == "awaiting_approval" || finalStatus == "queued" {
+				return w.failRun(ctx, args, logger,
+					fmt.Errorf("failed to pin run to commit %s: %w", result.CommitSHA, err), logBuf.String())
+			}
+			logger.Error("failed to record executed commit", "commit", result.CommitSHA, "error", err)
+		}
 	}
 
 	// Upload logs to S3
