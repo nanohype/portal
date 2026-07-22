@@ -10,7 +10,7 @@ func TestDiffStates_AddedResource(t *testing.T) {
 		{"mode": "managed", "type": "aws_instance", "name": "web", "provider": "aws", "instances": [{"attributes": {"id": "i-123"}}]}
 	]}`
 
-	diff, err := DiffStates([]byte(from), []byte(to))
+	diff, err := DiffStates([]byte(from), []byte(to), AttributesFull)
 	if err != nil {
 		t.Fatalf("DiffStates() error = %v", err)
 	}
@@ -38,7 +38,7 @@ func TestDiffStates_RemovedResource(t *testing.T) {
 	]}`
 	to := `{"version": 4, "resources": []}`
 
-	diff, err := DiffStates([]byte(from), []byte(to))
+	diff, err := DiffStates([]byte(from), []byte(to), AttributesFull)
 	if err != nil {
 		t.Fatalf("DiffStates() error = %v", err)
 	}
@@ -62,7 +62,7 @@ func TestDiffStates_ChangedResource(t *testing.T) {
 		{"mode": "managed", "type": "aws_instance", "name": "web", "provider": "aws", "instances": [{"attributes": {"id": "i-123", "instance_type": "t3.large"}}]}
 	]}`
 
-	diff, err := DiffStates([]byte(from), []byte(to))
+	diff, err := DiffStates([]byte(from), []byte(to), AttributesFull)
 	if err != nil {
 		t.Fatalf("DiffStates() error = %v", err)
 	}
@@ -87,7 +87,7 @@ func TestDiffStates_Unchanged(t *testing.T) {
 		{"mode": "managed", "type": "aws_instance", "name": "web", "provider": "aws", "instances": [{"attributes": {"id": "i-123"}}]}
 	]}`
 
-	diff, err := DiffStates([]byte(state), []byte(state))
+	diff, err := DiffStates([]byte(state), []byte(state), AttributesFull)
 	if err != nil {
 		t.Fatalf("DiffStates() error = %v", err)
 	}
@@ -110,7 +110,7 @@ func TestDiffStates_Mixed(t *testing.T) {
 		{"mode": "managed", "type": "aws_vpc", "name": "main", "provider": "aws", "instances": [{"attributes": {"id": "vpc-1"}}]}
 	]}`
 
-	diff, err := DiffStates([]byte(from), []byte(to))
+	diff, err := DiffStates([]byte(from), []byte(to), AttributesFull)
 	if err != nil {
 		t.Fatalf("DiffStates() error = %v", err)
 	}
@@ -134,7 +134,7 @@ func TestDiffStates_WithModules(t *testing.T) {
 		{"module": "module.vpc", "mode": "managed", "type": "aws_vpc", "name": "main", "provider": "aws", "instances": [{"attributes": {"cidr": "10.1.0.0/16"}}]}
 	]}`
 
-	diff, err := DiffStates([]byte(from), []byte(to))
+	diff, err := DiffStates([]byte(from), []byte(to), AttributesFull)
 	if err != nil {
 		t.Fatalf("DiffStates() error = %v", err)
 	}

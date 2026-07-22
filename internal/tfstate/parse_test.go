@@ -53,7 +53,7 @@ func TestParseResources(t *testing.T) {
 		]
 	}`
 
-	resources, err := ParseResources([]byte(stateJSON))
+	resources, err := ParseResources([]byte(stateJSON), AttributesFull)
 	if err != nil {
 		t.Fatalf("ParseResources() error = %v", err)
 	}
@@ -104,7 +104,7 @@ func TestParseResources(t *testing.T) {
 
 func TestParseResources_Empty(t *testing.T) {
 	stateJSON := `{"version": 4, "resources": []}`
-	resources, err := ParseResources([]byte(stateJSON))
+	resources, err := ParseResources([]byte(stateJSON), AttributesFull)
 	if err != nil {
 		t.Fatalf("ParseResources() error = %v", err)
 	}
@@ -114,7 +114,7 @@ func TestParseResources_Empty(t *testing.T) {
 }
 
 func TestParseResources_InvalidJSON(t *testing.T) {
-	_, err := ParseResources([]byte("not json"))
+	_, err := ParseResources([]byte("not json"), AttributesFull)
 	if err == nil {
 		t.Error("expected error for invalid JSON")
 	}

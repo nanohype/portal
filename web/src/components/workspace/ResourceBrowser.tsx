@@ -33,18 +33,34 @@ function ResourceRow({ resource }: { resource: StateResource }) {
         )}
         <span className="ml-auto text-xs text-muted-foreground">{resource.provider}</span>
       </button>
-      {expanded && attrEntries.length > 0 && (
-        <div className="px-4 pb-3 pt-1">
-          <div className="rounded border border-border divide-y divide-border text-xs font-mono">
-            {attrEntries.map(([key, value]) => (
-              <div key={key} className="flex px-3 py-1.5">
-                <span className="text-muted-foreground w-48 shrink-0">{key}</span>
-                <span className="text-foreground/80 break-all">
-                  {typeof value === 'object' ? JSON.stringify(value) : String(value ?? 'null')}
-                </span>
-              </div>
-            ))}
-          </div>
+      {expanded && (
+        <div className="px-4 pb-3 pt-1 space-y-2">
+          {/* Attribute values are the tfstate file's own contents — tofu writes
+              generated passwords and private keys into them in cleartext — so
+              the API returns them only to callers who may manage this
+              workspace's state. Everyone else gets the attribute names. */}
+          {resource.attributes_redacted && (
+            <p className="text-xs text-muted-foreground">
+              Attribute values are held at the state-management bar. Ask an admin, or someone with
+              an admin grant on this workspace, to read them.
+            </p>
+          )}
+          {attrEntries.length > 0 && (
+            <div className="rounded border border-border divide-y divide-border text-xs font-mono">
+              {attrEntries.map(([key, value]) => (
+                <div key={key} className="flex px-3 py-1.5">
+                  <span className="text-muted-foreground w-48 shrink-0">{key}</span>
+                  <span className="text-foreground/80 break-all">
+                    {resource.attributes_redacted
+                      ? '—'
+                      : typeof value === 'object'
+                        ? JSON.stringify(value)
+                        : String(value ?? 'null')}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

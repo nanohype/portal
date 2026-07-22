@@ -161,6 +161,21 @@ func (s *WorkspaceService) HasGatedTwin(ctx context.Context, orgID, repoURL, wor
 	})
 }
 
+// SameConfigTarget reports whether two (repo_url, working_dir) pairs name the
+// same config, by the identity rules HasGatedTwin compares rows by.
+//
+// It answers "did this update actually move the workspace" for the callers that
+// have to charge for a move, so a settings save that respells its own target —
+// dropping a ".git", adding a trailing slash — is not read as one.
+func (s *WorkspaceService) SameConfigTarget(ctx context.Context, repoA, dirA, repoB, dirB string) (bool, error) {
+	return s.queries.ConfigTargetsMatch(ctx, repository.ConfigTargetsMatchParams{
+		RepoURLA:    repoA,
+		WorkingDirA: CanonicalWorkingDir(dirA),
+		RepoURLB:    repoB,
+		WorkingDirB: CanonicalWorkingDir(dirB),
+	})
+}
+
 func (s *WorkspaceService) Create(ctx context.Context, params CreateWorkspaceParams) (repository.Workspace, error) {
 	source := params.Source
 	if source == "" {

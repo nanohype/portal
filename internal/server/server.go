@@ -444,7 +444,10 @@ func (s *Server) setupRouter() {
 						// Settings drive what the worker checks out and runs.
 						// The two fields that decide whether an apply needs a
 						// human — auto_apply and requires_approval — are held
-						// to the org-level approval bar inside the handler.
+						// to the org-level approval bar inside the handler, and
+						// so is repointing the last gated workspace off a
+						// configuration, which leaves that configuration open
+						// to an ungated one just as surely.
 						r.With(wsOperator).Put("/", workspaceHandler.Update)
 						r.With(wsDelete).Delete("/", workspaceHandler.Delete)
 						r.With(wsOperator).Post("/lock", workspaceHandler.Lock)
@@ -464,8 +467,9 @@ func (s *Server) setupRouter() {
 							// below ActionManageVars nothing is valued either — the
 							// handler strips the value column and skips the terragrunt
 							// render that would resolve it. That leaves a read of the
-							// config's shape, the variables tab's equivalent of
-							// /state/current/resources, so it sits on the read bar.
+							// config's shape, which is what the read bar is for: same
+							// split the state routes below make, where the resource
+							// inventory is readable and the attribute values are not.
 							// It is a POST only because acquiring the config is the
 							// expensive part.
 							r.With(wsView).Post("/discover", variableHandler.Discover)
@@ -483,6 +487,16 @@ func (s *Server) setupRouter() {
 						// Outputs tabs; the raw download hands over the whole
 						// tfstate file, every provider credential in it
 						// included, so it sits with state management.
+						//
+						// The parsed views are on the read bar for the
+						// INVENTORY only — addresses, providers, serials,
+						// which attributes changed. Attribute values are the
+						// same bytes the download refuses to hand over at this
+						// tier (tofu writes random_password.result and
+						// tls_private_key.private_key_pem into state in
+						// cleartext), so handler.attributeView withholds them
+						// below ActionManageState and the two routes disclose
+						// the same material at the same bar.
 						r.Route("/state", func(r chi.Router) {
 							r.With(wsView).Get("/", stateHandler.List)
 							r.With(wsView).Get("/current", stateHandler.GetCurrent)

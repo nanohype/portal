@@ -513,3 +513,42 @@ func (q *Queries) HasGatedWorkspaceForConfig(ctx context.Context, arg GatedTwinP
 	err := row.Scan(&exists)
 	return exists, err
 }
+
+type ConfigTargetsMatchParams struct {
+	RepoURLA    string `json:"repo_url_a"`
+	WorkingDirA string `json:"working_dir_a"`
+	RepoURLB    string `json:"repo_url_b"`
+	WorkingDirB string `json:"working_dir_b"`
+}
+
+// ConfigTargetsMatch reports whether two (repo_url, working_dir) pairs name the
+// same config, under exactly the identity rules HasGatedWorkspaceForConfig
+// compares rows by.
+//
+// Callers that have to know whether an update MOVES a workspace need the same
+// answer the gated-twin check would give, and there is one definition of that:
+// this runs the same two expressions rather than restating them in Go, where
+// the two spellings of "same config" could drift apart. A workspace resubmitted
+// under an equivalent spelling of its own target has not moved, and must not be
+// charged for a move.
+//
+// An empty repo_url on either side is an upload workspace, which has no
+// comparable config identity — the same reading HasGatedWorkspaceForConfig
+// takes — so it matches nothing, itself included.
+func (q *Queries) ConfigTargetsMatch(ctx context.Context, arg ConfigTargetsMatchParams) (bool, error) {
+	if arg.RepoURLA == "" || arg.RepoURLB == "" {
+		return false, nil
+	}
+	repoA := fmt.Sprintf(repoURLIdentitySQL, "$1::TEXT")
+	repoB := fmt.Sprintf(repoURLIdentitySQL, "$3::TEXT")
+	dirA := fmt.Sprintf(workingDirIdentitySQL, "$2::TEXT")
+	dirB := fmt.Sprintf(workingDirIdentitySQL, "$4::TEXT")
+
+	row := q.db.QueryRow(ctx,
+		`SELECT `+repoA+` = `+repoB+` AND `+dirA+` = `+dirB,
+		arg.RepoURLA, arg.WorkingDirA, arg.RepoURLB, arg.WorkingDirB,
+	)
+	var same bool
+	err := row.Scan(&same)
+	return same, err
+}

@@ -50,16 +50,67 @@ type TFStateInstance struct {
 
 // Resource is a simplified representation returned by the API.
 type Resource struct {
-	Type       string                 `json:"type"`
-	Name       string                 `json:"name"`
-	Module     string                 `json:"module"`
-	Provider   string                 `json:"provider"`
-	Mode       string                 `json:"mode"`
-	Attributes map[string]interface{} `json:"attributes"`
+	Type     string `json:"type"`
+	Name     string `json:"name"`
+	Module   string `json:"module"`
+	Provider string `json:"provider"`
+	Mode     string `json:"mode"`
+	// Attributes carries every attribute name the instance has. Under
+	// AttributesRedacted each value is null and AttributesRedacted is true; the
+	// names themselves are schema, not data, so they stay.
+	Attributes         map[string]interface{} `json:"attributes"`
+	AttributesRedacted bool                   `json:"attributes_redacted,omitempty"`
 }
 
-// ParseResources extracts a flat list of resources from raw state JSON.
-func ParseResources(data []byte) ([]Resource, error) {
+// AttributeView decides whether parsed state carries the VALUES of resource
+// attributes or only their names.
+//
+// Terraform and OpenTofu write provider-sensitive attributes into state in
+// cleartext — random_password.result, tls_private_key.private_key_pem,
+// aws_db_instance.password, aws_iam_access_key.secret,
+// aws_secretsmanager_secret_version.secret_string. State carries no reliable
+// machine-readable marking for them: the instance-level "sensitive_attributes"
+// list records marks that reached a value through configuration, not the
+// sensitivity a provider schema declares, so there is no subset of attributes
+// that can be handed out safely by name. A denylist would be a guess, and the
+// next provider attribute nobody thought of is the leak.
+//
+// So attribute values are the tfstate blob under another name, and they sit at
+// the bar the raw download sits at: ActionManageState. Everything else the
+// resource browser shows — addresses, providers, which attribute names exist,
+// which of them changed between two serials — is inventory, and stays at the
+// workspace read bar.
+//
+// The zero value redacts, so a caller that never decides discloses nothing.
+type AttributeView int
+
+const (
+	// AttributesRedacted keeps attribute names and drops every value.
+	AttributesRedacted AttributeView = iota
+	// AttributesFull returns state attributes verbatim, secrets included.
+	AttributesFull
+)
+
+// project returns the attribute map to serialize under this view, and whether
+// it was redacted. Redaction replaces each top-level value with nil, which
+// takes every nested map, list and string underneath it with them.
+func (v AttributeView) project(attrs map[string]interface{}) (map[string]interface{}, bool) {
+	if attrs == nil {
+		attrs = map[string]interface{}{}
+	}
+	if v == AttributesFull {
+		return attrs, false
+	}
+	redacted := make(map[string]interface{}, len(attrs))
+	for k := range attrs {
+		redacted[k] = nil
+	}
+	return redacted, true
+}
+
+// ParseResources extracts a flat list of resources from raw state JSON. The
+// view decides whether attribute values come with it — see AttributeView.
+func ParseResources(data []byte, view AttributeView) ([]Resource, error) {
 	var state TFState
 	if err := json.Unmarshal(data, &state); err != nil {
 		return nil, fmt.Errorf("failed to parse state JSON: %w", err)
@@ -70,29 +121,29 @@ func ParseResources(data []byte) ([]Resource, error) {
 		provider := cleanProviderName(r.Provider)
 
 		for _, inst := range r.Instances {
-			attrs := inst.Attributes
-			if attrs == nil {
-				attrs = map[string]interface{}{}
-			}
+			attrs, redacted := view.project(inst.Attributes)
 			resources = append(resources, Resource{
-				Type:       r.Type,
-				Name:       r.Name,
-				Module:     r.Module,
-				Provider:   provider,
-				Mode:       r.Mode,
-				Attributes: attrs,
+				Type:               r.Type,
+				Name:               r.Name,
+				Module:             r.Module,
+				Provider:           provider,
+				Mode:               r.Mode,
+				Attributes:         attrs,
+				AttributesRedacted: redacted,
 			})
 		}
 
 		// If no instances, still include the resource shell
 		if len(r.Instances) == 0 {
+			attrs, redacted := view.project(nil)
 			resources = append(resources, Resource{
-				Type:       r.Type,
-				Name:       r.Name,
-				Module:     r.Module,
-				Provider:   provider,
-				Mode:       r.Mode,
-				Attributes: map[string]interface{}{},
+				Type:               r.Type,
+				Name:               r.Name,
+				Module:             r.Module,
+				Provider:           provider,
+				Mode:               r.Mode,
+				Attributes:         attrs,
+				AttributesRedacted: redacted,
 			})
 		}
 	}
@@ -104,6 +155,12 @@ func ParseResources(data []byte) ([]Resource, error) {
 }
 
 // ParseOutputs extracts output values from raw state JSON.
+//
+// Outputs take no AttributeView, because unlike resource attributes they carry
+// their own reliable marking: a root output records the config's `sensitive`
+// declaration, and tofu refuses to plan a config that surfaces a
+// provider-sensitive value through an unmarked output. So the state names the
+// secrets here and this blanks exactly those, at every bar.
 func ParseOutputs(data []byte) ([]Output, error) {
 	var state TFState
 	if err := json.Unmarshal(data, &state); err != nil {

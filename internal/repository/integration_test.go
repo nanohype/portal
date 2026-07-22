@@ -746,3 +746,105 @@ func TestHasGatedWorkspaceForConfig(t *testing.T) {
 		t.Error("github.com/infra matched git@github.com:2600/infra — a numeric path segment was read as a port")
 	}
 }
+
+// A gated workspace guards the config it sits on, so the handler has to know
+// whether an update MOVES it — and "same config" has to mean here exactly what
+// it means to HasGatedWorkspaceForConfig. If a respelled save read as a move,
+// an operator would be refused an edit that opens nothing; if a real move read
+// as a stay, the last gate could walk off a configuration for free.
+func TestConfigTargetsMatch(t *testing.T) {
+	requireDB(t)
+	ctx := context.Background()
+
+	const repo = "https://github.com/acme/infra.git"
+	tests := []struct {
+		name                     string
+		repoA, dirA, repoB, dirB string
+		want                     bool
+	}{
+		{"identical spelling", repo, "envs/prod", repo, "envs/prod", true},
+
+		// Every spelling HasGatedWorkspaceForConfig collapses has to collapse
+		// here too, or the two checks disagree about the same pair of rows.
+		{"without the .git suffix", repo, "envs/prod", "https://github.com/acme/infra", "envs/prod", true},
+		{"trailing slash on the repo", repo, "envs/prod", "https://github.com/acme/infra.git/", "envs/prod", true},
+		{"different case", repo, "envs/prod", "HTTPS://GitHub.com/Acme/Infra.GIT", "envs/prod", true},
+		{"over ssh", repo, "envs/prod", "git@github.com:acme/infra.git", "envs/prod", true},
+		{"with an embedded token", repo, "envs/prod", "https://ghp_token@github.com/acme/infra", "envs/prod", true},
+		{"on the scheme's default port", repo, "envs/prod", "https://github.com:443/acme/infra", "envs/prod", true},
+		{"./ prefix on the directory", repo, "envs/prod", repo, "./envs/prod", true},
+		{"doubled slash in the directory", repo, "envs/prod", repo, "envs//prod", true},
+		{"every spelling of the repo root", repo, ".", repo, "", true},
+		{"another spelling of the repo root", repo, "/", repo, "./.", true},
+
+		// Real moves.
+		{"a different directory", repo, "envs/prod", repo, "envs/prod-old", false},
+		{"a different repo", repo, "envs/prod", "https://github.com/acme/apps", "envs/prod", false},
+		{"a numeric scp owner is not a port", "git@github.com:2600/infra.git", ".", "https://github.com/infra", ".", false},
+
+		// An upload workspace has no config identity, so it matches nothing —
+		// not even another upload. Same reading the twin check takes.
+		{"upload on the left", "", "envs/prod", repo, "envs/prod", false},
+		{"upload on the right", repo, "envs/prod", "", "envs/prod", false},
+		{"upload on both sides", "", "envs/prod", "", "envs/prod", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := testQueries.ConfigTargetsMatch(ctx, repository.ConfigTargetsMatchParams{
+				RepoURLA: tt.repoA, WorkingDirA: tt.dirA,
+				RepoURLB: tt.repoB, WorkingDirB: tt.dirB,
+			})
+			if err != nil {
+				t.Fatalf("ConfigTargetsMatch: %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("ConfigTargetsMatch(%q %q, %q %q) = %v, want %v",
+					tt.repoA, tt.dirA, tt.repoB, tt.dirB, got, tt.want)
+			}
+		})
+	}
+
+	// The two checks have to agree row for row: whatever ConfigTargetsMatch
+	// calls the same config, HasGatedWorkspaceForConfig has to find, and
+	// whatever it calls a move must leave the origin visible as gated when the
+	// mover is excluded.
+	orgA, userA := seedOrg(t, ctx, "origin-a")
+	gated := seedConfigWorkspace(t, ctx, orgA, userA, repo, "envs/prod", true)
+
+	same, err := testQueries.ConfigTargetsMatch(ctx, repository.ConfigTargetsMatchParams{
+		RepoURLA: repo, WorkingDirA: "envs/prod",
+		RepoURLB: "https://github.com/acme/infra/", WorkingDirB: "./envs/prod",
+	})
+	if err != nil {
+		t.Fatalf("ConfigTargetsMatch: %v", err)
+	}
+	if !same {
+		t.Fatal("a respelled resubmit of the same target must not read as a move")
+	}
+
+	// Excluding the only gate leaves the config unguarded — the state the
+	// handler refuses to create at the operator bar.
+	stillGated, err := testQueries.HasGatedWorkspaceForConfig(ctx, repository.GatedTwinParams{
+		OrgID: orgA, RepoURL: repo, WorkingDir: "envs/prod", ExcludeID: gated,
+	})
+	if err != nil {
+		t.Fatalf("HasGatedWorkspaceForConfig: %v", err)
+	}
+	if stillGated {
+		t.Fatal("nothing else gates envs/prod; excluding the mover must report it unguarded")
+	}
+
+	// Stand a second gate on the same config and the move is free again, which
+	// is the escape hatch the 403 names.
+	seedConfigWorkspace(t, ctx, orgA, userA, "https://github.com/acme/infra", "./envs/prod", true)
+	stillGated, err = testQueries.HasGatedWorkspaceForConfig(ctx, repository.GatedTwinParams{
+		OrgID: orgA, RepoURL: repo, WorkingDir: "envs/prod", ExcludeID: gated,
+	})
+	if err != nil {
+		t.Fatalf("HasGatedWorkspaceForConfig: %v", err)
+	}
+	if !stillGated {
+		t.Fatal("a replacement gate spelled differently must still count as guarding the config")
+	}
+}

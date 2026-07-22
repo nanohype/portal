@@ -51,6 +51,45 @@ function DiffRow({ diff }: { diff: ResourceDiff }) {
     ? `${diff.module}.${diff.type}.${diff.name}`
     : `${diff.type}.${diff.name}`;
 
+  // before/after carry state attributes, which the API withholds below the
+  // state-management bar. The change itself — which resources, which
+  // attributes — is the same one a state manager sees.
+  if (diff.attributes_redacted) {
+    return (
+      <div className={cn('rounded-lg border overflow-hidden', style.border)}>
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className={cn(
+            'w-full px-4 py-2 flex items-center gap-2 text-sm font-medium font-mono text-left cursor-pointer',
+            style.bg,
+            style.text,
+          )}
+        >
+          <span className="text-base leading-none">{style.label}</span>
+          <span className="flex-1">{address}</span>
+          {diff.changed_keys && diff.changed_keys.length > 0 && (
+            <span className="text-xs opacity-70">{diff.changed_keys.length} attribute(s)</span>
+          )}
+          {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+        </button>
+        {expanded && (
+          <div className="px-4 py-2 space-y-1">
+            {diff.changed_keys?.map((key) => (
+              <div key={key} className="text-xs font-mono">
+                <span className="text-muted-foreground">{key}: </span>
+                <span className="text-muted-foreground">—</span>
+              </div>
+            ))}
+            <p className="text-xs text-muted-foreground">
+              Attribute values are held at the state-management bar. Ask an admin, or someone with
+              an admin grant on this workspace, to read them.
+            </p>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className={cn('rounded-lg border overflow-hidden', style.border)}>
       <button

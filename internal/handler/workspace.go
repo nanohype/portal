@@ -225,6 +225,50 @@ func gatedTwinAllowed(hasGatedTwin, requiresApproval bool, orgRole string) bool 
 const gatedTwinMessage = "another workspace already requires approval for this repository and working directory: " +
 	"set requires_approval on this one too, or hold admin role or higher"
 
+// vacatesGatedConfig reports whether an update walks a gated workspace off the
+// config it is currently gating.
+//
+// sameTarget is the identity comparison HasGatedTwin uses, not a string compare:
+// a save that respells its own repo URL or working directory has not moved
+// anywhere and must not be charged for a move.
+//
+// An upload workspace has no repo URL, so it has no config identity to guard —
+// the same reading gatedTwinAllowed takes, and the same one the query takes.
+func vacatesGatedConfig(current repository.Workspace, targetGated, sameTarget bool) bool {
+	if !current.RequiresApproval || current.RepoURL == "" {
+		return false
+	}
+	return !sameTarget || !targetGated
+}
+
+// gatedOriginAllowed decides whether a caller may take the last approval gate
+// off a config.
+//
+// gatedTwinAllowed holds one half of the invariant: while a gated workspace
+// sits on a repo + working_dir, nobody may stand an ungated twin up there at
+// the operator bar. This holds the other half. Both checks in Update asked only
+// about the DESTINATION, so the invariant could be walked out of instead of
+// broken into: repoint the gated workspace somewhere else — a settings-form
+// field at the operator bar, opening no gate, so approvalGateChangeAllowed has
+// nothing to say — and the config it leaves behind is now guarded by nothing.
+// Then create an ungated workspace on it and apply, no approval row, no admin.
+//
+// Removing the only gate from a config is the same act as clearing that gate
+// outright, so it costs the same authority: ActionApplyProd. originStillGated
+// is the way out that keeps the invariant true — another gated workspace stays
+// behind on that config, and an operator may always create one, because
+// requires_approval only ever adds a wait.
+func gatedOriginAllowed(vacates, originStillGated bool, orgRole string) bool {
+	if !vacates || originStillGated {
+		return true
+	}
+	return auth.CanPerform(orgRole, auth.ActionApplyProd)
+}
+
+const gatedOriginMessage = "this is the only workspace requiring approval for its current repository and working directory, " +
+	"so moving it off would leave that configuration ungated: leave another workspace requiring approval on it, " +
+	"or hold admin role or higher"
+
 // cloneApprovalGate decides what gate a clone carries, and whether the caller
 // may ask for it. It returns the gate to write and whether the request is
 // allowed.
@@ -611,6 +655,36 @@ func (h *WorkspaceHandler) Update(w http.ResponseWriter, r *http.Request) {
 		if !gatedTwinAllowed(hasGatedTwin, targetGated, userCtx.Role) {
 			respond.Error(w, http.StatusForbidden, gatedTwinMessage)
 			return
+		}
+
+		// The move has two ends. The check above asks what arriving at the
+		// destination does; this asks what leaving the origin does, because a
+		// gated workspace is what makes gatedTwinAllowed refuse an ungated twin
+		// on the config it sits on. Walking it away retires that refusal.
+		//
+		// Only a gated VCS workspace can be holding a config, so nothing else
+		// pays for the two lookups.
+		if current.RequiresApproval && current.RepoURL != "" {
+			sameTarget, err := h.svc.SameConfigTarget(r.Context(), current.RepoURL, current.WorkingDir, targetRepoURL, targetWorkingDir)
+			if err != nil {
+				slog.Error("failed to compare this workspace's current and requested config", "error", err)
+				respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to update workspace")
+				return
+			}
+			vacates := vacatesGatedConfig(current, targetGated, sameTarget)
+			originStillGated := false
+			if vacates {
+				originStillGated, err = h.svc.HasGatedTwin(r.Context(), userCtx.OrgID, current.RepoURL, current.WorkingDir, workspaceID)
+				if err != nil {
+					slog.Error("failed to check for a gated workspace on this config", "error", err)
+					respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to update workspace")
+					return
+				}
+			}
+			if !gatedOriginAllowed(vacates, originStillGated, userCtx.Role) {
+				respond.Error(w, http.StatusForbidden, gatedOriginMessage)
+				return
+			}
 		}
 	}
 

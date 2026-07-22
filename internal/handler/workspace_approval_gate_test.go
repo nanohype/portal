@@ -427,3 +427,173 @@ func TestCloneCanTakeTheGatedTwinEscapeHatch(t *testing.T) {
 		t.Fatal("an operator must not clone an ungated twin onto a gated config")
 	}
 }
+
+// A gated workspace does not only gate itself: while it sits on a repo +
+// working_dir, gatedTwinAllowed refuses an ungated second workspace there at
+// the operator bar. Moving it away takes that refusal with it, which is the
+// same act as clearing its gate — and used to cost nothing, because both twin
+// checks in Update only ever asked about the destination.
+func TestVacatesGatedConfig(t *testing.T) {
+	gated := repository.Workspace{
+		RepoURL:          "https://example.test/infra.git",
+		WorkingDir:       "envs/prod",
+		RequiresApproval: true,
+	}
+	ungated := repository.Workspace{
+		RepoURL:          "https://example.test/infra.git",
+		WorkingDir:       "envs/prod",
+		RequiresApproval: false,
+	}
+	upload := repository.Workspace{
+		RepoURL:          "",
+		WorkingDir:       "envs/prod",
+		RequiresApproval: true,
+	}
+
+	tests := []struct {
+		name        string
+		current     repository.Workspace
+		targetGated bool
+		sameTarget  bool
+		want        bool
+	}{
+		// THE EXPLOIT: walk the gated workspace off the config it guards, then
+		// create an ungated workspace on the vacated config and apply.
+		{"gated workspace repointed elsewhere", gated, true, false, true},
+
+		// Clearing the gate in place empties the config just as well.
+		// approvalGateChangeAllowed already holds that at admin; this is the
+		// second reading of the same act, and it must agree.
+		{"gate cleared in place", gated, false, true, true},
+		{"repointed and ungated at once", gated, false, false, true},
+
+		// Staying put is not a move. The settings form resubmits every field on
+		// every save, and sameTarget is the identity comparison, so a save that
+		// respells its own repo URL is not charged for a move it did not make.
+		{"gated workspace saved in place", gated, true, true, false},
+
+		// A workspace with no gate is holding nothing, so it takes nothing with
+		// it. Repointing at the operator bar is the documented workflow.
+		{"ungated workspace repointed", ungated, false, false, false},
+		{"ungated workspace picking up a gate as it moves", ungated, true, false, false},
+
+		// An upload workspace has no repo URL, so it has no config identity to
+		// guard — the same reading gatedTwinAllowed and the query both take.
+		{"gated upload workspace repointed", upload, true, false, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := vacatesGatedConfig(tt.current, tt.targetGated, tt.sameTarget)
+			if got != tt.want {
+				t.Errorf("vacatesGatedConfig(gated=%v, repo=%q, targetGated=%v, sameTarget=%v) = %v, want %v",
+					tt.current.RequiresApproval, tt.current.RepoURL, tt.targetGated, tt.sameTarget, got, tt.want)
+			}
+		})
+	}
+}
+
+// Taking the last gate off a config is the act ActionApplyProd protects,
+// whichever way it is spelled — and leaving another gate behind is the way an
+// operator does it without one.
+func TestGatedOriginAllowed(t *testing.T) {
+	tests := []struct {
+		name             string
+		vacates          bool
+		originStillGated bool
+		role             string
+		want             bool
+	}{
+		// Not a move off a gated config: nothing to decide, every role through.
+		{"operator saving a workspace in place", false, false, "operator", true},
+		{"viewer request untouched by this check", false, false, "viewer", true},
+
+		// The exploit: the only gate on a config walks away at the operator bar.
+		{"operator cannot vacate the last gate", true, false, "operator", false},
+		{"viewer cannot vacate the last gate", true, false, "viewer", false},
+		{"unknown role cannot vacate the last gate", true, false, "intern", false},
+
+		// The way out: another gated workspace stays on that config, so the
+		// config is still guarded and the move opens nothing. Creating that
+		// workspace is itself an operator act — requires_approval only ever
+		// adds a wait.
+		{"operator may move when another gate stays behind", true, true, "operator", true},
+		{"viewer request with another gate behind", true, true, "viewer", true},
+
+		// Whoever may release a gated apply may also retire the gate.
+		{"admin may vacate the last gate", true, false, "admin", true},
+		{"owner may vacate the last gate", true, false, "owner", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := gatedOriginAllowed(tt.vacates, tt.originStillGated, tt.role)
+			if got != tt.want {
+				t.Errorf("gatedOriginAllowed(vacates=%v, stillGated=%v, role=%q) = %v, want %v",
+					tt.vacates, tt.originStillGated, tt.role, got, tt.want)
+			}
+		})
+	}
+}
+
+// The full sequence the two destination-only checks let through, walked step by
+// step at the operator bar: move the gate off production, then twin the vacated
+// config ungated, then apply without a signature. Each step is what Update and
+// Create actually evaluate, in the order they evaluate it.
+func TestOperatorCannotWalkAGateOffItsConfig(t *testing.T) {
+	const role = "operator"
+	const prodRepo = "https://example.test/infra.git"
+	const prodDir = "envs/prod"
+
+	gate := repository.Workspace{RepoURL: prodRepo, WorkingDir: prodDir, RequiresApproval: true}
+	moveAway := UpdateWorkspaceRequest{WorkingDir: "envs/prod-old"}
+
+	// Step 1 as it used to pass: no approval field is submitted, so the gate
+	// check has nothing to say, and the destination is empty so the twin check
+	// waves it through.
+	if !approvalGateChangeAllowed(gate, moveAway, role) {
+		t.Fatal("moving a workspace submits no approval field; the gate-direction check cannot be what stops this")
+	}
+	targetRepo, targetDir, targetGated := effectiveConfigTarget(gate, moveAway)
+	if !movesConfigTarget(gate, targetRepo, targetDir, targetGated) {
+		t.Fatal("repointing the working directory must read as a move")
+	}
+	if !gatedTwinAllowed(false, targetGated, role) {
+		t.Fatal("nothing gates the destination; the destination check cannot be what stops this either")
+	}
+
+	// Step 1 as it is now: the workspace is the only gate on envs/prod, and
+	// leaving is refused.
+	vacates := vacatesGatedConfig(gate, targetGated, false /* sameTarget */)
+	if !vacates {
+		t.Fatal("moving the only gated workspace off a config must read as vacating it")
+	}
+	if gatedOriginAllowed(vacates, false /* originStillGated */, role) {
+		t.Fatal("an operator must not walk the last approval gate off a configuration")
+	}
+
+	// Step 2 is what the refusal is protecting, and it stays refused only for
+	// as long as step 1 does: with the gate still on envs/prod, an ungated twin
+	// there is admin-only.
+	if gatedTwinAllowed(true /* hasGatedTwin */, false /* requiresApproval */, role) {
+		t.Fatal("with the gate still in place, an ungated twin on that config must be refused")
+	}
+
+	// The escape hatch, exercised: leave another gated workspace on envs/prod
+	// and the move is an operator's to make. Creating that workspace is itself
+	// allowed at the operator bar, so the advice is followable.
+	if !gatedTwinAllowed(true, true /* requiresApproval */, role) {
+		t.Fatal("an operator must be able to stand up the replacement gate the 403 asks for")
+	}
+	if !approvalGateAtCreateAllowed(false /* autoApply */, role) {
+		t.Fatal("the replacement gate is an ordinary workspace; creating it must not need admin")
+	}
+	if !gatedOriginAllowed(vacates, true /* originStillGated */, role) {
+		t.Fatal("with a replacement gate on the config, the move opens nothing and must be allowed")
+	}
+
+	// And an admin — who may clear the gate outright — may also move it.
+	if !gatedOriginAllowed(vacates, false, "admin") {
+		t.Fatal("admin holds ActionApplyProd and must not be locked out of moving a gated workspace")
+	}
+}

@@ -1507,9 +1507,12 @@ export interface components {
             module: string;
             provider: string;
             mode: string;
+            /** @description Attribute names the instance carries. Values are present only for callers who may manage this workspace's state; below that bar every value is null and attributes_redacted is true, because tofu writes provider secrets into state attributes in cleartext. */
             attributes: {
                 [key: string]: unknown;
             };
+            /** @description Attribute values were withheld; the names are complete. */
+            attributes_redacted?: boolean;
         };
         StateOutput: {
             name: string;
@@ -1530,6 +1533,8 @@ export interface components {
                 [key: string]: unknown;
             };
             changed_keys?: string[];
+            /** @description before/after values were withheld; the counts and changed_keys are the same ones a state manager sees. */
+            attributes_redacted?: boolean;
         };
         StateDiff: {
             added: number;

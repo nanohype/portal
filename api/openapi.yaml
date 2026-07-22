@@ -2010,6 +2010,14 @@ components:
         attributes:
           type: object
           additionalProperties: true
+          description: >-
+            Attribute names the instance carries. Values are present only for
+            callers who may manage this workspace's state; below that bar every
+            value is null and attributes_redacted is true, because tofu writes
+            provider secrets into state attributes in cleartext.
+        attributes_redacted:
+          type: boolean
+          description: Attribute values were withheld; the names are complete.
       required: [type, name, module, provider, mode, attributes]
 
     StateOutput:
@@ -2037,6 +2045,11 @@ components:
         changed_keys:
           type: array
           items: { type: string }
+        attributes_redacted:
+          type: boolean
+          description: >-
+            before/after values were withheld; the counts and changed_keys are
+            the same ones a state manager sees.
       required: [type, name, module, action]
 
     StateDiff:

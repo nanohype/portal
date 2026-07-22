@@ -15,6 +15,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -93,6 +95,27 @@ type seeder struct {
 // ── helpers ─────────────────────────────────────────────────────────────────
 
 func id() string { return ulid.Make().String() }
+
+// commitSHA returns a plausible abbreviated git object id.
+//
+// A run's commit_sha is a real pin, not a label: the worker refuses to execute
+// a vcs run whose pin is not an object id (internal/worker/jobs.go), because
+// ignoring an unresolvable pin would apply branch head — the tree nobody
+// planned. The seeded approval flow is a run an admin approves and the worker
+// then applies, so its pin has to be one the worker accepts, or the demo's one
+// approval showcase fails the moment it is used.
+//
+// A ULID prefix is not: Crockford base32 includes letters outside hex, and a
+// present-day ULID starts "01K". ULIDs are also the wrong shape here for a
+// second reason — they lead with a millisecond timestamp and their entropy is
+// monotonic within it, so rows seeded in one pass would share a prefix and the
+// demo would show one commit everywhere.
+func commitSHA() string {
+	var b [4]byte
+	// crypto/rand.Read is documented never to fail and to always fill b.
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])[:7]
+}
 
 func jb(v any) string {
 	b, err := json.Marshal(v)
@@ -446,7 +469,7 @@ func (s *seeder) seed() {
 	// completed provision (wired to the live data-eks cluster)
 	s.ins("cluster_operations", map[string]any{
 		"id": id(), "org_id": orgID, "name": "data-eks", "environment": "production", "team": "data-eng",
-		"operation": "provision", "status": "active", "git_commit_sha": id()[:7], "cluster_id": cData,
+		"operation": "provision", "status": "active", "git_commit_sha": commitSHA(), "cluster_id": cData,
 		"spec_json": jb(clusterSpec("data-eks", "production", "us-west-2", "1.33")),
 		"vend_phases": jb(map[string]any{
 			"queued": at(s.ago(5 * h)), "committed": at(s.ago(295 * m)),
@@ -458,7 +481,7 @@ func (s *seeder) seed() {
 	// in-flight provision (rests at building)
 	s.ins("cluster_operations", map[string]any{
 		"id": id(), "org_id": orgID, "name": "ml-platform-eks", "environment": "production", "team": "data-eng",
-		"operation": "provision", "status": "committed", "git_commit_sha": id()[:7],
+		"operation": "provision", "status": "committed", "git_commit_sha": commitSHA(),
 		"spec_json": jb(clusterSpec("ml-platform-eks", "production", "us-west-2", "1.33")),
 		"vend_phases": jb(map[string]any{
 			"queued": at(s.ago(25 * m)), "committed": at(s.ago(24 * m)),
@@ -477,7 +500,7 @@ func (s *seeder) seed() {
 	// failed provision
 	s.ins("cluster_operations", map[string]any{
 		"id": id(), "org_id": orgID, "name": "broken-eks", "environment": "staging", "team": "platform",
-		"operation": "provision", "status": "failed", "git_commit_sha": id()[:7],
+		"operation": "provision", "status": "failed", "git_commit_sha": commitSHA(),
 		"error":     "tofu apply: error creating IAM Role: AccessDenied",
 		"spec_json": jb(clusterSpec("broken-eks", "staging", "us-east-1", "1.33")),
 		"vend_phases": jb(map[string]any{
@@ -489,7 +512,7 @@ func (s *seeder) seed() {
 	// completed deprovision
 	s.ins("cluster_operations", map[string]any{
 		"id": id(), "org_id": orgID, "name": "old-staging-eks", "environment": "staging", "team": "platform",
-		"operation": "deprovision", "status": "deprovisioned", "git_commit_sha": id()[:7],
+		"operation": "deprovision", "status": "deprovisioned", "git_commit_sha": commitSHA(),
 		"spec_json": jb(map[string]any{}),
 		"vend_phases": jb(map[string]any{
 			"queued": at(s.ago(6 * h)), "committed": at(s.ago(355 * m)),
@@ -500,7 +523,7 @@ func (s *seeder) seed() {
 	// in-flight deprovision
 	s.ins("cluster_operations", map[string]any{
 		"id": id(), "org_id": orgID, "name": "sandbox-eks", "environment": "development", "team": "platform",
-		"operation": "deprovision", "status": "committed", "git_commit_sha": id()[:7],
+		"operation": "deprovision", "status": "committed", "git_commit_sha": commitSHA(),
 		"spec_json": jb(map[string]any{}),
 		"vend_phases": jb(map[string]any{
 			"queued": at(s.ago(15 * m)), "committed": at(s.ago(14 * m)),
@@ -512,7 +535,7 @@ func (s *seeder) seed() {
 	// tenant operations -------------------------------------------------------
 	s.ins("tenant_operations", map[string]any{
 		"id": id(), "org_id": orgID, "cluster_id": cProd, "tenant_name": "competitive-intelligence",
-		"operation": "create", "status": "committed", "git_commit_sha": id()[:7], "template_id": tplMarketing,
+		"operation": "create", "status": "committed", "git_commit_sha": commitSHA(), "template_id": tplMarketing,
 		"values_json": jb(map[string]any{"persona": "analyst", "budgetUsd": 5000}),
 		"created_by":  op1, "created_at": s.ago(12 * d), "completed_at": s.ago(12 * d),
 	})
@@ -531,7 +554,7 @@ func (s *seeder) seed() {
 	})
 	s.ins("tenant_operations", map[string]any{
 		"id": id(), "org_id": orgID, "cluster_id": cProd, "tenant_name": "legacy-bot",
-		"operation": "delete", "status": "committed", "git_commit_sha": id()[:7],
+		"operation": "delete", "status": "committed", "git_commit_sha": commitSHA(),
 		"values_json": jb(map[string]any{}),
 		"created_by":  admin, "created_at": s.ago(2 * d), "completed_at": s.ago(2 * d),
 	})
@@ -605,7 +628,7 @@ func (s *seeder) insRun(rid, wsID, orgID, status, by string, created time.Time, 
 	row := map[string]any{
 		"id": rid, "workspace_id": wsID, "org_id": orgID, "operation": "apply",
 		"status": status, "resources_added": add, "resources_changed": chg, "resources_deleted": del,
-		"error_message": errMsg, "commit_sha": id()[:7], "created_by": by, "created_at": created,
+		"error_message": errMsg, "commit_sha": commitSHA(), "created_by": by, "created_at": created,
 	}
 	// terminal statuses get started+finished; in-flight ones get started only
 	switch status {

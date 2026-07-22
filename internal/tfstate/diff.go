@@ -17,14 +17,21 @@ type StateDiff struct {
 }
 
 // ResourceDiff represents the change to a single resource between two states.
+//
+// Before and After are the same state attributes ParseResources returns and
+// carry the same disclosure, so they follow the same AttributeView: under
+// AttributesRedacted their values are null and AttributesRedacted is true.
+// ChangedKeys is computed from the full attributes either way — which
+// attribute changed is inventory, what it changed to is not.
 type ResourceDiff struct {
-	Type        string                 `json:"type"`
-	Name        string                 `json:"name"`
-	Module      string                 `json:"module"`
-	Action      string                 `json:"action"` // "added", "removed", "changed", "unchanged"
-	Before      map[string]interface{} `json:"before,omitempty"`
-	After       map[string]interface{} `json:"after,omitempty"`
-	ChangedKeys []string               `json:"changed_keys,omitempty"`
+	Type               string                 `json:"type"`
+	Name               string                 `json:"name"`
+	Module             string                 `json:"module"`
+	Action             string                 `json:"action"` // "added", "removed", "changed", "unchanged"
+	Before             map[string]interface{} `json:"before,omitempty"`
+	After              map[string]interface{} `json:"after,omitempty"`
+	ChangedKeys        []string               `json:"changed_keys,omitempty"`
+	AttributesRedacted bool                   `json:"attributes_redacted,omitempty"`
 }
 
 // resourceKey builds a unique identifier for a resource across states.
@@ -35,13 +42,16 @@ func resourceKey(r Resource) string {
 	return fmt.Sprintf("%s.%s", r.Type, r.Name)
 }
 
-// DiffStates compares two state file blobs and returns a structured diff.
-func DiffStates(from, to []byte) (*StateDiff, error) {
-	fromResources, err := ParseResources(from)
+// DiffStates compares two state file blobs and returns a structured diff. The
+// view decides whether the before/after attribute values come with it — see
+// AttributeView. The comparison itself always runs on the full attributes, so
+// a redacted diff counts and names exactly the same changes as a full one.
+func DiffStates(from, to []byte, view AttributeView) (*StateDiff, error) {
+	fromResources, err := ParseResources(from, AttributesFull)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse 'from' state: %w", err)
 	}
-	toResources, err := ParseResources(to)
+	toResources, err := ParseResources(to, AttributesFull)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse 'to' state: %w", err)
 	}
@@ -78,35 +88,42 @@ func DiffStates(from, to []byte) (*StateDiff, error) {
 
 		switch {
 		case !inFrom && inTo:
+			after, redacted := view.project(toR.Attributes)
 			diff.Added++
 			diff.Diffs = append(diff.Diffs, ResourceDiff{
-				Type:   toR.Type,
-				Name:   toR.Name,
-				Module: toR.Module,
-				Action: "added",
-				After:  toR.Attributes,
+				Type:               toR.Type,
+				Name:               toR.Name,
+				Module:             toR.Module,
+				Action:             "added",
+				After:              after,
+				AttributesRedacted: redacted,
 			})
 		case inFrom && !inTo:
+			before, redacted := view.project(fromR.Attributes)
 			diff.Removed++
 			diff.Diffs = append(diff.Diffs, ResourceDiff{
-				Type:   fromR.Type,
-				Name:   fromR.Name,
-				Module: fromR.Module,
-				Action: "removed",
-				Before: fromR.Attributes,
+				Type:               fromR.Type,
+				Name:               fromR.Name,
+				Module:             fromR.Module,
+				Action:             "removed",
+				Before:             before,
+				AttributesRedacted: redacted,
 			})
 		default:
 			changedKeys := findChangedKeys(fromR.Attributes, toR.Attributes)
 			if len(changedKeys) > 0 {
+				before, redacted := view.project(fromR.Attributes)
+				after, _ := view.project(toR.Attributes)
 				diff.Changed++
 				diff.Diffs = append(diff.Diffs, ResourceDiff{
-					Type:        fromR.Type,
-					Name:        fromR.Name,
-					Module:      fromR.Module,
-					Action:      "changed",
-					Before:      fromR.Attributes,
-					After:       toR.Attributes,
-					ChangedKeys: changedKeys,
+					Type:               fromR.Type,
+					Name:               fromR.Name,
+					Module:             fromR.Module,
+					Action:             "changed",
+					Before:             before,
+					After:              after,
+					ChangedKeys:        changedKeys,
+					AttributesRedacted: redacted,
 				})
 			} else {
 				diff.Unchanged++

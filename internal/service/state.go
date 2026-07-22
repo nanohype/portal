@@ -74,12 +74,16 @@ func (s *StateService) Download(ctx context.Context, stateID, workspaceID, orgID
 }
 
 // Resources returns the parsed resource list from a workspace's latest state.
-func (s *StateService) Resources(ctx context.Context, workspaceID, orgID string) ([]tfstate.Resource, error) {
+//
+// The view is the caller's disclosure bar, not a preference: state attributes
+// are the tfstate blob's own contents, so only a caller who could download the
+// blob gets their values. See tfstate.AttributeView.
+func (s *StateService) Resources(ctx context.Context, workspaceID, orgID string, view tfstate.AttributeView) ([]tfstate.Resource, error) {
 	data, err := s.latestStateData(ctx, workspaceID, orgID)
 	if err != nil {
 		return nil, err
 	}
-	return tfstate.ParseResources(data)
+	return tfstate.ParseResources(data, view)
 }
 
 // Outputs returns the parsed outputs from a workspace's latest state.
@@ -91,8 +95,10 @@ func (s *StateService) Outputs(ctx context.Context, workspaceID, orgID string) (
 	return tfstate.ParseOutputs(data)
 }
 
-// Diff compares two state versions of a workspace by serial.
-func (s *StateService) Diff(ctx context.Context, workspaceID, orgID string, fromSerial, toSerial int) (*tfstate.StateDiff, error) {
+// Diff compares two state versions of a workspace by serial. The view carries
+// the same meaning it does on Resources — the diff's before/after values are
+// state attributes.
+func (s *StateService) Diff(ctx context.Context, workspaceID, orgID string, fromSerial, toSerial int, view tfstate.AttributeView) (*tfstate.StateDiff, error) {
 	fromSV, err := s.bySerial(ctx, workspaceID, orgID, fromSerial, "from")
 	if err != nil {
 		return nil, err
@@ -109,7 +115,7 @@ func (s *StateService) Diff(ctx context.Context, workspaceID, orgID string, from
 	if err != nil {
 		return nil, err
 	}
-	return tfstate.DiffStates(fromData, toData)
+	return tfstate.DiffStates(fromData, toData, view)
 }
 
 // DeleteVersion drops a state_versions row and best-effort removes its S3
