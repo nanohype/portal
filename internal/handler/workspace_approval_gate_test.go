@@ -264,7 +264,7 @@ func TestOperatorCanTakeTheGatedTwinEscapeHatch(t *testing.T) {
 func TestEffectiveConfigTarget(t *testing.T) {
 	current := repository.Workspace{
 		RepoURL:          "https://example.test/prod.git",
-		WorkingDir:       "envs/prod",
+		WorkingDir:       "envs/production",
 		RequiresApproval: true,
 	}
 
@@ -276,15 +276,15 @@ func TestEffectiveConfigTarget(t *testing.T) {
 		wantGate bool
 	}{
 		{"rename only keeps the stored config", UpdateWorkspaceRequest{Name: "renamed"},
-			"https://example.test/prod.git", "envs/prod", true},
+			"https://example.test/prod.git", "envs/production", true},
 		{"repoint at another repo", UpdateWorkspaceRequest{RepoURL: "https://example.test/evil"},
-			"https://example.test/evil", "envs/prod", true},
-		{"repoint at another directory", UpdateWorkspaceRequest{WorkingDir: "envs/dev"},
-			"https://example.test/prod.git", "envs/dev", true},
+			"https://example.test/evil", "envs/production", true},
+		{"repoint at another directory", UpdateWorkspaceRequest{WorkingDir: "envs/development"},
+			"https://example.test/prod.git", "envs/development", true},
 		{"drop the gate", UpdateWorkspaceRequest{RequiresApproval: boolPtr(false)},
-			"https://example.test/prod.git", "envs/prod", false},
+			"https://example.test/prod.git", "envs/production", false},
 		{"resubmitting the stored gate is not a change", UpdateWorkspaceRequest{RequiresApproval: boolPtr(true)},
-			"https://example.test/prod.git", "envs/prod", true},
+			"https://example.test/prod.git", "envs/production", true},
 	}
 
 	for _, tt := range tests {
@@ -306,7 +306,7 @@ func TestEffectiveConfigTarget(t *testing.T) {
 func TestMovesConfigTarget(t *testing.T) {
 	current := repository.Workspace{
 		RepoURL:          "https://example.test/infra.git",
-		WorkingDir:       "envs/prod",
+		WorkingDir:       "envs/production",
 		RequiresApproval: false,
 	}
 
@@ -344,7 +344,7 @@ func TestMovesConfigTarget(t *testing.T) {
 func TestMovesConfigTargetCatchesGateRemoval(t *testing.T) {
 	gated := repository.Workspace{
 		RepoURL:          "https://example.test/infra.git",
-		WorkingDir:       "envs/prod",
+		WorkingDir:       "envs/production",
 		RequiresApproval: true,
 	}
 	if !movesConfigTarget(gated, gated.RepoURL, gated.WorkingDir, false) {
@@ -436,17 +436,17 @@ func TestCloneCanTakeTheGatedTwinEscapeHatch(t *testing.T) {
 func TestVacatesGatedConfig(t *testing.T) {
 	gated := repository.Workspace{
 		RepoURL:          "https://example.test/infra.git",
-		WorkingDir:       "envs/prod",
+		WorkingDir:       "envs/production",
 		RequiresApproval: true,
 	}
 	ungated := repository.Workspace{
 		RepoURL:          "https://example.test/infra.git",
-		WorkingDir:       "envs/prod",
+		WorkingDir:       "envs/production",
 		RequiresApproval: false,
 	}
 	upload := repository.Workspace{
 		RepoURL:          "",
-		WorkingDir:       "envs/prod",
+		WorkingDir:       "envs/production",
 		RequiresApproval: true,
 	}
 
@@ -543,10 +543,10 @@ func TestGatedOriginAllowed(t *testing.T) {
 func TestOperatorCannotWalkAGateOffItsConfig(t *testing.T) {
 	const role = "operator"
 	const prodRepo = "https://example.test/infra.git"
-	const prodDir = "envs/prod"
+	const prodDir = "envs/production"
 
 	gate := repository.Workspace{RepoURL: prodRepo, WorkingDir: prodDir, RequiresApproval: true}
-	moveAway := UpdateWorkspaceRequest{WorkingDir: "envs/prod-old"}
+	moveAway := UpdateWorkspaceRequest{WorkingDir: "envs/production-old"}
 
 	// Step 1 as it used to pass: no approval field is submitted, so the gate
 	// check has nothing to say, and the destination is empty so the twin check
@@ -562,7 +562,7 @@ func TestOperatorCannotWalkAGateOffItsConfig(t *testing.T) {
 		t.Fatal("nothing gates the destination; the destination check cannot be what stops this either")
 	}
 
-	// Step 1 as it is now: the workspace is the only gate on envs/prod, and
+	// Step 1 as it is now: the workspace is the only gate on envs/production, and
 	// leaving is refused.
 	vacates := vacatesGatedConfig(gate, targetGated, false /* sameTarget */)
 	if !vacates {
@@ -573,15 +573,16 @@ func TestOperatorCannotWalkAGateOffItsConfig(t *testing.T) {
 	}
 
 	// Step 2 is what the refusal is protecting, and it stays refused only for
-	// as long as step 1 does: with the gate still on envs/prod, an ungated twin
-	// there is admin-only.
+	// as long as step 1 does: with the gate still on envs/production, an
+	// ungated twin there is admin-only.
 	if gatedTwinAllowed(true /* hasGatedTwin */, false /* requiresApproval */, role) {
 		t.Fatal("with the gate still in place, an ungated twin on that config must be refused")
 	}
 
-	// The escape hatch, exercised: leave another gated workspace on envs/prod
-	// and the move is an operator's to make. Creating that workspace is itself
-	// allowed at the operator bar, so the advice is followable.
+	// The escape hatch, exercised: leave another gated workspace on
+	// envs/production and the move is an operator's to make. Creating that
+	// workspace is itself allowed at the operator bar, so the advice is
+	// followable.
 	if !gatedTwinAllowed(true, true /* requiresApproval */, role) {
 		t.Fatal("an operator must be able to stand up the replacement gate the 403 asks for")
 	}

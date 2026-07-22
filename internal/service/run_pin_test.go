@@ -23,7 +23,7 @@ func TestRunServicePinsTheWorkspaceConfig(t *testing.T) {
 	wsID := id()
 	exec(t, ctx,
 		`INSERT INTO workspaces (id,org_id,name,created_by,source,repo_url,repo_branch,working_dir,tofu_version)
-		 VALUES ($1,$2,$3,$4,'vcs','https://example.test/infra.git','main','envs/prod','1.11.0')`,
+		 VALUES ($1,$2,$3,$4,'vcs','https://example.test/infra.git','main','envs/production','1.11.0')`,
 		wsID, orgID, "ws-"+wsID, userID)
 
 	run, err := svc.Create(ctx, service.CreateRunParams{
@@ -35,7 +35,7 @@ func TestRunServicePinsTheWorkspaceConfig(t *testing.T) {
 
 	want := repository.Run{
 		ConfigSource: "vcs", ConfigRepoURL: "https://example.test/infra.git",
-		ConfigRepoBranch: "main", ConfigWorkingDir: "envs/prod", ConfigTofuVersion: "1.11.0",
+		ConfigRepoBranch: "main", ConfigWorkingDir: "envs/production", ConfigTofuVersion: "1.11.0",
 	}
 	if run.ConfigSource != want.ConfigSource || run.ConfigRepoURL != want.ConfigRepoURL ||
 		run.ConfigRepoBranch != want.ConfigRepoBranch || run.ConfigWorkingDir != want.ConfigWorkingDir ||
@@ -49,8 +49,8 @@ func TestRunServicePinsTheWorkspaceConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get run: %v", err)
 	}
-	if stored.ConfigRepoBranch != "main" || stored.ConfigWorkingDir != "envs/prod" {
-		t.Errorf("stored run config = (%q, %q), want (main, envs/prod)", stored.ConfigRepoBranch, stored.ConfigWorkingDir)
+	if stored.ConfigRepoBranch != "main" || stored.ConfigWorkingDir != "envs/production" {
+		t.Errorf("stored run config = (%q, %q), want (main, envs/production)", stored.ConfigRepoBranch, stored.ConfigWorkingDir)
 	}
 
 	// And the edit is not lost — it is what the NEXT run executes. Repointing a

@@ -53,7 +53,7 @@ func TestRunJobExecutesThePinnedConfigNotTheLiveWorkspace(t *testing.T) {
 	wsID := id()
 	exec(t, ctx,
 		`INSERT INTO workspaces (id,org_id,name,created_by,source,repo_url,repo_branch,working_dir,tofu_version,requires_approval)
-		 VALUES ($1,$2,$3,$4,'vcs','https://example.test/infra.git','main','envs/prod','1.11.0',TRUE)`,
+		 VALUES ($1,$2,$3,$4,'vcs','https://example.test/infra.git','main','envs/production','1.11.0',TRUE)`,
 		wsID, orgID, "ws-"+wsID, userID)
 
 	run, err := testQueries.CreateRun(ctx, repository.CreateRunParams{
@@ -61,7 +61,7 @@ func TestRunJobExecutesThePinnedConfigNotTheLiveWorkspace(t *testing.T) {
 		ConfigSource:      "vcs",
 		ConfigRepoURL:     "https://example.test/infra.git",
 		ConfigRepoBranch:  "main",
-		ConfigWorkingDir:  "envs/prod",
+		ConfigWorkingDir:  "envs/production",
 		ConfigTofuVersion: "1.11.0",
 	})
 	if err != nil {
@@ -91,8 +91,8 @@ func TestRunJobExecutesThePinnedConfigNotTheLiveWorkspace(t *testing.T) {
 	if rec.params.RepoBranch != "main" {
 		t.Errorf("RepoBranch = %q, want main — the branch the plan was produced from", rec.params.RepoBranch)
 	}
-	if rec.params.WorkingDir != "envs/prod" {
-		t.Errorf("WorkingDir = %q, want envs/prod", rec.params.WorkingDir)
+	if rec.params.WorkingDir != "envs/production" {
+		t.Errorf("WorkingDir = %q, want envs/production", rec.params.WorkingDir)
 	}
 	if rec.params.TofuVersion != "1.11.0" {
 		t.Errorf("TofuVersion = %q, want 1.11.0", rec.params.TofuVersion)
@@ -251,13 +251,13 @@ func TestRunJobPinsTheCommitThePlanExecutedAndAppliesIt(t *testing.T) {
 	wsID := id()
 	exec(t, ctx,
 		`INSERT INTO workspaces (id,org_id,name,created_by,source,repo_url,repo_branch,working_dir,requires_approval)
-		 VALUES ($1,$2,$3,$4,'vcs','https://example.test/infra.git','main','envs/prod',TRUE)`,
+		 VALUES ($1,$2,$3,$4,'vcs','https://example.test/infra.git','main','envs/production',TRUE)`,
 		wsID, orgID, "ws-"+wsID, userID)
 
 	run, err := testQueries.CreateRun(ctx, repository.CreateRunParams{
 		ID: id(), WorkspaceID: wsID, OrgID: orgID, Operation: "plan", Status: "pending", CreatedBy: userID,
 		ConfigSource: "vcs", ConfigRepoURL: "https://example.test/infra.git",
-		ConfigRepoBranch: "main", ConfigWorkingDir: "envs/prod", ConfigTofuVersion: "1.11.0",
+		ConfigRepoBranch: "main", ConfigWorkingDir: "envs/production", ConfigTofuVersion: "1.11.0",
 	})
 	if err != nil {
 		t.Fatalf("create run: %v", err)

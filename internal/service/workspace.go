@@ -107,16 +107,18 @@ func (s *WorkspaceService) Get(ctx context.Context, id, orgID string) (repositor
 // CanonicalWorkingDir reduces a working directory to the one spelling that
 // names that leaf.
 //
-// "envs/prod", "./envs/prod", "envs//prod", "envs/./prod", "envs/prod/" and
-// "envs/prod/." are one directory to both executors — the local one joins the
-// path with filepath.Join, which cleans it, and the Kubernetes one emits
-// `cd "/work/$PORTAL_WORKING_DIR"`, where `cd envs//prod` and `cd envs/./prod`
-// are the same cd in /bin/sh. So they have to be one string to portal too:
-// the gated-twin check compares stored working_dir values, and a comparison
-// that reads those as different targets is a second door onto gated
-// infrastructure that anyone who may create a workspace can open by respelling
-// the path. Canonicalising on the way in means the column only ever holds one
-// spelling of a leaf, so the comparison sees the target and not the typing.
+// "envs/production", "./envs/production", "envs//production",
+// "envs/./production", "envs/production/" and "envs/production/." are one
+// directory to both executors — the local one joins the path with
+// filepath.Join, which cleans it, and the Kubernetes one emits
+// `cd "/work/$PORTAL_WORKING_DIR"`, where `cd envs//production` and
+// `cd envs/./production` are the same cd in /bin/sh. So they have to be one
+// string to portal too: the gated-twin check compares stored working_dir
+// values, and a comparison that reads those as different targets is a second
+// door onto gated infrastructure that anyone who may create a workspace can
+// open by respelling the path. Canonicalising on the way in means the column
+// only ever holds one spelling of a leaf, so the comparison sees the target and
+// not the typing.
 //
 // Rooting the path before cleaning also neutralises "..": path.Clean resolves
 // it against "/" and can never climb above it, so a caller who reaches this
@@ -146,9 +148,9 @@ func CanonicalWorkingDir(dir string) string {
 // of.
 //
 // The working directory is canonicalised here as well as on write, so a query
-// spelled "envs//prod" is asked about the same leaf the column stores as
-// "envs/prod". The repo URL is not: it is a clone target, and rewriting it
-// would break a URL that carries its own credentials or an scp-style remote,
+// spelled "envs//production" is asked about the same leaf the column stores as
+// "envs/production". The repo URL is not: it is a clone target, and rewriting
+// it would break a URL that carries its own credentials or an scp-style remote,
 // so its spellings are collapsed inside the query instead.
 //
 // excludeID keeps a workspace from matching itself on update.

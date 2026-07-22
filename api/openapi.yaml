@@ -1853,9 +1853,10 @@ components:
           type: string
           description: >-
             Repo-relative path to the leaf portal runs in. Stored canonical:
-            "./envs/prod", "envs//prod", "envs/./prod" and "envs/prod/" all name
-            one directory to the executor, so they are all stored as
-            "envs/prod". Omit on update to keep the stored value.
+            "./envs/production", "envs//production", "envs/./production" and
+            "envs/production/" all name one directory to the executor, so they
+            are all stored as "envs/production". Omit on update to keep the
+            stored value.
         tofu_version: { type: string }
         environment: { type: string, enum: [development, staging, production] }
         auto_apply: { type: boolean }
@@ -1874,9 +1875,10 @@ components:
           type: string
           description: >-
             Repo-relative path to the leaf portal runs in. Stored canonical:
-            "./envs/prod", "envs//prod", "envs/./prod" and "envs/prod/" all name
-            one directory to the executor, so they are all stored as
-            "envs/prod". Omit on update to keep the stored value.
+            "./envs/production", "envs//production", "envs/./production" and
+            "envs/production/" all name one directory to the executor, so they
+            are all stored as "envs/production". Omit on update to keep the
+            stored value.
         tofu_version: { type: string }
         environment: { type: string, enum: [development, staging, production] }
         auto_apply: { type: boolean }

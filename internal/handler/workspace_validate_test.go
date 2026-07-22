@@ -22,10 +22,10 @@ func TestAdmitRepoFields(t *testing.T) {
 		{"all empty (upload workspace)", "", "", "", "", false},
 		{"plain https + main + root", "https://github.com/org/repo.git", "main", ".", ".", false},
 		{"ssh scp-style + nested branch + subdir", "git@github.com:org/repo.git", "feature/thing", "modules/vpc", "modules/vpc", false},
-		{"branch with dots and dashes", "https://x/y.git", "release-1.2.x", "envs/prod", "envs/prod", false},
+		{"branch with dots and dashes", "https://x/y.git", "release-1.2.x", "envs/production", "envs/production", false},
 
 		// A respelled directory is admitted and stored as the leaf it names.
-		{"respelled working_dir", "https://x/y.git", "main", ".//envs/./prod/", "envs/prod", false},
+		{"respelled working_dir", "https://x/y.git", "main", ".//envs/./production/", "envs/production", false},
 		{"every spelling of the repo root", "https://x/y.git", "main", "./", ".", false},
 
 		// Shell-injection payloads in the branch.

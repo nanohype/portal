@@ -718,10 +718,10 @@ func TestHasGatedWorkspaceForConfig(t *testing.T) {
 	orgB, userB := seedOrg(t, ctx, "twin-b")
 
 	const repo = "https://github.com/acme/infra.git"
-	gated := seedConfigWorkspace(t, ctx, orgA, userA, repo, "envs/prod", true)
-	seedConfigWorkspace(t, ctx, orgA, userA, repo, "envs/dev", false)
+	gated := seedConfigWorkspace(t, ctx, orgA, userA, repo, "envs/production", true)
+	seedConfigWorkspace(t, ctx, orgA, userA, repo, "envs/development", false)
 	// Same config, gated, but in another org — must never be visible here.
-	seedConfigWorkspace(t, ctx, orgB, userB, "https://github.com/acme/other", "envs/prod", true)
+	seedConfigWorkspace(t, ctx, orgB, userB, "https://github.com/acme/other", "envs/production", true)
 
 	tests := []struct {
 		name       string
@@ -731,46 +731,46 @@ func TestHasGatedWorkspaceForConfig(t *testing.T) {
 		excludeID  string
 		want       bool
 	}{
-		{"exact match on a gated config", orgA, repo, "envs/prod", "", true},
-		{"the same repo without the .git suffix", orgA, "https://github.com/acme/infra", "envs/prod", "", true},
-		{"a trailing slash on the repo", orgA, "https://github.com/acme/infra.git/", "envs/prod", "", true},
-		{"a different case on the host and path", orgA, "HTTPS://GitHub.com/Acme/Infra.GIT", "envs/prod", "", true},
-		{"the same repo over ssh", orgA, "git@github.com:acme/infra.git", "envs/prod", "", true},
-		{"the same repo with an embedded token", orgA, "https://ghp_token@github.com/acme/infra", "envs/prod", "", true},
-		{"the same repo over the ssh:// scheme", orgA, "ssh://git@github.com/acme/infra", "envs/prod", "", true},
-		{"the same repo on its scheme's default port", orgA, "https://github.com:443/acme/infra.git", "envs/prod", "", true},
-		{"the same repo over ssh:// with an explicit port", orgA, "ssh://git@github.com:22/acme/infra", "envs/prod", "", true},
+		{"exact match on a gated config", orgA, repo, "envs/production", "", true},
+		{"the same repo without the .git suffix", orgA, "https://github.com/acme/infra", "envs/production", "", true},
+		{"a trailing slash on the repo", orgA, "https://github.com/acme/infra.git/", "envs/production", "", true},
+		{"a different case on the host and path", orgA, "HTTPS://GitHub.com/Acme/Infra.GIT", "envs/production", "", true},
+		{"the same repo over ssh", orgA, "git@github.com:acme/infra.git", "envs/production", "", true},
+		{"the same repo with an embedded token", orgA, "https://ghp_token@github.com/acme/infra", "envs/production", "", true},
+		{"the same repo over the ssh:// scheme", orgA, "ssh://git@github.com/acme/infra", "envs/production", "", true},
+		{"the same repo on its scheme's default port", orgA, "https://github.com:443/acme/infra.git", "envs/production", "", true},
+		{"the same repo over ssh:// with an explicit port", orgA, "ssh://git@github.com:22/acme/infra", "envs/production", "", true},
 		// A git path is resolved as a path at the far end: every one of these
 		// clones the same tree — GitHub serves "acme//infra" and "acme/./infra"
 		// as "acme/infra" — so every one of them has to be the same row here.
-		{"a doubled slash inside the repo path", orgA, "https://github.com/acme//infra", "envs/prod", "", true},
-		{"a . segment inside the repo path", orgA, "https://github.com/acme/./infra", "envs/prod", "", true},
-		{"a trailing /. on the repo path", orgA, "https://github.com/acme/infra/.", "envs/prod", "", true},
-		{"a trailing /. after the .git suffix", orgA, "https://github.com/acme/infra.git/.", "envs/prod", "", true},
-		{"every repo respelling at once", orgA, "ssh://TOKEN@GitHub.com:22/acme//./infra.GIT//", "envs/prod", "", true},
-		{"a ./ prefix on the working directory", orgA, repo, "./envs/prod", "", true},
-		{"a trailing slash on the working directory", orgA, repo, "envs/prod/", "", true},
+		{"a doubled slash inside the repo path", orgA, "https://github.com/acme//infra", "envs/production", "", true},
+		{"a . segment inside the repo path", orgA, "https://github.com/acme/./infra", "envs/production", "", true},
+		{"a trailing /. on the repo path", orgA, "https://github.com/acme/infra/.", "envs/production", "", true},
+		{"a trailing /. after the .git suffix", orgA, "https://github.com/acme/infra.git/.", "envs/production", "", true},
+		{"every repo respelling at once", orgA, "ssh://TOKEN@GitHub.com:22/acme//./infra.GIT//", "envs/production", "", true},
+		{"a ./ prefix on the working directory", orgA, repo, "./envs/production", "", true},
+		{"a trailing slash on the working directory", orgA, repo, "envs/production/", "", true},
 		// Every one of these is the same `cd` in the executor, so every one of
 		// them has to be the same row here — otherwise an ungated twin on gated
 		// infrastructure is one respelled path away.
-		{"a doubled slash inside the working directory", orgA, repo, "envs//prod", "", true},
-		{"a . segment inside the working directory", orgA, repo, "envs/./prod", "", true},
-		{"a trailing /. on the working directory", orgA, repo, "envs/prod/.", "", true},
-		{"several of them at once", orgA, repo, "./envs//./prod/.", "", true},
+		{"a doubled slash inside the working directory", orgA, repo, "envs//production", "", true},
+		{"a . segment inside the working directory", orgA, repo, "envs/./production", "", true},
+		{"a trailing /. on the working directory", orgA, repo, "envs/production/.", "", true},
+		{"several of them at once", orgA, repo, "./envs//./production/.", "", true},
 
 		{"a different directory in the same repo", orgA, repo, "envs/staging", "", false},
-		{"the ungated sibling's own directory", orgA, repo, "envs/dev", "", false},
-		{"a different repo entirely", orgA, "https://github.com/acme/apps", "envs/prod", "", false},
+		{"the ungated sibling's own directory", orgA, repo, "envs/development", "", false},
+		{"a different repo entirely", orgA, "https://github.com/acme/apps", "envs/production", "", false},
 		// Folding spellings must not fold repos: a neighbouring name, a deeper
 		// path and another host all stay distinct, or the check refuses
 		// legitimate workspaces it has no business refusing.
-		{"a repo whose name starts the same", orgA, "https://github.com/acme/infra2", "envs/prod", "", false},
-		{"a repo one level deeper", orgA, "https://github.com/acme/infra/sub", "envs/prod", "", false},
-		{"the same path on another host", orgA, "https://gitlab.com/acme/infra", "envs/prod", "", false},
-		{"an upload workspace has no repo to compare", orgA, "", "envs/prod", "", false},
+		{"a repo whose name starts the same", orgA, "https://github.com/acme/infra2", "envs/production", "", false},
+		{"a repo one level deeper", orgA, "https://github.com/acme/infra/sub", "envs/production", "", false},
+		{"the same path on another host", orgA, "https://gitlab.com/acme/infra", "envs/production", "", false},
+		{"an upload workspace has no repo to compare", orgA, "", "envs/production", "", false},
 
-		{"the gated workspace does not match itself", orgA, repo, "envs/prod", gated, false},
-		{"another org's gated workspace is invisible", orgB, repo, "envs/prod", "", false},
+		{"the gated workspace does not match itself", orgA, repo, "envs/production", gated, false},
+		{"another org's gated workspace is invisible", orgB, repo, "envs/production", "", false},
 	}
 
 	for _, tt := range tests {
@@ -811,9 +811,9 @@ func TestHasGatedWorkspaceForConfig(t *testing.T) {
 	// the write boundary canonicalised working_dir still has to be found. Same
 	// for a stored repo URL that carries a port.
 	legacyRepo := "https://github.com:8443/acme/legacy.git"
-	seedConfigWorkspace(t, ctx, orgA, userA, legacyRepo, "envs//./prod/", true)
+	seedConfigWorkspace(t, ctx, orgA, userA, legacyRepo, "envs//./production/", true)
 	got, err := testQueries.HasGatedWorkspaceForConfig(ctx, repository.GatedTwinParams{
-		OrgID: orgA, RepoURL: "https://github.com:8443/acme/legacy", WorkingDir: "envs/prod",
+		OrgID: orgA, RepoURL: "https://github.com:8443/acme/legacy", WorkingDir: "envs/production",
 	})
 	if err != nil {
 		t.Fatalf("HasGatedWorkspaceForConfig(legacy): %v", err)
@@ -824,9 +824,9 @@ func TestHasGatedWorkspaceForConfig(t *testing.T) {
 
 	// Normalising the port must not collapse an scp-style remote whose owner is
 	// numeric — "git@github.com:2600/infra" is a repo, not a port.
-	seedConfigWorkspace(t, ctx, orgA, userA, "git@github.com:2600/infra.git", "envs/prod", true)
+	seedConfigWorkspace(t, ctx, orgA, userA, "git@github.com:2600/infra.git", "envs/production", true)
 	got, err = testQueries.HasGatedWorkspaceForConfig(ctx, repository.GatedTwinParams{
-		OrgID: orgA, RepoURL: "https://github.com/infra", WorkingDir: "envs/prod",
+		OrgID: orgA, RepoURL: "https://github.com/infra", WorkingDir: "envs/production",
 	})
 	if err != nil {
 		t.Fatalf("HasGatedWorkspaceForConfig(scp numeric owner): %v", err)
@@ -851,34 +851,34 @@ func TestConfigTargetsMatch(t *testing.T) {
 		repoA, dirA, repoB, dirB string
 		want                     bool
 	}{
-		{"identical spelling", repo, "envs/prod", repo, "envs/prod", true},
+		{"identical spelling", repo, "envs/production", repo, "envs/production", true},
 
 		// Every spelling HasGatedWorkspaceForConfig collapses has to collapse
 		// here too, or the two checks disagree about the same pair of rows.
-		{"without the .git suffix", repo, "envs/prod", "https://github.com/acme/infra", "envs/prod", true},
-		{"trailing slash on the repo", repo, "envs/prod", "https://github.com/acme/infra.git/", "envs/prod", true},
-		{"different case", repo, "envs/prod", "HTTPS://GitHub.com/Acme/Infra.GIT", "envs/prod", true},
-		{"over ssh", repo, "envs/prod", "git@github.com:acme/infra.git", "envs/prod", true},
-		{"with an embedded token", repo, "envs/prod", "https://ghp_token@github.com/acme/infra", "envs/prod", true},
-		{"on the scheme's default port", repo, "envs/prod", "https://github.com:443/acme/infra", "envs/prod", true},
-		{"doubled slash in the repo path", repo, "envs/prod", "https://github.com/acme//infra", "envs/prod", true},
-		{"a . segment in the repo path", repo, "envs/prod", "https://github.com/acme/./infra", "envs/prod", true},
-		{"trailing /. after the .git suffix", repo, "envs/prod", "https://github.com/acme/infra.git/.", "envs/prod", true},
-		{"./ prefix on the directory", repo, "envs/prod", repo, "./envs/prod", true},
-		{"doubled slash in the directory", repo, "envs/prod", repo, "envs//prod", true},
+		{"without the .git suffix", repo, "envs/production", "https://github.com/acme/infra", "envs/production", true},
+		{"trailing slash on the repo", repo, "envs/production", "https://github.com/acme/infra.git/", "envs/production", true},
+		{"different case", repo, "envs/production", "HTTPS://GitHub.com/Acme/Infra.GIT", "envs/production", true},
+		{"over ssh", repo, "envs/production", "git@github.com:acme/infra.git", "envs/production", true},
+		{"with an embedded token", repo, "envs/production", "https://ghp_token@github.com/acme/infra", "envs/production", true},
+		{"on the scheme's default port", repo, "envs/production", "https://github.com:443/acme/infra", "envs/production", true},
+		{"doubled slash in the repo path", repo, "envs/production", "https://github.com/acme//infra", "envs/production", true},
+		{"a . segment in the repo path", repo, "envs/production", "https://github.com/acme/./infra", "envs/production", true},
+		{"trailing /. after the .git suffix", repo, "envs/production", "https://github.com/acme/infra.git/.", "envs/production", true},
+		{"./ prefix on the directory", repo, "envs/production", repo, "./envs/production", true},
+		{"doubled slash in the directory", repo, "envs/production", repo, "envs//production", true},
 		{"every spelling of the repo root", repo, ".", repo, "", true},
 		{"another spelling of the repo root", repo, "/", repo, "./.", true},
 
 		// Real moves.
-		{"a different directory", repo, "envs/prod", repo, "envs/prod-old", false},
-		{"a different repo", repo, "envs/prod", "https://github.com/acme/apps", "envs/prod", false},
+		{"a different directory", repo, "envs/production", repo, "envs/production-old", false},
+		{"a different repo", repo, "envs/production", "https://github.com/acme/apps", "envs/production", false},
 		{"a numeric scp owner is not a port", "git@github.com:2600/infra.git", ".", "https://github.com/infra", ".", false},
 
 		// An upload workspace has no config identity, so it matches nothing —
 		// not even another upload. Same reading the twin check takes.
-		{"upload on the left", "", "envs/prod", repo, "envs/prod", false},
-		{"upload on the right", repo, "envs/prod", "", "envs/prod", false},
-		{"upload on both sides", "", "envs/prod", "", "envs/prod", false},
+		{"upload on the left", "", "envs/production", repo, "envs/production", false},
+		{"upload on the right", repo, "envs/production", "", "envs/production", false},
+		{"upload on both sides", "", "envs/production", "", "envs/production", false},
 	}
 
 	for _, tt := range tests {
@@ -902,11 +902,11 @@ func TestConfigTargetsMatch(t *testing.T) {
 	// whatever it calls a move must leave the origin visible as gated when the
 	// mover is excluded.
 	orgA, userA := seedOrg(t, ctx, "origin-a")
-	gated := seedConfigWorkspace(t, ctx, orgA, userA, repo, "envs/prod", true)
+	gated := seedConfigWorkspace(t, ctx, orgA, userA, repo, "envs/production", true)
 
 	same, err := testQueries.ConfigTargetsMatch(ctx, repository.ConfigTargetsMatchParams{
-		RepoURLA: repo, WorkingDirA: "envs/prod",
-		RepoURLB: "https://github.com/acme/infra/", WorkingDirB: "./envs/prod",
+		RepoURLA: repo, WorkingDirA: "envs/production",
+		RepoURLB: "https://github.com/acme/infra/", WorkingDirB: "./envs/production",
 	})
 	if err != nil {
 		t.Fatalf("ConfigTargetsMatch: %v", err)
@@ -918,20 +918,20 @@ func TestConfigTargetsMatch(t *testing.T) {
 	// Excluding the only gate leaves the config unguarded — the state the
 	// handler refuses to create at the operator bar.
 	stillGated, err := testQueries.HasGatedWorkspaceForConfig(ctx, repository.GatedTwinParams{
-		OrgID: orgA, RepoURL: repo, WorkingDir: "envs/prod", ExcludeID: gated,
+		OrgID: orgA, RepoURL: repo, WorkingDir: "envs/production", ExcludeID: gated,
 	})
 	if err != nil {
 		t.Fatalf("HasGatedWorkspaceForConfig: %v", err)
 	}
 	if stillGated {
-		t.Fatal("nothing else gates envs/prod; excluding the mover must report it unguarded")
+		t.Fatal("nothing else gates envs/production; excluding the mover must report it unguarded")
 	}
 
 	// Stand a second gate on the same config and the move is free again, which
 	// is the escape hatch the 403 names.
-	seedConfigWorkspace(t, ctx, orgA, userA, "https://github.com/acme/infra", "./envs/prod", true)
+	seedConfigWorkspace(t, ctx, orgA, userA, "https://github.com/acme/infra", "./envs/production", true)
 	stillGated, err = testQueries.HasGatedWorkspaceForConfig(ctx, repository.GatedTwinParams{
-		OrgID: orgA, RepoURL: repo, WorkingDir: "envs/prod", ExcludeID: gated,
+		OrgID: orgA, RepoURL: repo, WorkingDir: "envs/production", ExcludeID: gated,
 	})
 	if err != nil {
 		t.Fatalf("HasGatedWorkspaceForConfig: %v", err)

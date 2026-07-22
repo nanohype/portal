@@ -17,16 +17,16 @@ func TestCanonicalWorkingDir(t *testing.T) {
 		in   string
 		want string
 	}{
-		{"envs/prod", "envs/prod"},
-		{"./envs/prod", "envs/prod"},
-		{"envs/prod/", "envs/prod"},
-		{"/envs/prod", "envs/prod"},
+		{"envs/production", "envs/production"},
+		{"./envs/production", "envs/production"},
+		{"envs/production/", "envs/production"},
+		{"/envs/production", "envs/production"},
 		// The spellings the gated-twin check used to read as different targets.
-		{"envs//prod", "envs/prod"},
-		{"envs/./prod", "envs/prod"},
-		{"envs/prod/.", "envs/prod"},
-		{"envs/././prod//", "envs/prod"},
-		{".//envs///./prod/.", "envs/prod"},
+		{"envs//production", "envs/production"},
+		{"envs/./production", "envs/production"},
+		{"envs/production/.", "envs/production"},
+		{"envs/././production//", "envs/production"},
+		{".//envs///./production/.", "envs/production"},
 
 		// Every spelling of the repo root is the repo root.
 		{".", "."},
@@ -45,7 +45,7 @@ func TestCanonicalWorkingDir(t *testing.T) {
 
 		// Directories that really are different stay different.
 		{"envs/staging", "envs/staging"},
-		{"envs/prod.old", "envs/prod.old"},
+		{"envs/production.old", "envs/production.old"},
 		{"envs/.hidden", "envs/.hidden"},
 	}
 
@@ -71,7 +71,7 @@ func TestCreateStoresACanonicalConfigTarget(t *testing.T) {
 	const repo = "https://github.com/acme/infra.git"
 	gated, err := svc.Create(ctx, service.CreateWorkspaceParams{
 		OrgID: orgID, Name: "prod", CreatedBy: userID, Source: "vcs",
-		RepoURL: repo, RepoBranch: "main", WorkingDir: "envs/prod", RequiresApproval: true,
+		RepoURL: repo, RepoBranch: "main", WorkingDir: "envs/production", RequiresApproval: true,
 	})
 	if err != nil {
 		t.Fatalf("create gated workspace: %v", err)
@@ -87,7 +87,7 @@ func TestCreateStoresACanonicalConfigTarget(t *testing.T) {
 	if has {
 		t.Error("HasGatedTwin(dir=envs/staging) = true — a different directory is a different target")
 	}
-	has, err = svc.HasGatedTwin(ctx, orgID, repo, "envs//prod", gated.ID)
+	has, err = svc.HasGatedTwin(ctx, orgID, repo, "envs//production", gated.ID)
 	if err != nil {
 		t.Fatalf("HasGatedTwin: %v", err)
 	}
@@ -95,14 +95,14 @@ func TestCreateStoresACanonicalConfigTarget(t *testing.T) {
 		t.Error("a workspace matched itself through a respelled working directory")
 	}
 
-	for _, spelling := range []string{"envs//prod", "envs/./prod", "envs/prod/.", "./envs//prod/"} {
+	for _, spelling := range []string{"envs//production", "envs/./production", "envs/production/.", "./envs//production/"} {
 		t.Run(spelling, func(t *testing.T) {
 			has, err := svc.HasGatedTwin(ctx, orgID, repo, spelling, "")
 			if err != nil {
 				t.Fatalf("HasGatedTwin: %v", err)
 			}
 			if !has {
-				t.Fatalf("HasGatedTwin(dir=%q) = false — %q is the same leaf as the gated workspace's envs/prod",
+				t.Fatalf("HasGatedTwin(dir=%q) = false — %q is the same leaf as the gated workspace's envs/production",
 					spelling, spelling)
 			}
 
@@ -115,8 +115,8 @@ func TestCreateStoresACanonicalConfigTarget(t *testing.T) {
 			if err != nil {
 				t.Fatalf("create twin: %v", err)
 			}
-			if ws.WorkingDir != "envs/prod" {
-				t.Errorf("stored working_dir = %q, want the canonical envs/prod", ws.WorkingDir)
+			if ws.WorkingDir != "envs/production" {
+				t.Errorf("stored working_dir = %q, want the canonical envs/production", ws.WorkingDir)
 			}
 		})
 	}
@@ -133,20 +133,20 @@ func TestUpdateStoresACanonicalWorkingDir(t *testing.T) {
 
 	ws, err := svc.Create(ctx, service.CreateWorkspaceParams{
 		OrgID: orgID, Name: "scratch", CreatedBy: userID, Source: "vcs",
-		RepoURL: "https://github.com/acme/infra.git", RepoBranch: "main", WorkingDir: "envs/dev",
+		RepoURL: "https://github.com/acme/infra.git", RepoBranch: "main", WorkingDir: "envs/development",
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
 
 	moved, err := svc.Update(ctx, service.UpdateWorkspaceParams{
-		ID: ws.ID, OrgID: orgID, WorkingDir: "envs/./prod//",
+		ID: ws.ID, OrgID: orgID, WorkingDir: "envs/./production//",
 	})
 	if err != nil {
 		t.Fatalf("update: %v", err)
 	}
-	if moved.WorkingDir != "envs/prod" {
-		t.Fatalf("stored working_dir = %q, want the canonical envs/prod", moved.WorkingDir)
+	if moved.WorkingDir != "envs/production" {
+		t.Fatalf("stored working_dir = %q, want the canonical envs/production", moved.WorkingDir)
 	}
 
 	// A save that carries no working_dir keeps the stored one rather than
@@ -157,8 +157,8 @@ func TestUpdateStoresACanonicalWorkingDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("update: %v", err)
 	}
-	if kept.WorkingDir != "envs/prod" {
-		t.Errorf("working_dir after a rename = %q, want it untouched at envs/prod", kept.WorkingDir)
+	if kept.WorkingDir != "envs/production" {
+		t.Errorf("working_dir after a rename = %q, want it untouched at envs/production", kept.WorkingDir)
 	}
 	if kept.Name != "renamed" {
 		t.Errorf("name = %q, want renamed", kept.Name)
@@ -181,7 +181,7 @@ func TestHasGatedTwinSeesThroughRepoURLSpellings(t *testing.T) {
 	gated, err := svc.Create(ctx, service.CreateWorkspaceParams{
 		OrgID: orgID, Name: "prod", CreatedBy: userID, Source: "vcs",
 		RepoURL: "https://github.com/acme/infra.git", RepoBranch: "main",
-		WorkingDir: "envs/prod", RequiresApproval: true,
+		WorkingDir: "envs/production", RequiresApproval: true,
 	})
 	if err != nil {
 		t.Fatalf("create gated workspace: %v", err)
@@ -196,7 +196,7 @@ func TestHasGatedTwinSeesThroughRepoURLSpellings(t *testing.T) {
 		"ssh://TOKEN@GitHub.com:22/acme//./infra.GIT//",
 	} {
 		t.Run(spelling, func(t *testing.T) {
-			has, err := svc.HasGatedTwin(ctx, orgID, spelling, "envs/prod", "")
+			has, err := svc.HasGatedTwin(ctx, orgID, spelling, "envs/production", "")
 			if err != nil {
 				t.Fatalf("HasGatedTwin: %v", err)
 			}
@@ -205,7 +205,7 @@ func TestHasGatedTwinSeesThroughRepoURLSpellings(t *testing.T) {
 			}
 			// And a workspace never matches itself through a respelling of its
 			// own URL, or every save of a gated workspace reads as a twin.
-			has, err = svc.HasGatedTwin(ctx, orgID, spelling, "envs/prod", gated.ID)
+			has, err = svc.HasGatedTwin(ctx, orgID, spelling, "envs/production", gated.ID)
 			if err != nil {
 				t.Fatalf("HasGatedTwin: %v", err)
 			}
@@ -222,7 +222,7 @@ func TestHasGatedTwinSeesThroughRepoURLSpellings(t *testing.T) {
 		"https://github.com/acme/infra/sub",
 		"https://gitlab.com/acme/infra",
 	} {
-		has, err := svc.HasGatedTwin(ctx, orgID, other, "envs/prod", "")
+		has, err := svc.HasGatedTwin(ctx, orgID, other, "envs/production", "")
 		if err != nil {
 			t.Fatalf("HasGatedTwin: %v", err)
 		}
@@ -242,12 +242,12 @@ func TestHasGatedTwinIgnoresUploadWorkspaces(t *testing.T) {
 
 	if _, err := svc.Create(ctx, service.CreateWorkspaceParams{
 		OrgID: orgID, Name: "uploaded", CreatedBy: userID, Source: "upload",
-		WorkingDir: "envs/prod", RequiresApproval: true,
+		WorkingDir: "envs/production", RequiresApproval: true,
 	}); err != nil {
 		t.Fatalf("create: %v", err)
 	}
 
-	has, err := svc.HasGatedTwin(ctx, orgID, "", "envs/prod", "")
+	has, err := svc.HasGatedTwin(ctx, orgID, "", "envs/production", "")
 	if err != nil {
 		t.Fatalf("HasGatedTwin: %v", err)
 	}

@@ -506,9 +506,9 @@ const (
 	// drop a trailing "/.", then trim the trailing slash and read an empty
 	// result as the repo root.
 	//
-	//	"", ".", "./", "/"                          -> "."
-	//	"envs/prod", "./envs/prod", "/envs/prod"     -> "envs/prod"
-	//	"envs//prod", "envs/./prod", "envs/prod/."   -> "envs/prod"
+	//	"", ".", "./", "/"                                           -> "."
+	//	"envs/production", "./envs/production", "/envs/production"   -> "envs/production"
+	//	"envs//production", "envs/./production", "envs/production/." -> "envs/production"
 	//
 	// Portal canonicalises the column on write (service.CanonicalWorkingDir), so
 	// in practice both sides of the comparison already agree; this is what makes

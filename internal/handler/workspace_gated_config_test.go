@@ -25,9 +25,10 @@ import (
 // hand-written list is a list of the ones somebody thought of, and the one
 // nobody thought of is the second door.
 //
-// This fixture fixes the leaf at "envs/prod", so it can only state what folding
-// has to preserve — one identity. What folding must not *introduce* is asked
-// over the wider fixture below, which is free to spell leaves this one cannot.
+// This fixture fixes the leaf at "envs/production", so it can only state what
+// folding has to preserve — one identity. What folding must not *introduce* is
+// asked over the wider fixture below, which is free to spell leaves this one
+// cannot.
 func workingDirSpellings() []string {
 	prefixes := []string{"", "./", "././", ".//", ".//./"}
 	separators := []string{"/", "//", "/./", "//./", "/././"}
@@ -37,7 +38,7 @@ func workingDirSpellings() []string {
 	for _, prefix := range prefixes {
 		for _, sep := range separators {
 			for _, suffix := range suffixes {
-				out = append(out, prefix+"envs"+sep+"prod"+suffix)
+				out = append(out, prefix+"envs"+sep+"production"+suffix)
 			}
 		}
 	}
@@ -54,7 +55,7 @@ func workingDirSpellings() []string {
 // validateWorkingDir admits, CanonicalWorkingDir folds. Loosening the validator
 // without teaching the canonical form the new spelling fails here.
 func TestEveryWorkingDirSpellingTheValidatorAdmitsIsOneTarget(t *testing.T) {
-	const want = "envs/prod"
+	const want = "envs/production"
 
 	spellings := workingDirSpellings()
 	if len(spellings) < 100 {
@@ -97,9 +98,9 @@ var workingDirAlphabet = []string{"a", ".", "/", "-"}
 // workingDirSpellingsOverTheAlphabet enumerates every string of length 1..7
 // over workingDirAlphabet — 21844 of them, generated in a few milliseconds.
 //
-// A fixture built by respelling "envs/prod" cannot express the violation the
-// assertions below are about: no respelling of a leaf whose first character is
-// a letter can ever clean into one that starts with a dash, so a test that
+// A fixture built by respelling "envs/production" cannot express the violation
+// the assertions below are about: no respelling of a leaf whose first character
+// is a letter can ever clean into one that starts with a dash, so a test that
 // asserts "the canonical form is admissible too" over that fixture asserts it
 // against inputs that cannot break it. This alphabet reaches every shape the
 // validator rejects — a leading "-", a leading "/", a "..", and a path that
@@ -251,15 +252,15 @@ func TestCreateAndUpdateStoreTheWorkingDirTheyAdmitted(t *testing.T) {
 	}
 
 	// A respelled ordinary directory goes in and lands on its leaf.
-	if code := create(t, "prod", ".//envs/./prod/").Code; code != http.StatusCreated {
+	if code := create(t, "prod", ".//envs/./production/").Code; code != http.StatusCreated {
 		t.Fatalf("create with a respelled working_dir = %d, want 201", code)
 	}
 	stored, _, err := svc.List(ctx, orgID, 1, 50, "", "")
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	if len(stored) != 1 || stored[0].WorkingDir != "envs/prod" {
-		t.Fatalf("stored working_dir = %+v, want a single row at envs/prod", stored)
+	if len(stored) != 1 || stored[0].WorkingDir != "envs/production" {
+		t.Fatalf("stored working_dir = %+v, want a single row at envs/production", stored)
 	}
 	workspaceID := stored[0].ID
 
@@ -280,8 +281,8 @@ func TestCreateAndUpdateStoreTheWorkingDirTheyAdmitted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if after.WorkingDir != "envs/prod" {
-		t.Errorf("working_dir after the refused updates = %q, want it untouched at envs/prod", after.WorkingDir)
+	if after.WorkingDir != "envs/production" {
+		t.Errorf("working_dir after the refused updates = %q, want it untouched at envs/production", after.WorkingDir)
 	}
 	all, _, err := svc.List(ctx, orgID, 1, 50, "", "")
 	if err != nil {
@@ -293,18 +294,19 @@ func TestCreateAndUpdateStoreTheWorkingDirTheyAdmitted(t *testing.T) {
 }
 
 // The other half of the same claim: folding spellings must not fold
-// directories. A canonicaliser that answered "envs/prod" for everything would
-// pass the test above and refuse every legitimate second workspace in the org.
+// directories. A canonicaliser that answered "envs/production" for everything
+// would pass the test above and refuse every legitimate second workspace in the
+// org.
 func TestDifferentWorkingDirsStayDifferent(t *testing.T) {
 	distinct := []string{
-		"envs/prod",
-		"envs/prod2",
-		"envs/prod.old",
-		"envs/prod-dr",
+		"envs/production",
+		"envs/production2",
+		"envs/production.old",
+		"envs/production-dr",
 		"envs/staging",
-		"envs/prod/us-west-2",
-		"prod",
-		"Envs/Prod", // a checkout on a case-sensitive filesystem is a different leaf
+		"envs/production/us-west-2",
+		"production",
+		"Envs/Production", // a checkout on a case-sensitive filesystem is a different leaf
 		".",
 	}
 
@@ -326,12 +328,12 @@ func TestDifferentWorkingDirsStayDifferent(t *testing.T) {
 // still there underneath: a caller who reaches the service without the
 // handler's validation cannot name a different target by rooting the path.
 func TestRootedWorkingDirIsRefusedAndStillFolds(t *testing.T) {
-	for _, dir := range []string{"/envs/prod", "/envs//prod/.", "//envs/prod"} {
+	for _, dir := range []string{"/envs/production", "/envs//production/.", "//envs/production"} {
 		if err := validateWorkingDir(dir); err == nil {
 			t.Errorf("validateWorkingDir(%q) = nil, want a refusal — working_dir must be relative", dir)
 		}
-		if got := service.CanonicalWorkingDir(dir); got != "envs/prod" {
-			t.Errorf("CanonicalWorkingDir(%q) = %q, want envs/prod", dir, got)
+		if got := service.CanonicalWorkingDir(dir); got != "envs/production" {
+			t.Errorf("CanonicalWorkingDir(%q) = %q, want envs/production", dir, got)
 		}
 	}
 }
@@ -346,19 +348,19 @@ func TestDeleteReadsAsVacatingTheConfig(t *testing.T) {
 		want    bool
 	}{
 		{"the last gate on a config", repository.Workspace{
-			RepoURL: "https://example.test/infra.git", WorkingDir: "envs/prod", RequiresApproval: true,
+			RepoURL: "https://example.test/infra.git", WorkingDir: "envs/production", RequiresApproval: true,
 		}, true},
 
 		// An ungated workspace is holding nothing, so removing it retires no
 		// refusal — deleting a scratch workspace stays an ordinary act.
 		{"an ungated workspace", repository.Workspace{
-			RepoURL: "https://example.test/infra.git", WorkingDir: "envs/prod", RequiresApproval: false,
+			RepoURL: "https://example.test/infra.git", WorkingDir: "envs/production", RequiresApproval: false,
 		}, false},
 
 		// An upload workspace has no repo URL, so it has no config identity to
 		// guard — the same reading gatedTwinAllowed and the query both take.
 		{"a gated upload workspace", repository.Workspace{
-			RepoURL: "", WorkingDir: "envs/prod", RequiresApproval: true,
+			RepoURL: "", WorkingDir: "envs/production", RequiresApproval: true,
 		}, false},
 	}
 
@@ -379,10 +381,10 @@ func TestDeleteReadsAsVacatingTheConfig(t *testing.T) {
 // to refuse to let them remove.
 func TestDeleteCostsWhatMovingCosts(t *testing.T) {
 	gate := repository.Workspace{
-		RepoURL: "https://example.test/infra.git", WorkingDir: "envs/prod", RequiresApproval: true,
+		RepoURL: "https://example.test/infra.git", WorkingDir: "envs/production", RequiresApproval: true,
 	}
 
-	moveAway := UpdateWorkspaceRequest{WorkingDir: "envs/prod-old"}
+	moveAway := UpdateWorkspaceRequest{WorkingDir: "envs/production-old"}
 	_, _, targetGated := effectiveConfigTarget(gate, moveAway)
 	movedOff := vacatesGatedConfig(gate, targetGated, false /* sameTarget */)
 	deleted := vacatesGatedConfig(gate, false, false)
@@ -463,7 +465,7 @@ func TestDeleteHoldsTheLastGateAtTheApprovalBar(t *testing.T) {
 		return err == nil
 	}
 
-	gate := create(t, "prod", "vcs", repo, "envs/prod", true)
+	gate := create(t, "prod", "vcs", repo, "envs/production", true)
 
 	// 1. The exploit's first step, refused — and nothing removed.
 	if code := del(t, "operator", gate.ID); code != http.StatusForbidden {
@@ -476,7 +478,7 @@ func TestDeleteHoldsTheLastGateAtTheApprovalBar(t *testing.T) {
 	// 2. The legitimate cases still go through at the operator bar, or the
 	//    refusal above is worth nothing: an ungated workspace, and a gated
 	//    upload workspace, which has no config identity to guard.
-	scratch := create(t, "scratch", "vcs", repo, "envs/dev", false)
+	scratch := create(t, "scratch", "vcs", repo, "envs/development", false)
 	if code := del(t, "operator", scratch.ID); code != http.StatusNoContent {
 		t.Fatalf("delete of an ungated workspace as operator = %d, want 204", code)
 	}
@@ -484,7 +486,7 @@ func TestDeleteHoldsTheLastGateAtTheApprovalBar(t *testing.T) {
 		t.Fatal("the allowed delete did not remove the workspace")
 	}
 
-	upload := create(t, "uploaded", "upload", "", "envs/prod", true)
+	upload := create(t, "uploaded", "upload", "", "envs/production", true)
 	if code := del(t, "operator", upload.ID); code != http.StatusNoContent {
 		t.Fatalf("delete of a gated upload workspace as operator = %d, want 204", code)
 	}
@@ -492,9 +494,9 @@ func TestDeleteHoldsTheLastGateAtTheApprovalBar(t *testing.T) {
 	// 3. The way out the 403 names, taken across a respelling: another gated
 	//    workspace on the same leaf, typed differently. It has to count, or the
 	//    escape hatch is as dodgeable as the check it belongs to.
-	sibling := create(t, "prod-dr", "vcs", repo+"/", "envs//prod/.", true)
-	if sibling.WorkingDir != "envs/prod" {
-		t.Fatalf("stored working_dir = %q, want the canonical envs/prod", sibling.WorkingDir)
+	sibling := create(t, "prod-dr", "vcs", repo+"/", "envs//production/.", true)
+	if sibling.WorkingDir != "envs/production" {
+		t.Fatalf("stored working_dir = %q, want the canonical envs/production", sibling.WorkingDir)
 	}
 	if code := del(t, "operator", gate.ID); code != http.StatusNoContent {
 		t.Fatalf("delete with another gate left on the config = %d, want 204", code)
@@ -530,7 +532,7 @@ func TestDeleteAndMoveAgreeOnWhatVacatesAConfig(t *testing.T) {
 
 	gate, err := svc.Create(ctx, service.CreateWorkspaceParams{
 		OrgID: orgID, Name: "prod", CreatedBy: userID, Source: "vcs",
-		RepoURL: repo, RepoBranch: "main", WorkingDir: "envs/prod", RequiresApproval: true,
+		RepoURL: repo, RepoBranch: "main", WorkingDir: "envs/production", RequiresApproval: true,
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
@@ -553,7 +555,7 @@ func TestDeleteAndMoveAgreeOnWhatVacatesAConfig(t *testing.T) {
 	if _, err := svc.Create(ctx, service.CreateWorkspaceParams{
 		OrgID: orgID, Name: "prod-dr", CreatedBy: userID, Source: "vcs",
 		RepoURL: "https://github.com/acme/infra", RepoBranch: "main",
-		WorkingDir: "envs/./prod/", RequiresApproval: true,
+		WorkingDir: "envs/./production/", RequiresApproval: true,
 	}); err != nil {
 		t.Fatalf("create replacement gate: %v", err)
 	}

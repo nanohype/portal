@@ -35,7 +35,7 @@ function workspace(overrides: Partial<Workspace> = {}) {
     source: 'vcs',
     repo_url: 'https://example.test/infra.git',
     repo_branch: 'main',
-    working_dir: 'envs/prod',
+    working_dir: 'envs/production',
     tofu_version: '1.9.0',
     locked: false,
     auto_apply: false,

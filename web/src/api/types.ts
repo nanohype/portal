@@ -1402,7 +1402,7 @@ export interface components {
             source?: "vcs" | "upload";
             repo_url?: string;
             repo_branch?: string;
-            /** @description Repo-relative path to the leaf portal runs in. Stored canonical: "./envs/prod", "envs//prod", "envs/./prod" and "envs/prod/" all name one directory to the executor, so they are all stored as "envs/prod". Omit on update to keep the stored value. */
+            /** @description Repo-relative path to the leaf portal runs in. Stored canonical: "./envs/production", "envs//production", "envs/./production" and "envs/production/" all name one directory to the executor, so they are all stored as "envs/production". Omit on update to keep the stored value. */
             working_dir?: string;
             tofu_version?: string;
             /** @enum {string} */
@@ -1416,7 +1416,7 @@ export interface components {
             description?: string;
             repo_url?: string;
             repo_branch?: string;
-            /** @description Repo-relative path to the leaf portal runs in. Stored canonical: "./envs/prod", "envs//prod", "envs/./prod" and "envs/prod/" all name one directory to the executor, so they are all stored as "envs/prod". Omit on update to keep the stored value. */
+            /** @description Repo-relative path to the leaf portal runs in. Stored canonical: "./envs/production", "envs//production", "envs/./production" and "envs/production/" all name one directory to the executor, so they are all stored as "envs/production". Omit on update to keep the stored value. */
             working_dir?: string;
             tofu_version?: string;
             /** @enum {string} */
