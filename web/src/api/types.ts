@@ -812,7 +812,7 @@ export interface paths {
         /** Update a workspace (operator; turning auto_apply on or requires_approval off needs admin) */
         put: operations["updateWorkspace"];
         post?: never;
-        /** Delete a workspace (admin) */
+        /** Delete a workspace (admin on the workspace; deleting the last workspace requiring approval on a repository + working directory needs org admin) */
         delete: operations["deleteWorkspace"];
         options?: never;
         head?: never;

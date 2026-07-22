@@ -1,14 +1,17 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { screen } from '@testing-library/react';
+import { screen, fireEvent, waitFor } from '@testing-library/react';
 import { renderWithClient } from '@/test/render';
 import { useAuthStore } from '@/stores/auth';
 import type { User, Workspace } from '@/api/models';
 import { WorkspaceSettings } from './WorkspaceSettings';
 
-const { apiMock } = vi.hoisted(() => ({
+const { apiMock, toastMock } = vi.hoisted(() => ({
   apiMock: { GET: vi.fn(), POST: vi.fn(), PUT: vi.fn(), DELETE: vi.fn() },
+  toastMock: { success: vi.fn(), error: vi.fn() },
 }));
 vi.mock('@/api/client', () => ({ api: apiMock }));
+vi.mock('sonner', () => ({ toast: toastMock }));
+vi.mock('@/hooks/useNavigate', () => ({ navigate: vi.fn() }));
 
 function workspace(overrides: Partial<Workspace> = {}): Workspace {
   return {
@@ -89,5 +92,42 @@ describe('WorkspaceSettings approval-gate controls', () => {
 
     expect(screen.getByLabelText(/require approval/i)).toBeEnabled();
     expect(screen.getByLabelText(/auto-apply/i)).toBeEnabled();
+  });
+});
+
+// Deleting the last workspace requiring approval on a repo + working_dir leaves
+// that configuration open to an ungated one, so the server holds it at the same
+// bar as clearing the gate and answers with the way out. A refusal the UI
+// rewrites into "Failed to delete workspace" is a dead button with no reason on
+// it, so the message has to come through as the server wrote it.
+describe('WorkspaceSettings delete', () => {
+  function confirmAndDelete(name: string) {
+    fireEvent.change(screen.getByLabelText(/to confirm/i), { target: { value: name } });
+    fireEvent.click(screen.getByRole('button', { name: /delete workspace/i }));
+  }
+
+  it('surfaces the refusal the server gave', async () => {
+    setOrgRole('operator');
+    const refusal =
+      'this is the only workspace requiring approval for its repository and working directory, ' +
+      'so deleting it would leave that configuration ungated: leave another workspace requiring ' +
+      'approval on it, or hold admin role or higher';
+    apiMock.DELETE.mockResolvedValue({ data: undefined, error: { message: refusal } });
+
+    renderWithClient(<WorkspaceSettings workspace={workspace({ requires_approval: true })} />);
+    confirmAndDelete('dev-vpc');
+
+    await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith(refusal));
+  });
+
+  it('still deletes a workspace the server allows', async () => {
+    setOrgRole('operator');
+    apiMock.DELETE.mockResolvedValue({ data: undefined, error: undefined });
+
+    renderWithClient(<WorkspaceSettings workspace={workspace()} />);
+    confirmAndDelete('dev-vpc');
+
+    await waitFor(() => expect(toastMock.success).toHaveBeenCalledWith('Workspace deleted'));
+    expect(toastMock.error).not.toHaveBeenCalled();
   });
 });

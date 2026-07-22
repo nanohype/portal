@@ -449,6 +449,14 @@ func (s *Server) setupRouter() {
 						// configuration, which leaves that configuration open
 						// to an ungated one just as surely.
 						r.With(wsOperator).Put("/", workspaceHandler.Update)
+						// Deleting the last workspace requiring approval on a
+						// configuration leaves that configuration open to an
+						// ungated one, exactly as repointing it away does, so
+						// the handler holds that case at the same org-level
+						// approval bar. The route itself is workspace scoped,
+						// which is what makes the difference matter: an admin
+						// grant on one workspace clears this gate, and it must
+						// not also retire a production approval.
 						r.With(wsDelete).Delete("/", workspaceHandler.Delete)
 						r.With(wsOperator).Post("/lock", workspaceHandler.Lock)
 						r.With(wsOperator).Post("/unlock", workspaceHandler.Unlock)

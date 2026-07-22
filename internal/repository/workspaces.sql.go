@@ -416,35 +416,55 @@ func (q *Queries) FindWorkspacesByRepo(ctx context.Context, arg FindWorkspacesBy
 // that identity to a canonical form, so the same target spelled differently
 // still compares equal.
 //
-// repoURLIdentitySQL, applied outside-in: lowercase and drop trailing slashes,
-// drop a ".git" suffix, drop a default-looking port from a URL that carries a
-// scheme, drop the scheme, drop any userinfo (a URL carrying a token is the
-// same repo), then turn scp-style "host:path" into "host/path". All of these
-// land on "github.com/acme/infra":
+// repoURLIdentitySQL runs in two halves, inside-out.
+//
+// First the origin is reduced to "host/path": lowercase, drop a default-looking
+// port from a URL that carries a scheme, drop the scheme, drop any userinfo (a
+// URL carrying a token is the same repo), then turn scp-style "host:path" into
+// "host/path". The port is stripped while the scheme is still attached, and
+// only then, so the scp-style rule that follows cannot mistake a numeric path
+// segment for one: "git@github.com:2600/repo" is a repo owned by "2600", not a
+// port.
+//
+// Then the path is folded the way the remote folds it — the same three rewrites
+// workingDirIdentitySQL applies, for the same reason. A git path is resolved as
+// a path at the far end, so "github.com/acme//infra",
+// "github.com/acme/./infra" and "github.com/acme/infra/." all serve the tree
+// that "github.com/acme/infra" serves, and every one of them clones. Folding
+// the path also has to happen before the ".git" suffix comes off, or
+// ".../infra.git/." keeps its suffix and reads as another repo. The scheme's
+// own "//" is gone by then, so collapsing repeated slashes cannot touch it.
+//
+// All of these land on "github.com/acme/infra":
 //
 //	https://github.com/acme/infra.git     ssh://git@github.com/acme/infra
 //	https://TOKEN@github.com/acme/infra/   git@github.com:acme/infra.git
 //	https://github.com:443/acme/infra.git  ssh://git@github.com:22/acme/infra
-//
-// The port is stripped while the scheme is still attached, and only then, so
-// the scp-style rule that follows cannot mistake a numeric path segment for
-// one: "git@github.com:2600/repo" is a repo owned by "2600", not a port.
+//	https://github.com/acme//infra         https://github.com/acme/./infra
+//	https://github.com/acme/infra.git/.    https://github.com/acme/infra//
 //
 // It normalises spelling, not remote identity: a mirror under a different host
 // or path is a different string and stays one. The check narrows the gap
 // structurally, it does not close it by proof.
 const (
-	repoURLIdentitySQL = `REGEXP_REPLACE(
-		REGEXP_REPLACE(
+	repoURLIdentitySQL = `RTRIM(REGEXP_REPLACE(
+		RTRIM(
 			REGEXP_REPLACE(
 				REGEXP_REPLACE(
 					REGEXP_REPLACE(
-						RTRIM(LOWER(%s), '/'),
-					'\.git$', ''),
-				'^([a-z][a-z0-9+.-]*://[^/]*):[0-9]+(/|$)', '\1\2'),
-			'^[a-z][a-z0-9+.-]*://', ''),
-		'^[^/@]*@', ''),
-	'^([^/:]+):', '\1/')`
+						REGEXP_REPLACE(
+							REGEXP_REPLACE(
+								REGEXP_REPLACE(
+									REGEXP_REPLACE(LOWER(%s),
+									'^([a-z][a-z0-9+.-]*://[^/]*):[0-9]+(/|$)', '\1\2'),
+								'^[a-z][a-z0-9+.-]*://', ''),
+							'^[^/@]*@', ''),
+						'^([^/:]+):', '\1/'),
+					'/+', '/', 'g'),
+				'(^|/)(\./)+', '\1', 'g'),
+			'(^|/)\.$', '\1'),
+		'/'),
+	'\.git$', ''), '/')`
 
 	// A leaf is one directory under every spelling of it. Applied outside-in:
 	// collapse repeated slashes, drop a leading slash, drop every "." segment,

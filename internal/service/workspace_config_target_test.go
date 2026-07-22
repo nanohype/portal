@@ -165,6 +165,73 @@ func TestUpdateStoresACanonicalWorkingDir(t *testing.T) {
 	}
 }
 
+// The same exploit with the other half of the identity respelled. A git path is
+// resolved as a path at the far end — GitHub serves "acme//infra" and
+// "acme/./infra" as "acme/infra", and all three clone — so a repo URL typed
+// with a doubled slash is the same tree as the gated workspace's, and the check
+// has to say so. Unlike the working directory, the URL is never rewritten on
+// the row (it is a clone target that may carry its own credentials), so this is
+// the query's job on both sides of the comparison.
+func TestHasGatedTwinSeesThroughRepoURLSpellings(t *testing.T) {
+	requireDB(t)
+	ctx := context.Background()
+	orgID, userID := seedOrg(t, ctx, "canon-repo")
+	svc := service.NewWorkspaceService(testQueries, testPool, nil)
+
+	gated, err := svc.Create(ctx, service.CreateWorkspaceParams{
+		OrgID: orgID, Name: "prod", CreatedBy: userID, Source: "vcs",
+		RepoURL: "https://github.com/acme/infra.git", RepoBranch: "main",
+		WorkingDir: "envs/prod", RequiresApproval: true,
+	})
+	if err != nil {
+		t.Fatalf("create gated workspace: %v", err)
+	}
+
+	for _, spelling := range []string{
+		"https://github.com/acme//infra",
+		"https://github.com/acme/./infra",
+		"https://github.com/acme/infra/.",
+		"https://github.com/acme/infra.git/.",
+		"git@github.com:acme//infra.git",
+		"ssh://TOKEN@GitHub.com:22/acme//./infra.GIT//",
+	} {
+		t.Run(spelling, func(t *testing.T) {
+			has, err := svc.HasGatedTwin(ctx, orgID, spelling, "envs/prod", "")
+			if err != nil {
+				t.Fatalf("HasGatedTwin: %v", err)
+			}
+			if !has {
+				t.Fatalf("HasGatedTwin(repo=%q) = false — %q clones the gated workspace's own tree", spelling, spelling)
+			}
+			// And a workspace never matches itself through a respelling of its
+			// own URL, or every save of a gated workspace reads as a twin.
+			has, err = svc.HasGatedTwin(ctx, orgID, spelling, "envs/prod", gated.ID)
+			if err != nil {
+				t.Fatalf("HasGatedTwin: %v", err)
+			}
+			if has {
+				t.Fatal("a workspace matched itself through a respelled repo URL")
+			}
+		})
+	}
+
+	// Folding spellings must not fold repos, or an operator is refused a
+	// workspace on a repo nothing gates.
+	for _, other := range []string{
+		"https://github.com/acme/infra2",
+		"https://github.com/acme/infra/sub",
+		"https://gitlab.com/acme/infra",
+	} {
+		has, err := svc.HasGatedTwin(ctx, orgID, other, "envs/prod", "")
+		if err != nil {
+			t.Fatalf("HasGatedTwin: %v", err)
+		}
+		if has {
+			t.Errorf("HasGatedTwin(repo=%q) = true — a different repo is a different target", other)
+		}
+	}
+}
+
 // Upload workspaces have no repo URL to compare, so they are outside the check
 // entirely — the query must not treat "no repo" as "matches every other upload".
 func TestHasGatedTwinIgnoresUploadWorkspaces(t *testing.T) {

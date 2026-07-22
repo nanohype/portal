@@ -269,6 +269,10 @@ const gatedOriginMessage = "this is the only workspace requiring approval for it
 	"so moving it off would leave that configuration ungated: leave another workspace requiring approval on it, " +
 	"or hold admin role or higher"
 
+const gatedOriginDeleteMessage = "this is the only workspace requiring approval for its repository and working directory, " +
+	"so deleting it would leave that configuration ungated: leave another workspace requiring approval on it, " +
+	"or hold admin role or higher"
+
 // cloneApprovalGate decides what gate a clone carries, and whether the caller
 // may ask for it. It returns the gate to write and whether the request is
 // allowed.
@@ -835,6 +839,41 @@ func (h *WorkspaceHandler) Upload(w http.ResponseWriter, r *http.Request) {
 func (h *WorkspaceHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	userCtx := auth.GetUser(r.Context())
 	workspaceID := chi.URLParam(r, "workspaceID")
+
+	current, err := h.svc.Get(r.Context(), workspaceID, userCtx.OrgID)
+	if err != nil {
+		respond.FromError(w, r, err)
+		return
+	}
+
+	// A delete is a move to nowhere. What Update charges for is the config the
+	// workspace LEAVES: while a gated workspace sits on a repo + working_dir,
+	// gatedTwinAllowed refuses an ungated second one there, and removing the
+	// row retires that refusal exactly as walking it away does — then an
+	// ungated workspace goes up on the vacated config and applies with nobody
+	// signing.
+	//
+	// The route is workspace-scoped, so a workspace_team_access grant of admin
+	// on this one workspace clears it while the caller is an org operator
+	// everywhere else. gatedOriginAllowed reads the ORG role, the same one that
+	// signs a gated apply, so the grant that lets someone delete their own
+	// workspace does not also let them retire a production gate.
+	//
+	// Passing targetGated=false, sameTarget=false is the delete case stated in
+	// the update predicate's own terms: there is no destination, so it can
+	// neither be the same target nor carry the gate forward.
+	if vacatesGatedConfig(current, false, false) {
+		originStillGated, err := h.svc.HasGatedTwin(r.Context(), userCtx.OrgID, current.RepoURL, current.WorkingDir, workspaceID)
+		if err != nil {
+			slog.Error("failed to check for a gated workspace on this config", "error", err)
+			respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to delete workspace")
+			return
+		}
+		if !gatedOriginAllowed(true, originStillGated, userCtx.Role) {
+			respond.Error(w, http.StatusForbidden, gatedOriginDeleteMessage)
+			return
+		}
+	}
 
 	if err := h.svc.Delete(r.Context(), workspaceID, userCtx.OrgID); err != nil {
 		if errors.Is(err, service.ErrWorkspaceHasRuns) {

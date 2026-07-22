@@ -152,7 +152,12 @@ export function WorkspaceSettings({ workspace }: Props) {
       toast.success('Workspace deleted');
       navigate('/');
     },
-    onError: () => toast.error('Failed to delete workspace'),
+    // The server's message is the actionable half of a refusal — deleting the
+    // last workspace requiring approval on a configuration comes back with the
+    // way out (leave another gated workspace on it, or hold admin). Swallowing
+    // it leaves an operator with a dead button and no reason.
+    onError: (e) =>
+      toast.error((e as { message?: string })?.message ?? 'Failed to delete workspace'),
   });
 
   return (

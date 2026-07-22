@@ -665,6 +665,14 @@ func TestHasGatedWorkspaceForConfig(t *testing.T) {
 		{"the same repo over the ssh:// scheme", orgA, "ssh://git@github.com/acme/infra", "envs/prod", "", true},
 		{"the same repo on its scheme's default port", orgA, "https://github.com:443/acme/infra.git", "envs/prod", "", true},
 		{"the same repo over ssh:// with an explicit port", orgA, "ssh://git@github.com:22/acme/infra", "envs/prod", "", true},
+		// A git path is resolved as a path at the far end: every one of these
+		// clones the same tree — GitHub serves "acme//infra" and "acme/./infra"
+		// as "acme/infra" — so every one of them has to be the same row here.
+		{"a doubled slash inside the repo path", orgA, "https://github.com/acme//infra", "envs/prod", "", true},
+		{"a . segment inside the repo path", orgA, "https://github.com/acme/./infra", "envs/prod", "", true},
+		{"a trailing /. on the repo path", orgA, "https://github.com/acme/infra/.", "envs/prod", "", true},
+		{"a trailing /. after the .git suffix", orgA, "https://github.com/acme/infra.git/.", "envs/prod", "", true},
+		{"every repo respelling at once", orgA, "ssh://TOKEN@GitHub.com:22/acme//./infra.GIT//", "envs/prod", "", true},
 		{"a ./ prefix on the working directory", orgA, repo, "./envs/prod", "", true},
 		{"a trailing slash on the working directory", orgA, repo, "envs/prod/", "", true},
 		// Every one of these is the same `cd` in the executor, so every one of
@@ -678,6 +686,12 @@ func TestHasGatedWorkspaceForConfig(t *testing.T) {
 		{"a different directory in the same repo", orgA, repo, "envs/staging", "", false},
 		{"the ungated sibling's own directory", orgA, repo, "envs/dev", "", false},
 		{"a different repo entirely", orgA, "https://github.com/acme/apps", "envs/prod", "", false},
+		// Folding spellings must not fold repos: a neighbouring name, a deeper
+		// path and another host all stay distinct, or the check refuses
+		// legitimate workspaces it has no business refusing.
+		{"a repo whose name starts the same", orgA, "https://github.com/acme/infra2", "envs/prod", "", false},
+		{"a repo one level deeper", orgA, "https://github.com/acme/infra/sub", "envs/prod", "", false},
+		{"the same path on another host", orgA, "https://gitlab.com/acme/infra", "envs/prod", "", false},
 		{"an upload workspace has no repo to compare", orgA, "", "envs/prod", "", false},
 
 		{"the gated workspace does not match itself", orgA, repo, "envs/prod", gated, false},
@@ -772,6 +786,9 @@ func TestConfigTargetsMatch(t *testing.T) {
 		{"over ssh", repo, "envs/prod", "git@github.com:acme/infra.git", "envs/prod", true},
 		{"with an embedded token", repo, "envs/prod", "https://ghp_token@github.com/acme/infra", "envs/prod", true},
 		{"on the scheme's default port", repo, "envs/prod", "https://github.com:443/acme/infra", "envs/prod", true},
+		{"doubled slash in the repo path", repo, "envs/prod", "https://github.com/acme//infra", "envs/prod", true},
+		{"a . segment in the repo path", repo, "envs/prod", "https://github.com/acme/./infra", "envs/prod", true},
+		{"trailing /. after the .git suffix", repo, "envs/prod", "https://github.com/acme/infra.git/.", "envs/prod", true},
 		{"./ prefix on the directory", repo, "envs/prod", repo, "./envs/prod", true},
 		{"doubled slash in the directory", repo, "envs/prod", repo, "envs//prod", true},
 		{"every spelling of the repo root", repo, ".", repo, "", true},

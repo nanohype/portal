@@ -1147,7 +1147,7 @@ paths:
         default: { $ref: "#/components/responses/Error" }
     delete:
       operationId: deleteWorkspace
-      summary: Delete a workspace (admin)
+      summary: Delete a workspace (admin on the workspace; deleting the last workspace requiring approval on a repository + working directory needs org admin)
       parameters:
         - { name: workspaceId, in: path, required: true, schema: { type: string } }
       responses:

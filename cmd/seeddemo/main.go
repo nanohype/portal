@@ -10,6 +10,12 @@
 // It TRUNCATEs all tables first, so it's idempotent (a clean reset to the demo
 // state on every run) and refuses to run outside ENVIRONMENT=development.
 //
+// The rows describe work that already happened. Every write path in the UI is
+// live against them — approving the parked run records the decision, releases
+// the run and hands it to the worker — but the configurations they name are
+// fictional, so a released run reaches the executor and stops there. The demo
+// shows the control plane, not a tofu apply.
+//
 //	task seed:demo        # reset + populate
 package main
 
