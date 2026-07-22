@@ -53,7 +53,27 @@ func validateRepoBranch(branch string) error {
 
 // validateWorkingDir rejects working dirs that escape the checkout or carry
 // shell/option payloads. Empty is allowed — the service fills ".".
+//
+// A working directory is judged twice: as the request spelled it, and as
+// service.CanonicalWorkingDir folds it. The second one is the working_dir —
+// it is what the column holds, what the executors cd into, what the gated-twin
+// comparison reads, and what the settings form resubmits on the next save — and
+// path.Clean can turn an admissible spelling into an inadmissible one. "./-rf"
+// carries no leading dash until the "./" in front of it is folded away, and
+// then it is "-rf", which the rules below refuse and git would read as an
+// option. Judging only the typed form leaves rows holding values that break the
+// rule they were checked against, and a workspace whose settings can never be
+// saved again, because the resubmit is validated as the stored spelling.
 func validateWorkingDir(dir string) error {
+	if err := workingDirRules(dir); err != nil {
+		return err
+	}
+	return workingDirRules(service.CanonicalWorkingDir(dir))
+}
+
+// workingDirRules is the rule set every spelling of a working directory has to
+// clear, typed or canonical.
+func workingDirRules(dir string) error {
 	if dir == "" {
 		return nil
 	}
@@ -92,16 +112,27 @@ func validateRepoURL(url string) error {
 	return nil
 }
 
-// validateRepoFields runs the three repo-field validators and returns the first
-// error, so Create and Update share one call site.
-func validateRepoFields(repoURL, branch, workingDir string) error {
+// admitRepoFields runs the three repo-field validators and returns the first
+// error, so Create and Update share one call site. On success it hands back the
+// working directory the caller must carry forward — the canonical spelling,
+// which is the one the row will hold.
+//
+// Admitting and canonicalising are one call because they are one decision. A
+// route that validated here and canonicalised a few lines further down would
+// be judging one string and storing another, and only the stored one is read
+// again; splitting them across two routes is how the two orderings drift apart
+// and a fix lands on one of them.
+func admitRepoFields(repoURL, branch, workingDir string) (string, error) {
 	if err := validateRepoURL(repoURL); err != nil {
-		return err
+		return "", err
 	}
 	if err := validateRepoBranch(branch); err != nil {
-		return err
+		return "", err
 	}
-	return validateWorkingDir(workingDir)
+	if err := validateWorkingDir(workingDir); err != nil {
+		return "", err
+	}
+	return service.CanonicalWorkingDir(workingDir), nil
 }
 
 type WorkspaceHandler struct {
@@ -534,13 +565,16 @@ func (h *WorkspaceHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// repo_url / repo_branch / working_dir flow into the executor's git clone
 	// and cd — validate them against a safe charset to block command/option
 	// injection at the boundary (any role can create a workspace).
-	if err := validateRepoFields(req.RepoURL, req.RepoBranch, req.WorkingDir); err != nil {
+	//
+	// One leaf, one spelling: the twin check below and the row it writes both
+	// have to be about the directory, not about how the request typed it, so
+	// the request carries the canonical form from here on.
+	canonicalWorkingDir, err := admitRepoFields(req.RepoURL, req.RepoBranch, req.WorkingDir)
+	if err != nil {
 		respond.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	// One leaf, one spelling. The twin check below and the row it writes both
-	// have to be about the directory, not about how the request typed it.
-	req.WorkingDir = service.CanonicalWorkingDir(req.WorkingDir)
+	req.WorkingDir = canonicalWorkingDir
 
 	// Upload workspaces cannot have VCS trigger
 	if source == "upload" && req.VcsTriggerEnabled {
@@ -613,16 +647,17 @@ func (h *WorkspaceHandler) Update(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusBadRequest, "name must be at most 128 characters")
 		return
 	}
-	if err := validateRepoFields(req.RepoURL, req.RepoBranch, req.WorkingDir); err != nil {
+	// The canonical form lands on the request before anything reads the field,
+	// so movesConfigTarget compares the stored leaf against the requested leaf
+	// and not one spelling against another — otherwise a resubmit of the same
+	// directory typed differently reads as a move, and a real move to the same
+	// directory typed differently reads as a new target.
+	canonicalWorkingDir, err := admitRepoFields(req.RepoURL, req.RepoBranch, req.WorkingDir)
+	if err != nil {
 		respond.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	// Canonicalise before anything reads the field, so movesConfigTarget
-	// compares the stored leaf against the requested leaf and not one spelling
-	// against another — otherwise a resubmit of the same directory typed
-	// differently reads as a move, and a real move to the same directory typed
-	// differently reads as a new target.
-	req.WorkingDir = service.CanonicalWorkingDir(req.WorkingDir)
+	req.WorkingDir = canonicalWorkingDir
 	if len(req.Description) > 4096 {
 		respond.Error(w, http.StatusBadRequest, "description must be at most 4096 characters")
 		return

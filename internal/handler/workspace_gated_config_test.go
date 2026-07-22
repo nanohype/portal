@@ -24,6 +24,10 @@ import (
 // gated-twin check is only as good as the set of spellings it folds — a
 // hand-written list is a list of the ones somebody thought of, and the one
 // nobody thought of is the second door.
+//
+// This fixture fixes the leaf at "envs/prod", so it can only state what folding
+// has to preserve — one identity. What folding must not *introduce* is asked
+// over the wider fixture below, which is free to spell leaves this one cannot.
 func workingDirSpellings() []string {
 	prefixes := []string{"", "./", "././", ".//", ".//./"}
 	separators := []string{"/", "//", "/./", "//./", "/././"}
@@ -80,6 +84,211 @@ func TestEveryWorkingDirSpellingTheValidatorAdmitsIsOneTarget(t *testing.T) {
 				t.Fatalf("CanonicalWorkingDir(%q) = %q — the canonical form must be stable", got, again)
 			}
 		})
+	}
+}
+
+// workingDirAlphabet is the four characters that decide a working directory's
+// shape: an ordinary path character, the "." that path.Clean folds away, the
+// "/" that separates segments and roots a path, and the "-" that turns a leaf
+// into a git option. Every string the validator can be asked about is one of
+// these four repeated, plus name characters that behave exactly like "a".
+var workingDirAlphabet = []string{"a", ".", "/", "-"}
+
+// workingDirSpellingsOverTheAlphabet enumerates every string of length 1..7
+// over workingDirAlphabet — 21844 of them, generated in a few milliseconds.
+//
+// A fixture built by respelling "envs/prod" cannot express the violation the
+// assertions below are about: no respelling of a leaf whose first character is
+// a letter can ever clean into one that starts with a dash, so a test that
+// asserts "the canonical form is admissible too" over that fixture asserts it
+// against inputs that cannot break it. This alphabet reaches every shape the
+// validator rejects — a leading "-", a leading "/", a "..", and a path that
+// cleans away to nothing — so a spelling whose canonical form breaks a rule has
+// somewhere to show up.
+func workingDirSpellingsOverTheAlphabet() []string {
+	out := []string{}
+	frontier := []string{""}
+	for length := 1; length <= 7; length++ {
+		var next []string
+		for _, prefix := range frontier {
+			for _, char := range workingDirAlphabet {
+				next = append(next, prefix+char)
+			}
+		}
+		out = append(out, next...)
+		frontier = next
+	}
+	return out
+}
+
+// canonicalisingOptionSpellings are the concrete requests that reached the
+// column holding a value the boundary itself refuses. Each is a leaf named
+// "-rf" or "--upload-pack" wearing a "./" in front of it: admitted as typed
+// because the dash is not first, and then path.Clean folds the "./" away and
+// the dash is first after all.
+var canonicalisingOptionSpellings = []string{
+	"./-rf",
+	"././-rf",
+	".//-rf",
+	"./--upload-pack",
+	"./-rf/",
+	".//./-rf",
+	"./-",
+}
+
+// What the working_dir rules say about a request has to still be true of the
+// value the request stores, or the rules are about a string nothing downstream
+// ever reads.
+//
+// The column is written canonical, so the canonical form is the working_dir:
+// it is what the executors cd into, what the gated-twin comparison reads, and
+// what the settings form resubmits on the next save. A spelling admitted as
+// typed whose canonical form the same validator refuses leaves a row that
+// breaks the rule it was checked against, and a workspace whose settings can
+// never be saved again — the resubmit is validated, and it is validated as the
+// stored spelling, not the typed one.
+func TestNoAdmittedWorkingDirIsStoredAsOneTheValidatorRefuses(t *testing.T) {
+	spellings := append(append([]string{}, canonicalisingOptionSpellings...),
+		workingDirSpellingsOverTheAlphabet()...)
+
+	for _, dir := range spellings {
+		if err := validateWorkingDir(dir); err != nil {
+			// Refused at the boundary. Nothing is stored, nothing to check.
+			continue
+		}
+
+		stored := service.CanonicalWorkingDir(dir)
+		if err := validateWorkingDir(stored); err != nil {
+			t.Errorf("working_dir %q is admitted but stored as %q, which the same validator refuses: %v",
+				dir, stored, err)
+			continue
+		}
+		// A request that named a directory must not store "no directory" —
+		// the empty string means "keep what is stored" everywhere else.
+		if dir != "" && stored == "" {
+			t.Errorf("working_dir %q is admitted and stores the empty string", dir)
+		}
+		// And the stored value has to be what storing it again would produce,
+		// or a row rewritten by an unrelated save drifts off the target the
+		// gated-twin comparison matched it on.
+		if again := service.CanonicalWorkingDir(stored); again != stored {
+			t.Errorf("working_dir %q stores %q, which canonicalises further to %q", dir, stored, again)
+		}
+	}
+}
+
+// The same claim from the other side, on the concrete spellings, so the fix is
+// pinned to a behaviour and not only to a property: a path that means "-rf"
+// once it is cleaned is refused where it is typed. The caller gets the refusal
+// the leaf earns rather than a workspace they cannot save.
+func TestWorkingDirSpellingsThatCleanIntoAnOptionAreRefused(t *testing.T) {
+	for _, dir := range canonicalisingOptionSpellings {
+		if err := validateWorkingDir(dir); err == nil {
+			t.Errorf("validateWorkingDir(%q) = nil — it names the leaf %q, which working_dir may not start with",
+				dir, service.CanonicalWorkingDir(dir))
+		}
+	}
+
+	// The refusal is about the leaf, not about the "./": the same paths with
+	// an ordinary leaf stay admitted, and a dash anywhere but the front of a
+	// segment was never the problem.
+	for _, dir := range []string{"./envs", "././envs", ".//envs", "./envs-dr/", "envs/-rf", "a-b/c-d"} {
+		if err := validateWorkingDir(dir); err != nil {
+			t.Errorf("validateWorkingDir(%q) = %v — this names an ordinary directory", dir, err)
+		}
+	}
+}
+
+// workspaceWriteRequest builds an authenticated create/update request. The org
+// role is admin so the approval-gate checks stay out of the way — what is under
+// test here is the working directory, not who may set a gate.
+func workspaceWriteRequest(method, target, orgID, userID, workspaceID, body string) *http.Request {
+	req := httptest.NewRequest(method, target, strings.NewReader(body))
+	rctx := chi.NewRouteContext()
+	if workspaceID != "" {
+		rctx.URLParams.Add("workspaceID", workspaceID)
+	}
+	ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
+	ctx = context.WithValue(ctx, auth.UserContextKey, &auth.UserContext{
+		UserID: userID, OrgID: orgID, Role: "admin",
+	})
+	ctx = auth.ContextWithWorkspaceRole(ctx, "admin")
+	return req.WithContext(ctx)
+}
+
+// The route end of the same claim, against a real database: what the boundary
+// refuses never reaches the column, and what it admits reaches the column in
+// the spelling it was admitted as.
+//
+// The seam test above cannot say this on its own. A route that asked the
+// admission helper and then wrote the string the request arrived with would
+// pass every assertion in this file that stops at the helper, and the row would
+// hold a working directory nothing judged — which is the shape of the defect
+// this test exists for.
+func TestCreateAndUpdateStoreTheWorkingDirTheyAdmitted(t *testing.T) {
+	requireDB(t)
+	ctx := context.Background()
+	orgID, userID := seedOrg(t, ctx, "ws-workdir-admit")
+
+	svc := service.NewWorkspaceService(testQueries, testPool, nil)
+	h := NewWorkspaceHandler(svc, service.NewAuditService(testQueries), nil, testQueries)
+
+	create := func(t *testing.T, name, workingDir string) *httptest.ResponseRecorder {
+		t.Helper()
+		body := `{"name":"` + name + `","source":"vcs","repo_url":"https://github.com/acme/infra.git",` +
+			`"repo_branch":"main","working_dir":"` + workingDir + `"}`
+		rr := httptest.NewRecorder()
+		h.Create(rr, workspaceWriteRequest(http.MethodPost, "/api/v1/workspaces", orgID, userID, "", body))
+		return rr
+	}
+	update := func(t *testing.T, workspaceID, workingDir string) *httptest.ResponseRecorder {
+		t.Helper()
+		body := `{"working_dir":"` + workingDir + `"}`
+		rr := httptest.NewRecorder()
+		h.Update(rr, workspaceWriteRequest(http.MethodPatch,
+			"/api/v1/workspaces/"+workspaceID, orgID, userID, workspaceID, body))
+		return rr
+	}
+
+	// A respelled ordinary directory goes in and lands on its leaf.
+	if code := create(t, "prod", ".//envs/./prod/").Code; code != http.StatusCreated {
+		t.Fatalf("create with a respelled working_dir = %d, want 201", code)
+	}
+	stored, _, err := svc.List(ctx, orgID, 1, 50, "", "")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(stored) != 1 || stored[0].WorkingDir != "envs/prod" {
+		t.Fatalf("stored working_dir = %+v, want a single row at envs/prod", stored)
+	}
+	workspaceID := stored[0].ID
+
+	// And a directory that only becomes a git option once it is cleaned is
+	// refused on both routes, with nothing written and nothing moved.
+	for _, dir := range canonicalisingOptionSpellings {
+		t.Run(dir, func(t *testing.T) {
+			if code := create(t, "sneaky", dir).Code; code != http.StatusBadRequest {
+				t.Errorf("create with working_dir %q = %d, want 400", dir, code)
+			}
+			if code := update(t, workspaceID, dir).Code; code != http.StatusBadRequest {
+				t.Errorf("update with working_dir %q = %d, want 400", dir, code)
+			}
+		})
+	}
+
+	after, err := svc.Get(ctx, workspaceID, orgID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if after.WorkingDir != "envs/prod" {
+		t.Errorf("working_dir after the refused updates = %q, want it untouched at envs/prod", after.WorkingDir)
+	}
+	all, _, err := svc.List(ctx, orgID, 1, 50, "", "")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(all) != 1 {
+		t.Errorf("org holds %d workspaces, want only the one the boundary admitted", len(all))
 	}
 }
 
