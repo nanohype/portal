@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -126,8 +127,10 @@ func (e *LocalExecutor) Execute(ctx context.Context, params ExecuteParams) (*Exe
 		params.LogCallback([]byte("State encryption enabled (AES-GCM).\r\n"))
 	}
 
-	// Write variables file if any. Skipped for terragrunt — its `inputs = {}`
-	// block is the source of truth and portal shouldn't interfere with it.
+	// Write variables file if any. Skipped for terragrunt — the file would land
+	// at the leaf rather than in the rendered cache dir, so terragrunt would
+	// ignore it anyway. Portal's terraform-category variables still reach a
+	// terragrunt run, as TF_VAR_* env entries below.
 	if binary != "terragrunt" {
 		if err := e.writeVariables(tfDir, params.Variables); err != nil {
 			return nil, fmt.Errorf("failed to write variables: %w", err)
@@ -165,6 +168,7 @@ func (e *LocalExecutor) Execute(ctx context.Context, params ExecuteParams) (*Exe
 		os.MkdirAll(cacheDir, 0755)
 		env = append(env, "TF_PLUGIN_CACHE_DIR="+cacheDir)
 	}
+	var tfVarKeys []string
 	for _, v := range params.Variables {
 		switch v.Category {
 		case "env":
@@ -173,13 +177,28 @@ func (e *LocalExecutor) Execute(ctx context.Context, params ExecuteParams) (*Exe
 			// terraform-category vars always go in as TF_VAR_* env entries.
 			// In tofu mode, portal.auto.tfvars (written by writeVariables()
 			// above) takes precedence over TF_VAR_ — the env entries are
-			// redundant but harmless. In terragrunt mode the file is not
-			// written, so TF_VAR_ is the only source; terragrunt's own
-			// `inputs = {}` block (passed as -var, highest precedence)
-			// silently wins for any key it sets, and keys it doesn't set
-			// get picked up from TF_VAR_ cleanly.
+			// redundant but harmless.
+			//
+			// In terragrunt mode the file is not written, so TF_VAR_ is the
+			// only source — and it WINS over the leaf's `inputs = {}`, which
+			// is the opposite of the natural assumption. Terragrunt passes
+			// `inputs` to tofu *through* the environment as TF_VAR_<name> and
+			// does not overwrite a variable the parent process already set, so
+			// its documented order is: explicitly set TF_VAR_* > `inputs` in
+			// terragrunt.hcl > component defaults. A variable set here
+			// therefore overrides what the committed leaf pinned for that
+			// environment, with no plan diff naming the substitution.
+			//
+			// That override is a feature (per-workspace tuning without editing
+			// the repo) but it is a sharp one, so it is logged below: the run
+			// log is the only place the substitution is visible.
 			env = append(env, fmt.Sprintf("TF_VAR_%s=%s", v.Key, v.Value))
+			tfVarKeys = append(tfVarKeys, v.Key)
 		}
+	}
+
+	if notice := terragruntVarOverrideNotice(binary, tfVarKeys); notice != "" {
+		params.LogCallback([]byte(notice))
 	}
 
 	// init
@@ -584,4 +603,31 @@ func (e *LocalExecutor) runToolCapture(ctx context.Context, binary, dir string, 
 
 	err = cmd.Wait()
 	return output.String(), err
+}
+
+// terragruntVarOverrideNotice is the run-log line naming the TF_VAR_* keys
+// portal asserts on a terragrunt run. Returns "" when there is nothing to say.
+//
+// It exists because the override is otherwise invisible. An explicitly set
+// TF_VAR_ outranks the leaf's `inputs = {}` — terragrunt passes `inputs` to tofu
+// through the environment and will not overwrite a variable the parent process
+// already set — so a portal variable silently replaces what the committed leaf
+// pinned for that environment. `terragrunt plan` reports the resulting value and
+// never its origin, and nothing in the leaf hints that a substitution happened.
+// This line is the only place an operator can see it, which is why it names the
+// keys rather than just noting that variables were passed.
+//
+// Keys are sorted so an unchanged variable set produces an unchanged line, and
+// only names are emitted — values may be sensitive.
+func terragruntVarOverrideNotice(binary string, tfVarKeys []string) string {
+	if binary != "terragrunt" || len(tfVarKeys) == 0 {
+		return ""
+	}
+	sorted := make([]string, len(tfVarKeys))
+	copy(sorted, tfVarKeys)
+	sort.Strings(sorted)
+	return fmt.Sprintf(
+		"[portal] setting TF_VAR_* for: %s — these outrank the leaf's `inputs`, so any of "+
+			"these keys also set in terragrunt.hcl is overridden for this run.\r\n\r\n",
+		strings.Join(sorted, ", "))
 }

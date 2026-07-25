@@ -347,6 +347,14 @@ export function VariablesPanel({ workspaceId, role }: Props) {
     }
   };
 
+  // The key being created, when discovery says terragrunt already owns it. Only
+  // resolvable after a Discover run — without one there is nothing to compare
+  // against, and the warning stays absent rather than guessing.
+  const overriddenTerragruntKey =
+    newKey && discoveredVars?.some((v) => v.name === newKey && v.configured_by === 'terragrunt')
+      ? newKey
+      : null;
+
   const handleAddDiscovered = (v: DiscoveredVariable) => {
     setNewKey(v.name);
     setNewValue(v.default ?? '');
@@ -569,8 +577,8 @@ export function VariablesPanel({ workspaceId, role }: Props) {
                       {v.description}
                       {v.configured_by === 'terragrunt' &&
                         (v.description
-                          ? ' — set in terragrunt.hcl; edit there to change'
-                          : 'set in terragrunt.hcl; edit there to change')}
+                          ? ' — set in terragrunt.hcl. A workspace variable of this name overrides it.'
+                          : 'Set in terragrunt.hcl. A workspace variable of this name overrides it.')}
                     </p>
                   )}
                 </div>
@@ -588,6 +596,17 @@ export function VariablesPanel({ workspaceId, role }: Props) {
             value={newKey}
             onChange={(e) => setNewKey(e.target.value)}
           />
+          {/* Naming a key the leaf already pins is allowed and sometimes exactly
+              right, but it is silent everywhere else: an explicit TF_VAR_ beats
+              terragrunt's `inputs`, and the plan shows only the resulting value.
+              Informed consent, not a block. */}
+          {overriddenTerragruntKey && (
+            <p className="text-xs text-amber-600">
+              <span className="font-mono">{overriddenTerragruntKey}</span> is set in terragrunt.hcl.
+              Saving it here overrides the committed value for this workspace — the plan will show
+              the new value without saying where it came from.
+            </p>
+          )}
           {isTagsKey(newKey) && newCategory === 'terraform' ? (
             <TagEditor value={newValue || '{}'} onChange={setNewValue} />
           ) : (

@@ -118,11 +118,11 @@ func (e *KubernetesExecutor) Execute(ctx context.Context, params ExecuteParams) 
 		case "env":
 			envVars = append(envVars, corev1.EnvVar{Name: v.Key, Value: v.Value})
 		case "terraform":
-			// Mirror the local executor: terraform vars are always passed
-			// as TF_VAR_* env so they flow into both tofu mode (redundant
-			// with portal.auto.tfvars; file wins via precedence) and
-			// terragrunt mode (only source; terragrunt's own inputs win
-			// for any key it sets).
+			// Mirror the local executor: terraform vars are always passed as
+			// TF_VAR_* env so they flow into both tofu mode (redundant with
+			// portal.auto.tfvars; the file wins) and terragrunt mode (the only
+			// source — and it OVERRIDES the leaf's `inputs`, per the precedence
+			// note in local.go).
 			envVars = append(envVars, corev1.EnvVar{Name: "TF_VAR_" + v.Key, Value: v.Value})
 		}
 	}

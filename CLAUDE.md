@@ -142,10 +142,15 @@ a "wrapper" flag.
 
 - **Variables.**
   - `terraform`-category vars → injected as `TF_VAR_<key>=<value>` process
-    env (worker + K8s executors). `TF_VAR_` is terraform's
-    lowest-precedence source — keys terragrunt also sets via `inputs = {}`
-    (passed as `-var`, highest precedence) silently win; keys terragrunt
-    doesn't set are picked up cleanly from the env.
+    env (worker + K8s executors). **An explicitly set `TF_VAR_*` beats the
+    leaf's `inputs = {}`** — the opposite of the natural assumption.
+    Terragrunt passes `inputs` to tofu *through* the environment as
+    `TF_VAR_<name>` and does not overwrite a variable the parent process
+    already set, so its documented order is: explicit `TF_VAR_*` → `inputs`
+    in `terragrunt.hcl` → component defaults. A portal variable therefore
+    overrides what the committed leaf pinned for that environment, and no
+    plan diff names the substitution — which is why the worker logs the
+    `TF_VAR_*` keys it sets on every terragrunt run.
   - `env`-category vars → plain process env (`AWS_PROFILE`, `AWS_REGION`,
     etc.).
   - `portal.auto.tfvars` is **not** written in terragrunt mode — it'd land
@@ -223,5 +228,5 @@ The schema is a single pair: `migrations/000001_initial_schema.{up,down}.sql`. F
 - Don't put AWS credentials as `terraform` category variables — use `env` category
 - Don't import `service` from `worker` — use function types to avoid import cycles
 - Don't truncate text in the UI — always show full content
-- Don't expect portal-managed variables to override terragrunt's `inputs = {}` block — they go in as `TF_VAR_*` which is lower precedence than terragrunt's `-var`. The Discover UI marks terragrunt-owned keys as `configured_by: terragrunt` so users see they can't override. To change those values, edit the terragrunt.hcl itself.
+- Don't assume a terragrunt-owned key is out of portal's reach. A portal variable on that key **overrides** the leaf's `inputs = {}` (explicit `TF_VAR_*` outranks `inputs`), silently as far as the plan is concerned. That is a real capability — per-workspace tuning without editing the repo — but reach for it deliberately: the Discover UI marks those keys `configured_by: terragrunt` and the create form warns when you name one, because the committed leaf usually pinned that value on purpose. Edit the terragrunt.hcl when the change belongs to every consumer of that leaf.
 - Don't upload only the leaf for a terragrunt workspace; the archive must contain the parent tree (`root.hcl`, `_envcommon/`, etc.) so `find_in_parent_folders` resolves.

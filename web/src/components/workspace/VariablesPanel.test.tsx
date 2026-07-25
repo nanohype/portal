@@ -78,3 +78,64 @@ describe('VariablesPanel discovery', () => {
     expect(screen.getByRole('button', { name: /^add all/i })).toBeInTheDocument();
   });
 });
+
+// An explicitly set TF_VAR_ beats the leaf's `inputs`, so naming a
+// terragrunt-owned key here overrides the committed value — and nothing
+// downstream says so: the plan shows the resulting value, not its origin. The
+// form is the only place that can warn, so it has to.
+describe('VariablesPanel terragrunt-override warning', () => {
+  async function openFormAfterDiscover(user: ReturnType<typeof userEvent.setup>) {
+    renderWithClient(<VariablesPanel workspaceId="ws-1" role="admin" />);
+    await user.click(await screen.findByRole('button', { name: /discover/i }));
+    await screen.findByText('cluster_name');
+    await user.click(screen.getByRole('button', { name: /add variable/i }));
+    return screen.getByPlaceholderText(/variable key/i);
+  }
+
+  it('warns when the key being created is one terragrunt already sets', async () => {
+    mockApi(VALUED_ROWS);
+    const user = userEvent.setup();
+    const keyInput = await openFormAfterDiscover(user);
+
+    await user.type(keyInput, 'cluster_name');
+
+    expect(await screen.findByText(/overrides the committed value/i)).toBeInTheDocument();
+  });
+
+  it('stays quiet for a key terragrunt does not own', async () => {
+    mockApi(VALUED_ROWS);
+    const user = userEvent.setup();
+    const keyInput = await openFormAfterDiscover(user);
+
+    // `replicas` is discovered but unconfigured — the leaf does not pin it.
+    await user.type(keyInput, 'replicas');
+
+    expect(screen.queryByText(/overrides the committed value/i)).toBeNull();
+  });
+
+  // The warning is informed consent, not a gate: the override is a legitimate
+  // way to tune one workspace without editing a leaf every consumer shares.
+  it('still lets the variable be saved', async () => {
+    mockApi(VALUED_ROWS);
+    const user = userEvent.setup();
+    const keyInput = await openFormAfterDiscover(user);
+
+    await user.type(keyInput, 'cluster_name');
+
+    expect(await screen.findByText(/overrides the committed value/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^save$/i })).toBeEnabled();
+  });
+
+  // Without a Discover run there is nothing to compare against, so the warning
+  // has to be absent rather than guessed at.
+  it('says nothing before discovery has run', async () => {
+    mockApi(VALUED_ROWS);
+    const user = userEvent.setup();
+    renderWithClient(<VariablesPanel workspaceId="ws-1" role="admin" />);
+
+    await user.click(await screen.findByRole('button', { name: /add variable/i }));
+    await user.type(screen.getByPlaceholderText(/variable key/i), 'cluster_name');
+
+    expect(screen.queryByText(/overrides the committed value/i)).toBeNull();
+  });
+});
