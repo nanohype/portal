@@ -123,7 +123,11 @@ describe('fromDatastores', () => {
   // beats rendering `type: false` into a Platform the API server rejects.
   it('falls back to S for an unreadable attribute type', () => {
     const [row] = fromDatastores([
-      { name: 'chunks', kind: 'keyValue', keyValue: { partitionKey: { name: 'docId', type: false } } },
+      {
+        name: 'chunks',
+        kind: 'keyValue',
+        keyValue: { partitionKey: { name: 'docId', type: false } },
+      },
     ]);
     expect(row.partitionKeyType).toBe('S');
   });

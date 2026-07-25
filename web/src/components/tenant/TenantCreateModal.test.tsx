@@ -159,9 +159,7 @@ describe('TenantCreateModal vocabulary', () => {
 
     await waitFor(() => expect(apiMock.POST).toHaveBeenCalled());
     const values = apiMock.POST.mock.calls[0][1].body.values;
-    expect(values.datastores).toEqual([
-      { name: 'work', kind: 'queue', deletionPolicy: 'Retain' },
-    ]);
+    expect(values.datastores).toEqual([{ name: 'work', kind: 'queue', deletionPolicy: 'Retain' }]);
     expect(values.identity.capabilities).toEqual(['eventBridgeScheduler']);
     expect(values.identity.directSecretReads).toEqual(['vendor/api-token']);
     expect(values.attribution.operators).toEqual(['operator@example.com']);
