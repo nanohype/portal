@@ -7,11 +7,11 @@ import (
 	"encoding/json"
 )
 
-const templateColumns = `id, org_id, name, description, persona, default_values, allowed_overrides, max_budget_usd, allowed_model_families, required_compliance, created_by, created_at, updated_at`
+const templateColumns = `id, org_id, name, description, persona, default_values, allowed_overrides, max_budget_usd, allowed_model_families, allowed_datastore_kinds, required_compliance, created_by, created_at, updated_at`
 
 func scanTemplate(row interface{ Scan(...interface{}) error }) (Template, error) {
 	var t Template
-	err := row.Scan(&t.ID, &t.OrgID, &t.Name, &t.Description, &t.Persona, &t.DefaultValues, &t.AllowedOverrides, &t.MaxBudgetUSD, &t.AllowedModelFamilies, &t.RequiredCompliance, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt)
+	err := row.Scan(&t.ID, &t.OrgID, &t.Name, &t.Description, &t.Persona, &t.DefaultValues, &t.AllowedOverrides, &t.MaxBudgetUSD, &t.AllowedModelFamilies, &t.AllowedDatastoreKinds, &t.RequiredCompliance, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt)
 	return t, err
 }
 
@@ -57,7 +57,7 @@ func (q *Queries) ListTemplates(ctx context.Context, arg ListTemplatesParams) ([
 }
 
 func templateColumnsPrefixed(alias string) string {
-	return alias + ".id, " + alias + ".org_id, " + alias + ".name, " + alias + ".description, " + alias + ".persona, " + alias + ".default_values, " + alias + ".allowed_overrides, " + alias + ".max_budget_usd, " + alias + ".allowed_model_families, " + alias + ".required_compliance, " + alias + ".created_by, " + alias + ".created_at, " + alias + ".updated_at"
+	return alias + ".id, " + alias + ".org_id, " + alias + ".name, " + alias + ".description, " + alias + ".persona, " + alias + ".default_values, " + alias + ".allowed_overrides, " + alias + ".max_budget_usd, " + alias + ".allowed_model_families, " + alias + ".allowed_datastore_kinds, " + alias + ".required_compliance, " + alias + ".created_by, " + alias + ".created_at, " + alias + ".updated_at"
 }
 
 func scanTemplates(rows interface {
@@ -85,40 +85,42 @@ func scanTemplates(rows interface {
 }
 
 type CreateTemplateParams struct {
-	ID                   string          `json:"id"`
-	OrgID                string          `json:"org_id"`
-	Name                 string          `json:"name"`
-	Description          string          `json:"description"`
-	Persona              string          `json:"persona"`
-	DefaultValues        json.RawMessage `json:"default_values"`
-	AllowedOverrides     json.RawMessage `json:"allowed_overrides"`
-	MaxBudgetUSD         int32           `json:"max_budget_usd"`
-	AllowedModelFamilies json.RawMessage `json:"allowed_model_families"`
-	RequiredCompliance   json.RawMessage `json:"required_compliance"`
-	CreatedBy            string          `json:"created_by"`
+	ID                    string          `json:"id"`
+	OrgID                 string          `json:"org_id"`
+	Name                  string          `json:"name"`
+	Description           string          `json:"description"`
+	Persona               string          `json:"persona"`
+	DefaultValues         json.RawMessage `json:"default_values"`
+	AllowedOverrides      json.RawMessage `json:"allowed_overrides"`
+	MaxBudgetUSD          int32           `json:"max_budget_usd"`
+	AllowedModelFamilies  json.RawMessage `json:"allowed_model_families"`
+	AllowedDatastoreKinds json.RawMessage `json:"allowed_datastore_kinds"`
+	RequiredCompliance    json.RawMessage `json:"required_compliance"`
+	CreatedBy             string          `json:"created_by"`
 }
 
 func (q *Queries) CreateTemplate(ctx context.Context, arg CreateTemplateParams) (Template, error) {
 	row := q.db.QueryRow(ctx,
-		`INSERT INTO templates (id, org_id, name, description, persona, default_values, allowed_overrides, max_budget_usd, allowed_model_families, required_compliance, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		`INSERT INTO templates (id, org_id, name, description, persona, default_values, allowed_overrides, max_budget_usd, allowed_model_families, allowed_datastore_kinds, required_compliance, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING `+templateColumns,
-		arg.ID, arg.OrgID, arg.Name, arg.Description, arg.Persona, arg.DefaultValues, arg.AllowedOverrides, arg.MaxBudgetUSD, arg.AllowedModelFamilies, arg.RequiredCompliance, arg.CreatedBy,
+		arg.ID, arg.OrgID, arg.Name, arg.Description, arg.Persona, arg.DefaultValues, arg.AllowedOverrides, arg.MaxBudgetUSD, arg.AllowedModelFamilies, arg.AllowedDatastoreKinds, arg.RequiredCompliance, arg.CreatedBy,
 	)
 	return scanTemplate(row)
 }
 
 type UpdateTemplateParams struct {
-	ID                   string          `json:"id"`
-	OrgID                string          `json:"org_id"`
-	Name                 string          `json:"name"`
-	Description          string          `json:"description"`
-	Persona              string          `json:"persona"`
-	DefaultValues        json.RawMessage `json:"default_values"`
-	AllowedOverrides     json.RawMessage `json:"allowed_overrides"`
-	MaxBudgetUSD         *int32          `json:"max_budget_usd"`
-	AllowedModelFamilies json.RawMessage `json:"allowed_model_families"`
-	RequiredCompliance   json.RawMessage `json:"required_compliance"`
+	ID                    string          `json:"id"`
+	OrgID                 string          `json:"org_id"`
+	Name                  string          `json:"name"`
+	Description           string          `json:"description"`
+	Persona               string          `json:"persona"`
+	DefaultValues         json.RawMessage `json:"default_values"`
+	AllowedOverrides      json.RawMessage `json:"allowed_overrides"`
+	MaxBudgetUSD          *int32          `json:"max_budget_usd"`
+	AllowedModelFamilies  json.RawMessage `json:"allowed_model_families"`
+	AllowedDatastoreKinds json.RawMessage `json:"allowed_datastore_kinds"`
+	RequiredCompliance    json.RawMessage `json:"required_compliance"`
 }
 
 // UpdateTemplate uses the established partial-update pattern: empty strings
@@ -134,11 +136,12 @@ func (q *Queries) UpdateTemplate(ctx context.Context, arg UpdateTemplateParams) 
 		    allowed_overrides = COALESCE($7, allowed_overrides),
 		    max_budget_usd = COALESCE($8, max_budget_usd),
 		    allowed_model_families = COALESCE($9, allowed_model_families),
-		    required_compliance = COALESCE($10, required_compliance),
+		    allowed_datastore_kinds = COALESCE($10, allowed_datastore_kinds),
+		    required_compliance = COALESCE($11, required_compliance),
 		    updated_at = NOW()
 		WHERE id = $1 AND org_id = $2
 		RETURNING `+templateColumns,
-		arg.ID, arg.OrgID, arg.Name, arg.Description, arg.Persona, arg.DefaultValues, arg.AllowedOverrides, arg.MaxBudgetUSD, arg.AllowedModelFamilies, arg.RequiredCompliance,
+		arg.ID, arg.OrgID, arg.Name, arg.Description, arg.Persona, arg.DefaultValues, arg.AllowedOverrides, arg.MaxBudgetUSD, arg.AllowedModelFamilies, arg.AllowedDatastoreKinds, arg.RequiredCompliance,
 	)
 	return scanTemplate(row)
 }

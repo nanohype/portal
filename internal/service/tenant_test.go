@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/nanohype/portal/internal/apperr"
@@ -222,4 +223,132 @@ func TestForcePlatformIdentity(t *testing.T) {
 			t.Errorf("got name=%v tenant=%v, want name=alpha tenant=shared", pf["name"], pf["tenant"])
 		}
 	})
+}
+
+// The chart rejects a malformed datastore declaration at render time, but the
+// operator only sees that as a failed git job minutes later. These rules run on
+// the create request instead, on every path — including a create with no
+// template_id, which never reaches TemplateService.ApplyToValues.
+func TestValidateDatastores(t *testing.T) {
+	ds := func(entries ...map[string]interface{}) map[string]interface{} {
+		list := make([]interface{}, len(entries))
+		for i, e := range entries {
+			list[i] = e
+		}
+		return map[string]interface{}{"datastores": list}
+	}
+
+	for _, tc := range []struct {
+		name     string
+		platform string
+		values   map[string]interface{}
+		want     string
+	}{{
+		name:   "no datastores key",
+		values: map[string]interface{}{},
+	}, {
+		name:   "explicit null",
+		values: map[string]interface{}{"datastores": nil},
+	}, {
+		name:   "not a list",
+		values: map[string]interface{}{"datastores": "docs"},
+		want:   "must be a list",
+	}, {
+		name:   "entry is not an object",
+		values: map[string]interface{}{"datastores": []interface{}{"docs"}},
+		want:   "must be an object",
+	}, {
+		name:   "missing name",
+		values: ds(map[string]interface{}{"kind": "queue"}),
+		want:   "needs a name",
+	}, {
+		name:   "name is not an RFC-1123 label",
+		values: ds(map[string]interface{}{"name": "Work_Queue", "kind": "queue"}),
+		want:   "short RFC-1123 label",
+	}, {
+		name:   "duplicate names",
+		values: ds(map[string]interface{}{"name": "work", "kind": "queue"}, map[string]interface{}{"name": "work", "kind": "stream"}),
+		want:   "declared twice",
+	}, {
+		name:   "missing kind",
+		values: ds(map[string]interface{}{"name": "work"}),
+		want:   "needs a kind",
+	}, {
+		name:   "unknown kind",
+		values: ds(map[string]interface{}{"name": "store", "kind": "documentDb"}),
+		want:   "unknown kind",
+	}, {
+		// portal's own name rule admits 63 characters, long enough to make every
+		// datastore illegal — which is exactly why this check is here and not
+		// left to the chart.
+		name:     "over the composed-name budget",
+		platform: "a-tenant-name-that-is-quite-long",
+		values:   ds(map[string]interface{}{"name": "ledger", "kind": "objectStore"}),
+		want:     "over the 28-character budget",
+	}, {
+		// One tighter than the CRD's 28: ElastiCache caps a replication-group id
+		// at 40 including the longest environment token.
+		// The pair below is the boundary itself: 21 + 7 = 28 characters passes for
+		// every kind except cache, which is capped one lower.
+		name:     "cache is one character tighter",
+		platform: "twenty-two-chars-here",
+		values:   ds(map[string]interface{}{"name": "hotcach", "kind": "cache"}),
+		want:     "over the 27-character budget for kind=cache",
+	}, {
+		name:     "the same length is fine for a non-cache kind",
+		platform: "twenty-two-chars-here",
+		values:   ds(map[string]interface{}{"name": "hotstor", "kind": "keyValue"}),
+	}, {
+		name: "every kind accepted",
+		values: ds(
+			map[string]interface{}{"name": "ledger", "kind": "relational"},
+			map[string]interface{}{"name": "sessions", "kind": "keyValue"},
+			map[string]interface{}{"name": "docs", "kind": "objectStore"},
+			map[string]interface{}{"name": "work", "kind": "queue"},
+			map[string]interface{}{"name": "hot", "kind": "cache"},
+			map[string]interface{}{"name": "events", "kind": "stream"},
+		),
+	}} {
+		t.Run(tc.name, func(t *testing.T) {
+			platform := tc.platform
+			if platform == "" {
+				platform = "cover"
+			}
+			err := ValidateDatastores(platform, tc.values)
+			if tc.want == "" {
+				if err != nil {
+					t.Fatalf("want no error, got %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("want an error containing %q, got none", tc.want)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error does not name the reason.\n  want substring: %s\n  got: %v", tc.want, err)
+			}
+		})
+	}
+}
+
+// Validate is the gate the handler calls on every create, so a bad declaration
+// has to come back as a validation error there rather than only inside
+// ValidateDatastores.
+func TestCreateTenantInputValidateRejectsBadDatastore(t *testing.T) {
+	in := CreateTenantInput{
+		ClusterID: "cluster-1",
+		Name:      "acme",
+		Values: map[string]interface{}{
+			"datastores": []interface{}{
+				map[string]interface{}{"name": "docs", "kind": "documentDb"},
+			},
+		},
+	}
+	err := in.Validate()
+	if err == nil {
+		t.Fatal("want a validation error for an unknown datastore kind")
+	}
+	if !strings.Contains(err.Error(), "unknown kind") {
+		t.Errorf("error should name the kind; got %v", err)
+	}
 }

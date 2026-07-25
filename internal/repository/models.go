@@ -311,19 +311,20 @@ type ClusterOperation struct {
 }
 
 type Template struct {
-	ID                   string
-	OrgID                string
-	Name                 string
-	Description          string
-	Persona              string
-	DefaultValues        json.RawMessage
-	AllowedOverrides     json.RawMessage
-	MaxBudgetUSD         int32
-	AllowedModelFamilies json.RawMessage
-	RequiredCompliance   json.RawMessage
-	CreatedBy            string
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
+	ID                    string
+	OrgID                 string
+	Name                  string
+	Description           string
+	Persona               string
+	DefaultValues         json.RawMessage
+	AllowedOverrides      json.RawMessage
+	MaxBudgetUSD          int32
+	AllowedModelFamilies  json.RawMessage
+	AllowedDatastoreKinds json.RawMessage
+	RequiredCompliance    json.RawMessage
+	CreatedBy             string
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
 }
 
 type TenantTeamAccess struct {

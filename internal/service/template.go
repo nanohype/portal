@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -23,29 +24,31 @@ func NewTemplateService(queries *repository.Queries, db *pgxpool.Pool) *Template
 }
 
 type CreateTemplateParams struct {
-	OrgID                string
-	Name                 string
-	Description          string
-	Persona              string
-	DefaultValues        map[string]interface{}
-	AllowedOverrides     []string
-	MaxBudgetUSD         int32
-	AllowedModelFamilies []string
-	RequiredCompliance   []string
-	CreatedBy            string
+	OrgID                 string
+	Name                  string
+	Description           string
+	Persona               string
+	DefaultValues         map[string]interface{}
+	AllowedOverrides      []string
+	MaxBudgetUSD          int32
+	AllowedModelFamilies  []string
+	AllowedDatastoreKinds []string
+	RequiredCompliance    []string
+	CreatedBy             string
 }
 
 type UpdateTemplateParams struct {
-	ID                   string
-	OrgID                string
-	Name                 string
-	Description          string
-	Persona              string
-	DefaultValues        map[string]interface{} // nil = unchanged
-	AllowedOverrides     *[]string              // nil = unchanged
-	MaxBudgetUSD         *int32                 // nil = unchanged
-	AllowedModelFamilies *[]string              // nil = unchanged
-	RequiredCompliance   *[]string              // nil = unchanged
+	ID                    string
+	OrgID                 string
+	Name                  string
+	Description           string
+	Persona               string
+	DefaultValues         map[string]interface{} // nil = unchanged
+	AllowedOverrides      *[]string              // nil = unchanged
+	MaxBudgetUSD          *int32                 // nil = unchanged
+	AllowedModelFamilies  *[]string              // nil = unchanged
+	AllowedDatastoreKinds *[]string              // nil = unchanged
+	RequiredCompliance    *[]string              // nil = unchanged
 }
 
 // List returns templates visible to the caller. Pass teamIDs=nil for the
@@ -75,23 +78,28 @@ func (s *TemplateService) Create(ctx context.Context, params CreateTemplateParam
 	if err != nil {
 		return repository.Template{}, fmt.Errorf("marshal allowed_model_families: %w", err)
 	}
+	kinds, err := jsonOrEmptyArray(params.AllowedDatastoreKinds)
+	if err != nil {
+		return repository.Template{}, fmt.Errorf("marshal allowed_datastore_kinds: %w", err)
+	}
 	compliance, err := jsonOrEmptyArray(params.RequiredCompliance)
 	if err != nil {
 		return repository.Template{}, fmt.Errorf("marshal required_compliance: %w", err)
 	}
 
 	return s.queries.CreateTemplate(ctx, repository.CreateTemplateParams{
-		ID:                   ulid.Make().String(),
-		OrgID:                params.OrgID,
-		Name:                 params.Name,
-		Description:          params.Description,
-		Persona:              params.Persona,
-		DefaultValues:        defaults,
-		AllowedOverrides:     overrides,
-		MaxBudgetUSD:         params.MaxBudgetUSD,
-		AllowedModelFamilies: models,
-		RequiredCompliance:   compliance,
-		CreatedBy:            params.CreatedBy,
+		ID:                    ulid.Make().String(),
+		OrgID:                 params.OrgID,
+		Name:                  params.Name,
+		Description:           params.Description,
+		Persona:               params.Persona,
+		DefaultValues:         defaults,
+		AllowedOverrides:      overrides,
+		MaxBudgetUSD:          params.MaxBudgetUSD,
+		AllowedModelFamilies:  models,
+		AllowedDatastoreKinds: kinds,
+		RequiredCompliance:    compliance,
+		CreatedBy:             params.CreatedBy,
 	})
 }
 
@@ -108,22 +116,27 @@ func (s *TemplateService) Update(ctx context.Context, params UpdateTemplateParam
 	if err != nil {
 		return repository.Template{}, fmt.Errorf("marshal allowed_model_families: %w", err)
 	}
+	kinds, err := jsonOrNilArray(params.AllowedDatastoreKinds)
+	if err != nil {
+		return repository.Template{}, fmt.Errorf("marshal allowed_datastore_kinds: %w", err)
+	}
 	compliance, err := jsonOrNilArray(params.RequiredCompliance)
 	if err != nil {
 		return repository.Template{}, fmt.Errorf("marshal required_compliance: %w", err)
 	}
 
 	return s.queries.UpdateTemplate(ctx, repository.UpdateTemplateParams{
-		ID:                   params.ID,
-		OrgID:                params.OrgID,
-		Name:                 params.Name,
-		Description:          params.Description,
-		Persona:              params.Persona,
-		DefaultValues:        defaults,
-		AllowedOverrides:     overrides,
-		MaxBudgetUSD:         params.MaxBudgetUSD,
-		AllowedModelFamilies: models,
-		RequiredCompliance:   compliance,
+		ID:                    params.ID,
+		OrgID:                 params.OrgID,
+		Name:                  params.Name,
+		Description:           params.Description,
+		Persona:               params.Persona,
+		DefaultValues:         defaults,
+		AllowedOverrides:      overrides,
+		MaxBudgetUSD:          params.MaxBudgetUSD,
+		AllowedModelFamilies:  models,
+		AllowedDatastoreKinds: kinds,
+		RequiredCompliance:    compliance,
 	})
 }
 
@@ -142,7 +155,10 @@ func (s *TemplateService) Delete(ctx context.Context, id, orgID string) error {
 //  3. Cap `budget.monthlyUsd` at `template.max_budget_usd` (when > 0).
 //  4. Intersect `identity.allowedModelFamilies` with the template's list.
 //     Operator can narrow but not broaden.
-//  5. Ensure `platform.compliance.<flag>` is `true` for every required flag.
+//  5. Reject a `datastores` kind outside `template.allowed_datastore_kinds`
+//     (when set). The override allowlist cannot do this on its own: a dotted
+//     path carries the whole list, so allowing `datastores` allows every kind.
+//  6. Ensure `platform.compliance.<flag>` is `true` for every required flag.
 //
 // The function is pure (no DB writes) and gets called from the tenant
 // create handler before the tenant_operation row is persisted, so a
@@ -213,6 +229,26 @@ func (s *TemplateService) ApplyToValues(template repository.Template, overrides 
 		}
 	}
 
+	// The override allowlist is not a cap on datastores. `flatten` treats a list
+	// as a leaf, so one `datastores` entry in allowed_overrides admits the whole
+	// list — including a relational store, which is an Aurora cluster, on a
+	// template meant for scratch tenants. allowed_datastore_kinds is the cap, and
+	// it narrows the same way allowed_model_families does: empty places no
+	// restriction, non-empty is the envelope an operator may pick inside.
+	if len(template.AllowedDatastoreKinds) > 0 {
+		var allowed []string
+		if err := json.Unmarshal(template.AllowedDatastoreKinds, &allowed); err != nil {
+			return nil, fmt.Errorf("template allowed_datastore_kinds is not a JSON array: %w", err)
+		}
+		if len(allowed) > 0 {
+			for _, kind := range declaredDatastoreKinds(merged) {
+				if !slices.Contains(allowed, kind) {
+					return nil, fmt.Errorf("datastore kind %q is not allowed by template (allowed: %s)", kind, strings.Join(allowed, ", "))
+				}
+			}
+		}
+	}
+
 	if len(template.RequiredCompliance) > 0 {
 		var required []string
 		if err := json.Unmarshal(template.RequiredCompliance, &required); err != nil {
@@ -228,6 +264,29 @@ func (s *TemplateService) ApplyToValues(template repository.Template, overrides 
 	}
 
 	return merged, nil
+}
+
+// declaredDatastoreKinds lists the kinds a merged values blob declares, in
+// declaration order and including duplicates, so the caller reports the first
+// disallowed one. A malformed entry contributes nothing here — shape is
+// CreateTenantInput.Validate's job, and it runs on every create path including
+// the ones that carry no template.
+func declaredDatastoreKinds(values map[string]interface{}) []string {
+	list, ok := values["datastores"].([]interface{})
+	if !ok {
+		return nil
+	}
+	var kinds []string
+	for _, item := range list {
+		entry, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if kind, ok := entry["kind"].(string); ok && kind != "" {
+			kinds = append(kinds, kind)
+		}
+	}
+	return kinds
 }
 
 // flatten walks a nested map[string]interface{} and produces a flat

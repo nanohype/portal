@@ -9,6 +9,7 @@ import { Select } from '@/components/ui/select';
 import { ChipToggle } from '@/components/ui/chip-toggle';
 import { useConfirm } from '@/components/ui/confirm-context';
 import { formatRelativeTime } from '@/lib/utils';
+import { DATASTORE_KINDS, type DatastoreKind } from '@/lib/datastores';
 import { Trash2 } from 'lucide-react';
 import {
   Dialog,
@@ -45,6 +46,10 @@ const OVERRIDE_PATH_SUGGESTIONS = [
   'platform.compliance.soc2',
   'budget.monthlyUsd',
   'identity.allowedModelFamilies',
+  'identity.capabilities',
+  'identity.directSecretReads',
+  'attribution.operators',
+  'datastores',
 ];
 
 export function TemplateEditorDialog({
@@ -63,6 +68,11 @@ export function TemplateEditorDialog({
   const [persona, setPersona] = useState('generic');
   const [maxBudget, setMaxBudget] = useState(0);
   const [allowedFamilies, setAllowedFamilies] = useState<Set<string>>(new Set());
+  // Restricting the kinds is the only cap that bounds what stateful substrate an
+  // operator can declare: `datastores` is a single dotted path carrying the whole
+  // list, so allowing that override allows every kind — including relational,
+  // which is an Aurora cluster.
+  const [allowedDatastoreKinds, setAllowedDatastoreKinds] = useState<Set<DatastoreKind>>(new Set());
   const [requiredCompliance, setRequiredCompliance] = useState<Set<string>>(new Set());
   const [allowedOverrides, setAllowedOverrides] = useState<Set<string>>(new Set());
   const [defaultValuesYaml, setDefaultValuesYaml] = useState('');
@@ -75,6 +85,7 @@ export function TemplateEditorDialog({
       setPersona(existing.persona);
       setMaxBudget(existing.max_budget_usd);
       setAllowedFamilies(new Set(existing.allowed_model_families));
+      setAllowedDatastoreKinds(new Set(existing.allowed_datastore_kinds ?? []));
       setRequiredCompliance(new Set(existing.required_compliance));
       setAllowedOverrides(new Set(existing.allowed_overrides));
       setDefaultValuesYaml(JSON.stringify(existing.default_values ?? {}, null, 2));
@@ -84,6 +95,7 @@ export function TemplateEditorDialog({
       setPersona('generic');
       setMaxBudget(0);
       setAllowedFamilies(new Set());
+      setAllowedDatastoreKinds(new Set());
       setRequiredCompliance(new Set());
       setAllowedOverrides(new Set());
       setDefaultValuesYaml('{}');
@@ -119,6 +131,7 @@ export function TemplateEditorDialog({
         allowed_overrides: Array.from(allowedOverrides),
         max_budget_usd: maxBudget,
         allowed_model_families: Array.from(allowedFamilies),
+        allowed_datastore_kinds: Array.from(allowedDatastoreKinds),
         required_compliance: Array.from(requiredCompliance),
       };
       if (existing) {
@@ -147,8 +160,12 @@ export function TemplateEditorDialog({
   const defaultsErr = parseDefaults().err;
   const canSubmit = name.trim() !== '' && persona !== '' && !defaultsErr && !mutation.isPending;
 
+  // Generic over the member type so a Set of a literal union (the datastore
+  // kinds, which are typed off the API contract) toggles without widening to
+  // Set<string> and losing the contract's own vocabulary.
   const toggleSet =
-    (setter: React.Dispatch<React.SetStateAction<Set<string>>>) => (value: string) =>
+    <T,>(setter: React.Dispatch<React.SetStateAction<Set<T>>>) =>
+    (value: T) =>
       setter((prev) => {
         const next = new Set(prev);
         if (next.has(value)) next.delete(value);
@@ -222,6 +239,24 @@ export function TemplateEditorDialog({
                   onClick={() => toggleSet(setAllowedFamilies)(f)}
                 >
                   {f}
+                </ChipToggle>
+              ))}
+            </div>
+          </Field>
+
+          <Field
+            label="Allowed datastore kinds"
+            hint="Empty places no restriction. Narrows what an operator may declare when the datastores override is allowed."
+          >
+            <div className="flex flex-wrap gap-2 pt-0.5">
+              {DATASTORE_KINDS.map((k) => (
+                <ChipToggle
+                  key={k}
+                  mono
+                  active={allowedDatastoreKinds.has(k)}
+                  onClick={() => toggleSet(setAllowedDatastoreKinds)(k)}
+                >
+                  {k}
                 </ChipToggle>
               ))}
             </div>

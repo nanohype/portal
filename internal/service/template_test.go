@@ -251,3 +251,119 @@ func TestApplyToValuesRequiredComplianceSatisfied(t *testing.T) {
 		t.Errorf("compliance satisfied; got %v", err)
 	}
 }
+
+// tplWithDatastoreKinds is tpl plus the datastore-kind cap. Kept separate so the
+// existing cases stay untouched — every one of them exercises the empty-cap
+// default, which has to keep meaning "no restriction".
+func tplWithDatastoreKinds(t *testing.T, overrides []string, kinds []string, defaults map[string]interface{}) repository.Template {
+	t.Helper()
+	template := tpl(t, overrides, 0, nil, nil, defaults)
+	k, _ := json.Marshal(kinds)
+	template.AllowedDatastoreKinds = k
+	return template
+}
+
+func datastoreOverride(entries ...map[string]interface{}) map[string]interface{} {
+	list := make([]interface{}, len(entries))
+	for i, e := range entries {
+		list[i] = e
+	}
+	return map[string]interface{}{"datastores": list}
+}
+
+// The override allowlist alone cannot cap datastores: `flatten` treats a list as
+// a leaf, so one allowed `datastores` path admits the whole list — including a
+// relational store, which is an Aurora cluster. That is what the kind cap is for.
+func TestApplyToValuesDatastoreKindOutsideCapRejected(t *testing.T) {
+	svc := &TemplateService{}
+	template := tplWithDatastoreKinds(t,
+		[]string{"datastores"},
+		[]string{"objectStore", "queue"},
+		map[string]interface{}{},
+	)
+	_, err := svc.ApplyToValues(template, datastoreOverride(
+		map[string]interface{}{"name": "docs", "kind": "objectStore"},
+		map[string]interface{}{"name": "ledger", "kind": "relational"},
+	))
+	if err == nil {
+		t.Fatal("expected a relational datastore to be rejected by the kind cap")
+	}
+	if !strings.Contains(err.Error(), "relational") {
+		t.Errorf("expected the rejected kind in the error; got %v", err)
+	}
+}
+
+func TestApplyToValuesDatastoreKindInsideCapAllowed(t *testing.T) {
+	svc := &TemplateService{}
+	template := tplWithDatastoreKinds(t,
+		[]string{"datastores"},
+		[]string{"objectStore", "queue"},
+		map[string]interface{}{},
+	)
+	merged, err := svc.ApplyToValues(template, datastoreOverride(
+		map[string]interface{}{"name": "docs", "kind": "objectStore"},
+		map[string]interface{}{"name": "work", "kind": "queue"},
+	))
+	if err != nil {
+		t.Fatalf("kinds inside the cap should be allowed; got %v", err)
+	}
+	list, ok := merged["datastores"].([]interface{})
+	if !ok || len(list) != 2 {
+		t.Errorf("the declaration should survive into the merged values; got %#v", merged["datastores"])
+	}
+}
+
+// An empty cap is every existing row, so it has to keep meaning "no restriction".
+func TestApplyToValuesDatastoreEmptyCapMeansUnrestricted(t *testing.T) {
+	svc := &TemplateService{}
+	template := tplWithDatastoreKinds(t,
+		[]string{"datastores"},
+		nil,
+		map[string]interface{}{},
+	)
+	if _, err := svc.ApplyToValues(template, datastoreOverride(
+		map[string]interface{}{"name": "ledger", "kind": "relational"},
+	)); err != nil {
+		t.Errorf("an empty cap should place no restriction; got %v", err)
+	}
+}
+
+// The cap applies to what the template itself declares, not only to overrides —
+// otherwise an admin's own default_values could carry a kind the cap forbids and
+// the template would contradict itself.
+func TestApplyToValuesDatastoreCapAppliesToTemplateDefaults(t *testing.T) {
+	svc := &TemplateService{}
+	template := tplWithDatastoreKinds(t,
+		nil,
+		[]string{"objectStore"},
+		map[string]interface{}{
+			"datastores": []interface{}{
+				map[string]interface{}{"name": "hot", "kind": "cache"},
+			},
+		},
+	)
+	_, err := svc.ApplyToValues(template, map[string]interface{}{})
+	if err == nil {
+		t.Fatal("expected the cap to reject a kind the template's own defaults declare")
+	}
+	if !strings.Contains(err.Error(), "cache") {
+		t.Errorf("expected the rejected kind in the error; got %v", err)
+	}
+}
+
+// A declaration that is not a list of objects contributes no kinds — shape is
+// CreateTenantInput.Validate's job, and it runs on every create path including
+// the ones that carry no template at all.
+func TestApplyToValuesDatastoreCapIgnoresMalformedEntries(t *testing.T) {
+	svc := &TemplateService{}
+	template := tplWithDatastoreKinds(t,
+		[]string{"datastores"},
+		[]string{"objectStore"},
+		map[string]interface{}{},
+	)
+	if _, err := svc.ApplyToValues(template, map[string]interface{}{
+		"datastores": []interface{}{"not-an-object"},
+	}); err != nil {
+		t.Errorf("the kind cap should ignore a malformed entry, leaving shape to Validate; got %v", err)
+	}
+}

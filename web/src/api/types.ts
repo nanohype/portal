@@ -2006,6 +2006,8 @@ export interface components {
             allowed_overrides: string[];
             max_budget_usd: number;
             allowed_model_families: string[];
+            /** @description Datastore kinds an operator may declare on a tenant from this template. Empty places no restriction. The override allowlist cannot express this on its own: `datastores` is one dotted path carrying the whole list, so allowing it allows every kind. */
+            allowed_datastore_kinds: ("relational" | "keyValue" | "objectStore" | "queue" | "cache" | "stream")[];
             required_compliance: string[];
             created_by: string;
             /** Format: date-time */
@@ -2023,6 +2025,7 @@ export interface components {
             allowed_overrides?: string[];
             max_budget_usd?: number;
             allowed_model_families?: string[];
+            allowed_datastore_kinds?: ("relational" | "keyValue" | "objectStore" | "queue" | "cache" | "stream")[];
             required_compliance?: string[];
         };
         UpdateTemplateRequest: {
@@ -2035,6 +2038,7 @@ export interface components {
             allowed_overrides?: string[];
             max_budget_usd?: number;
             allowed_model_families?: string[];
+            allowed_datastore_kinds?: ("relational" | "keyValue" | "objectStore" | "queue" | "cache" | "stream")[];
             required_compliance?: string[];
         };
         /** @description One entry in the org-wide operations feed: exactly one of cluster/tenant is set, discriminated by kind. `at` is the activity time the feed is sorted on (completion if finished, else creation). */

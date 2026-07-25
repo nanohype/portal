@@ -24,9 +24,14 @@ One domain model, four surfaces:
   `platform.nanohype.dev/v1alpha1` Tenant CRDs and reconciles a DB
   inventory. The write path helm-renders the eks-agent-platform
   `charts/tenant` chart, commits to a tenants GitOps repo for ArgoCD, and
-  logs each operation in tenant_operations. Curated templates carry
-  admin-defined default values + caps with server-side enforcement (budget
-  caps, model-family intersection, required-compliance flags).
+  logs each operation in tenant_operations. The create form declares the whole
+  Platform vocabulary — persona, budget, compliance, plus the tenant's
+  `datastores`, `identity.capabilities`, `identity.directSecretReads` and
+  `attribution.operators`. Curated templates carry admin-defined default values
+  + caps with server-side enforcement (budget caps, model-family intersection,
+  datastore-kind narrowing, required-compliance flags). Datastore *shape* rules
+  live on `CreateTenantInput.Validate` rather than in the template service,
+  because a create with no template_id never reaches the latter.
 - **Access control.** Teams with RBAC (owner > admin > operator > viewer).
   tenant_team_access, template_team_access, and workspace_team_access scope
   what non-admins see; admins see everything and manage the grants. A

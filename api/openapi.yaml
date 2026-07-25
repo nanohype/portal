@@ -2666,6 +2666,16 @@ components:
         allowed_model_families:
           type: array
           items: { type: string }
+        allowed_datastore_kinds:
+          description: >
+            Datastore kinds an operator may declare on a tenant from this
+            template. Empty places no restriction. The override allowlist cannot
+            express this on its own: `datastores` is one dotted path carrying the
+            whole list, so allowing it allows every kind.
+          type: array
+          items:
+            type: string
+            enum: [relational, keyValue, objectStore, queue, cache, stream]
         required_compliance:
           type: array
           items: { type: string }
@@ -2675,7 +2685,8 @@ components:
       required:
         [id, org_id, name, description, persona, default_values,
          allowed_overrides, max_budget_usd, allowed_model_families,
-         required_compliance, created_by, created_at, updated_at]
+         allowed_datastore_kinds, required_compliance, created_by, created_at,
+         updated_at]
 
     CreateTemplateRequest:
       type: object
@@ -2693,6 +2704,11 @@ components:
         allowed_model_families:
           type: array
           items: { type: string }
+        allowed_datastore_kinds:
+          type: array
+          items:
+            type: string
+            enum: [relational, keyValue, objectStore, queue, cache, stream]
         required_compliance:
           type: array
           items: { type: string }
@@ -2714,6 +2730,11 @@ components:
         allowed_model_families:
           type: array
           items: { type: string }
+        allowed_datastore_kinds:
+          type: array
+          items:
+            type: string
+            enum: [relational, keyValue, objectStore, queue, cache, stream]
         required_compliance:
           type: array
           items: { type: string }

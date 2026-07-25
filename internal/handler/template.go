@@ -37,36 +37,38 @@ var templateNameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 // TemplateResponse projects repository.Template for API + audit consumption.
 // The JSON-column fields pass through as stored.
 type TemplateResponse struct {
-	ID                   string          `json:"id"`
-	OrgID                string          `json:"org_id"`
-	Name                 string          `json:"name"`
-	Description          string          `json:"description"`
-	Persona              string          `json:"persona"`
-	DefaultValues        json.RawMessage `json:"default_values"`
-	AllowedOverrides     json.RawMessage `json:"allowed_overrides"`
-	MaxBudgetUSD         int32           `json:"max_budget_usd"`
-	AllowedModelFamilies json.RawMessage `json:"allowed_model_families"`
-	RequiredCompliance   json.RawMessage `json:"required_compliance"`
-	CreatedBy            string          `json:"created_by"`
-	CreatedAt            time.Time       `json:"created_at"`
-	UpdatedAt            time.Time       `json:"updated_at"`
+	ID                    string          `json:"id"`
+	OrgID                 string          `json:"org_id"`
+	Name                  string          `json:"name"`
+	Description           string          `json:"description"`
+	Persona               string          `json:"persona"`
+	DefaultValues         json.RawMessage `json:"default_values"`
+	AllowedOverrides      json.RawMessage `json:"allowed_overrides"`
+	MaxBudgetUSD          int32           `json:"max_budget_usd"`
+	AllowedModelFamilies  json.RawMessage `json:"allowed_model_families"`
+	AllowedDatastoreKinds json.RawMessage `json:"allowed_datastore_kinds"`
+	RequiredCompliance    json.RawMessage `json:"required_compliance"`
+	CreatedBy             string          `json:"created_by"`
+	CreatedAt             time.Time       `json:"created_at"`
+	UpdatedAt             time.Time       `json:"updated_at"`
 }
 
 func templateResponse(t repository.Template) TemplateResponse {
 	return TemplateResponse{
-		ID:                   t.ID,
-		OrgID:                t.OrgID,
-		Name:                 t.Name,
-		Description:          t.Description,
-		Persona:              t.Persona,
-		DefaultValues:        t.DefaultValues,
-		AllowedOverrides:     t.AllowedOverrides,
-		MaxBudgetUSD:         t.MaxBudgetUSD,
-		AllowedModelFamilies: t.AllowedModelFamilies,
-		RequiredCompliance:   t.RequiredCompliance,
-		CreatedBy:            t.CreatedBy,
-		CreatedAt:            t.CreatedAt,
-		UpdatedAt:            t.UpdatedAt,
+		ID:                    t.ID,
+		OrgID:                 t.OrgID,
+		Name:                  t.Name,
+		Description:           t.Description,
+		Persona:               t.Persona,
+		DefaultValues:         t.DefaultValues,
+		AllowedOverrides:      t.AllowedOverrides,
+		MaxBudgetUSD:          t.MaxBudgetUSD,
+		AllowedModelFamilies:  t.AllowedModelFamilies,
+		AllowedDatastoreKinds: t.AllowedDatastoreKinds,
+		RequiredCompliance:    t.RequiredCompliance,
+		CreatedBy:             t.CreatedBy,
+		CreatedAt:             t.CreatedAt,
+		UpdatedAt:             t.UpdatedAt,
 	}
 }
 
@@ -93,25 +95,27 @@ func templateTeamAccessResponse(a repository.TemplateTeamAccess) TemplateTeamAcc
 }
 
 type CreateTemplateRequest struct {
-	Name                 string                 `json:"name"`
-	Description          string                 `json:"description"`
-	Persona              string                 `json:"persona"`
-	DefaultValues        map[string]interface{} `json:"default_values"`
-	AllowedOverrides     []string               `json:"allowed_overrides"`
-	MaxBudgetUSD         int32                  `json:"max_budget_usd"`
-	AllowedModelFamilies []string               `json:"allowed_model_families"`
-	RequiredCompliance   []string               `json:"required_compliance"`
+	Name                  string                 `json:"name"`
+	Description           string                 `json:"description"`
+	Persona               string                 `json:"persona"`
+	DefaultValues         map[string]interface{} `json:"default_values"`
+	AllowedOverrides      []string               `json:"allowed_overrides"`
+	MaxBudgetUSD          int32                  `json:"max_budget_usd"`
+	AllowedModelFamilies  []string               `json:"allowed_model_families"`
+	AllowedDatastoreKinds []string               `json:"allowed_datastore_kinds"`
+	RequiredCompliance    []string               `json:"required_compliance"`
 }
 
 type UpdateTemplateRequest struct {
-	Name                 string                 `json:"name"`
-	Description          string                 `json:"description"`
-	Persona              string                 `json:"persona"`
-	DefaultValues        map[string]interface{} `json:"default_values"`
-	AllowedOverrides     *[]string              `json:"allowed_overrides"`
-	MaxBudgetUSD         *int32                 `json:"max_budget_usd"`
-	AllowedModelFamilies *[]string              `json:"allowed_model_families"`
-	RequiredCompliance   *[]string              `json:"required_compliance"`
+	Name                  string                 `json:"name"`
+	Description           string                 `json:"description"`
+	Persona               string                 `json:"persona"`
+	DefaultValues         map[string]interface{} `json:"default_values"`
+	AllowedOverrides      *[]string              `json:"allowed_overrides"`
+	MaxBudgetUSD          *int32                 `json:"max_budget_usd"`
+	AllowedModelFamilies  *[]string              `json:"allowed_model_families"`
+	AllowedDatastoreKinds *[]string              `json:"allowed_datastore_kinds"`
+	RequiredCompliance    *[]string              `json:"required_compliance"`
 }
 
 func (h *TemplateHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -208,16 +212,17 @@ func (h *TemplateHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	t, err := h.svc.Create(r.Context(), service.CreateTemplateParams{
-		OrgID:                userCtx.OrgID,
-		Name:                 req.Name,
-		Description:          req.Description,
-		Persona:              req.Persona,
-		DefaultValues:        req.DefaultValues,
-		AllowedOverrides:     req.AllowedOverrides,
-		MaxBudgetUSD:         req.MaxBudgetUSD,
-		AllowedModelFamilies: req.AllowedModelFamilies,
-		RequiredCompliance:   req.RequiredCompliance,
-		CreatedBy:            userCtx.UserID,
+		OrgID:                 userCtx.OrgID,
+		Name:                  req.Name,
+		Description:           req.Description,
+		Persona:               req.Persona,
+		DefaultValues:         req.DefaultValues,
+		AllowedOverrides:      req.AllowedOverrides,
+		MaxBudgetUSD:          req.MaxBudgetUSD,
+		AllowedModelFamilies:  req.AllowedModelFamilies,
+		AllowedDatastoreKinds: req.AllowedDatastoreKinds,
+		RequiredCompliance:    req.RequiredCompliance,
+		CreatedBy:             userCtx.UserID,
 	})
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -268,16 +273,17 @@ func (h *TemplateHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	updated, err := h.svc.Update(r.Context(), service.UpdateTemplateParams{
-		ID:                   id,
-		OrgID:                userCtx.OrgID,
-		Name:                 req.Name,
-		Description:          req.Description,
-		Persona:              req.Persona,
-		DefaultValues:        req.DefaultValues,
-		AllowedOverrides:     req.AllowedOverrides,
-		MaxBudgetUSD:         req.MaxBudgetUSD,
-		AllowedModelFamilies: req.AllowedModelFamilies,
-		RequiredCompliance:   req.RequiredCompliance,
+		ID:                    id,
+		OrgID:                 userCtx.OrgID,
+		Name:                  req.Name,
+		Description:           req.Description,
+		Persona:               req.Persona,
+		DefaultValues:         req.DefaultValues,
+		AllowedOverrides:      req.AllowedOverrides,
+		MaxBudgetUSD:          req.MaxBudgetUSD,
+		AllowedModelFamilies:  req.AllowedModelFamilies,
+		AllowedDatastoreKinds: req.AllowedDatastoreKinds,
+		RequiredCompliance:    req.RequiredCompliance,
 	})
 	if err != nil {
 		if isUniqueViolation(err) {

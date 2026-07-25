@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -180,12 +182,92 @@ func (in *CreateTenantInput) Normalize() {
 // name must be a valid RFC-1123 label — it becomes a k8s resource name and a
 // filename in the tenants repo. Returns apperr.Validation so the handler maps
 // it to 400 via respond.FromError.
+//
+// The datastore check lives here rather than in TemplateService.ApplyToValues
+// because a create without a template_id never reaches that method: the caps a
+// template carries are template rules, but a malformed declaration is wrong on
+// every path. Catching it here turns a render failure the operator only sees as
+// a failed git job into a 400 that names the field.
 func (in CreateTenantInput) Validate() error {
 	if in.ClusterID == "" {
 		return apperr.Validation("cluster_id is required")
 	}
 	if !clusterspec.ValidName(in.Name) {
 		return apperr.Validation("name must be a valid Kubernetes name (lowercase alphanumeric + hyphen, 1-63 chars)")
+	}
+	// The rendered Platform's metadata.name is always the tenant name
+	// (forcePlatformIdentity), and that is the name a datastore composes with.
+	if err := ValidateDatastores(in.Name, in.Values); err != nil {
+		return apperr.Validation(err.Error())
+	}
+	return nil
+}
+
+// datastoreKinds is the Platform CRD's datastore vocabulary. kind=stream carries
+// no config block; every other kind's block is optional except keyValue's, which
+// holds the partition key a DynamoDB table has no default for.
+var datastoreKinds = []string{"relational", "keyValue", "objectStore", "queue", "cache", "stream"}
+
+var datastoreNameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,16}[a-z0-9])?$`)
+
+// ValidateDatastores checks a values blob's `datastores` list against the rules
+// the tenant chart and the Platform CRD enforce downstream. Pure, so both the
+// create path and its tests exercise the same code.
+//
+// It deliberately checks only what portal can check better than the chart can
+// report: the composed-name budgets (portal knows the tenant name it will force
+// onto the Platform, and its own name rule admits 63 characters — long enough to
+// make every datastore illegal), the kind vocabulary, and the shape. The
+// per-kind config blocks pass through to the chart, which rejects them at render
+// with a message the operation row carries.
+func ValidateDatastores(platformName string, values map[string]interface{}) error {
+	raw, present := values["datastores"]
+	if !present || raw == nil {
+		return nil
+	}
+	list, ok := raw.([]interface{})
+	if !ok {
+		return fmt.Errorf("datastores must be a list")
+	}
+
+	seen := map[string]bool{}
+	for i, item := range list {
+		entry, ok := item.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("datastores[%d] must be an object", i)
+		}
+		name, _ := entry["name"].(string)
+		if name == "" {
+			return fmt.Errorf("datastores[%d] needs a name", i)
+		}
+		if !datastoreNameRe.MatchString(name) {
+			return fmt.Errorf("datastore %q: name must be a short RFC-1123 label, at most 18 characters", name)
+		}
+		if seen[name] {
+			return fmt.Errorf("datastore %q is declared twice; names are unique within a Platform", name)
+		}
+		seen[name] = true
+
+		kind, _ := entry["kind"].(string)
+		if kind == "" {
+			return fmt.Errorf("datastore %q needs a kind (%s)", name, strings.Join(datastoreKinds, "|"))
+		}
+		if !slices.Contains(datastoreKinds, kind) {
+			return fmt.Errorf("datastore %q: unknown kind %q (%s)", name, kind, strings.Join(datastoreKinds, "|"))
+		}
+
+		// The two names compose into the provisioned bucket / table / queue name.
+		// A cache is one character tighter than the CRD's own 28: ElastiCache caps
+		// a replication-group id at 40 including the longest environment token, so
+		// a cache at exactly 28 passes admission and then fails the tofu module.
+		budget := 28
+		if kind == "cache" {
+			budget = 27
+		}
+		if combined := len(platformName) + len(name); combined > budget {
+			return fmt.Errorf("datastore %q: the tenant name (%s) plus the datastore name is %d characters, over the %d-character budget for kind=%s — they compose into the provisioned resource name",
+				name, platformName, combined, budget, kind)
+		}
 	}
 	return nil
 }

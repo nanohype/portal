@@ -16,11 +16,22 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { buildOverrides } from './build-overrides';
+import { DatastoreFields } from './DatastoreFields';
+import {
+  datastoreError,
+  fromDatastores,
+  toDatastores,
+  type DatastoreDraft,
+} from '@/lib/datastores';
 
 // Maps a form-level state var to the dotted helm-values path it controls.
 // The handler uses this allowlist to decide whether a field is editable for
 // a template-driven submission: a field whose path isn't in
 // template.allowed_overrides is disabled and inherits the template default.
+//
+// These strings have to match the tenant chart's values keys exactly, and the
+// same set is offered as suggestions in the template editor — a path spelled
+// differently in either place is a dead allowlist entry.
 const FIELD_PATHS = {
   monthlyUsd: 'budget.monthlyUsd',
   persona: 'platform.persona',
@@ -28,7 +39,38 @@ const FIELD_PATHS = {
   tenant: 'platform.tenant',
   soc2: 'platform.compliance.soc2',
   hipaa: 'platform.compliance.hipaa',
+  datastores: 'datastores',
+  capabilities: 'identity.capabilities',
+  directSecretReads: 'identity.directSecretReads',
+  attributionOperators: 'attribution.operators',
 } as const;
+
+// The managed AWS capabilities outside the datastore vocabulary. Mirrored from
+// the Platform CRD's Capability enum.
+const CAPABILITIES = [
+  {
+    value: 'ses',
+    label: 'ses',
+    hint: 'Send mail. Scoped by a FromAddress condition derived from the platform name.',
+  },
+  {
+    value: 'eventBridgeScheduler',
+    label: 'eventBridgeScheduler',
+    hint: "Manage schedules that deliver into this tenant's own queues. Needs a queue datastore.",
+  },
+] as const;
+
+// Splits a comma/newline separated textarea into a clean list.
+function parseList(raw: string): string[] {
+  return raw
+    .split(/[\n,]/)
+    .map((s) => s.trim())
+    .filter((s) => s !== '');
+}
+
+function asStringList(raw: unknown): string[] {
+  return Array.isArray(raw) ? raw.filter((v): v is string => typeof v === 'string') : [];
+}
 
 const K8S_NAME_RE = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
 
@@ -103,6 +145,10 @@ export function TenantCreateModal({
   const [monthlyUsd, setMonthlyUsd] = useState(500);
   const [hipaa, setHipaa] = useState(false);
   const [soc2, setSoc2] = useState(true);
+  const [datastores, setDatastores] = useState<DatastoreDraft[]>([]);
+  const [capabilities, setCapabilities] = useState<string[]>([]);
+  const [secretReads, setSecretReads] = useState('');
+  const [attributionOperators, setAttributionOperators] = useState('');
 
   const reset = () => {
     setTemplateID('');
@@ -116,6 +162,10 @@ export function TenantCreateModal({
     setMonthlyUsd(500);
     setHipaa(false);
     setSoc2(true);
+    setDatastores([]);
+    setCapabilities([]);
+    setSecretReads('');
+    setAttributionOperators('');
   };
 
   // When a template is picked, prefill from its defaults so the form shows
@@ -139,6 +189,16 @@ export function TenantCreateModal({
     if (typeof budget.monthlyUsd === 'number') setMonthlyUsd(budget.monthlyUsd);
     if (typeof compliance.soc2 === 'boolean') setSoc2(compliance.soc2);
     if (typeof compliance.hipaa === 'boolean') setHipaa(compliance.hipaa);
+
+    // The vocabulary prefills the same way, so the form shows what the tenant
+    // will actually declare rather than an empty editor next to a template that
+    // already carries a substrate.
+    const identity = (d?.identity ?? {}) as Record<string, unknown>;
+    const attribution = (d?.attribution ?? {}) as Record<string, unknown>;
+    setDatastores(fromDatastores(d?.datastores));
+    setCapabilities(asStringList(identity.capabilities));
+    setSecretReads(asStringList(identity.directSecretReads).join('\n'));
+    setAttributionOperators(asStringList(attribution.operators).join('\n'));
   }, [selected]);
 
   const allowed = (path: string) => {
@@ -173,6 +233,10 @@ export function TenantCreateModal({
         [FIELD_PATHS.tenant, tenant || name],
         [FIELD_PATHS.soc2, soc2],
         [FIELD_PATHS.hipaa, hipaa],
+        [FIELD_PATHS.datastores, toDatastores(datastores)],
+        [FIELD_PATHS.capabilities, capabilities],
+        [FIELD_PATHS.directSecretReads, parseList(secretReads)],
+        [FIELD_PATHS.attributionOperators, parseList(attributionOperators)],
       ]);
       return {
         cluster_id: clusterID,
@@ -182,6 +246,12 @@ export function TenantCreateModal({
         values: overrides,
       };
     }
+    // Scratch mode sends the full blob. The vocabulary keys are omitted when
+    // empty rather than sent as empty lists, so a plain tenant renders exactly
+    // the chart's defaults — and attribution in particular is rejected by the
+    // CRD if the block is present with no operators.
+    const operators = parseList(attributionOperators);
+    const reads = parseList(secretReads);
     return {
       cluster_id: clusterID,
       name,
@@ -195,6 +265,16 @@ export function TenantCreateModal({
           compliance: { hipaa, soc2 },
         },
         budget: { monthlyUsd },
+        ...(capabilities.length > 0 || reads.length > 0
+          ? {
+              identity: {
+                ...(capabilities.length > 0 ? { capabilities } : {}),
+                ...(reads.length > 0 ? { directSecretReads: reads } : {}),
+              },
+            }
+          : {}),
+        ...(operators.length > 0 ? { attribution: { operators } } : {}),
+        ...(datastores.length > 0 ? { datastores: toDatastores(datastores) } : {}),
       },
     };
   };
@@ -223,11 +303,22 @@ export function TenantCreateModal({
   const needsTeamPick =
     !isAdmin && pickableTeams !== undefined && pickableTeams.length > 1 && owningTeamID === '';
   const noTeams = !isAdmin && pickableTeams !== undefined && pickableTeams.length === 0;
+  // The composed-name budget depends on the tenant name, so a legal row can turn
+  // illegal as the name is typed. Re-checked here rather than only per row.
+  const datastoresInvalid = datastores.some((d) => datastoreError(d, name, datastores) !== null);
+  // The operator scopes the minted scheduler-invoke role's SendMessage to the
+  // tenant's own queues, so the capability with no queue is a role carrying no
+  // grant. The chart rejects it at render; catching it here keeps the operator
+  // out of a failed git job.
+  const schedulerWithoutQueue =
+    capabilities.includes('eventBridgeScheduler') && !datastores.some((d) => d.kind === 'queue');
   const canSubmit =
     clusterID !== '' &&
     K8S_NAME_RE.test(name) &&
     monthlyUsd > 0 &&
     !budgetOverCap &&
+    !datastoresInvalid &&
+    !schedulerWithoutQueue &&
     !needsTeamPick &&
     !noTeams &&
     !mutation.isPending &&
@@ -469,6 +560,97 @@ export function TenantCreateModal({
                 )}
               </label>
             </div>
+          </Field>
+
+          <Field
+            label="Datastores"
+            className="sm:col-span-2"
+            locked={!allowed(FIELD_PATHS.datastores)}
+            hint="Declaring a datastore grants this tenant access to it and reports it on the Platform. The resource is provisioned when the declaration reaches the landing-zone tenant-substrate input."
+          >
+            <DatastoreFields
+              value={datastores}
+              onChange={setDatastores}
+              platformName={name}
+              allowedKinds={
+                selected && !scratchMode ? (selected.allowed_datastore_kinds ?? []) : []
+              }
+              disabled={!allowed(FIELD_PATHS.datastores)}
+            />
+          </Field>
+
+          <Field
+            label="Capabilities"
+            locked={!allowed(FIELD_PATHS.capabilities)}
+            error={
+              schedulerWithoutQueue
+                ? 'eventBridgeScheduler needs a queue datastore to send to — without one the minted role carries no grant'
+                : null
+            }
+          >
+            <div className="flex flex-col gap-1.5">
+              {CAPABILITIES.map((c) => (
+                <label
+                  key={c.value}
+                  htmlFor={`${uid}-cap-${c.value}`}
+                  className="inline-flex items-start gap-2 text-xs cursor-pointer"
+                >
+                  <input
+                    id={`${uid}-cap-${c.value}`}
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={capabilities.includes(c.value)}
+                    onChange={(e) =>
+                      setCapabilities(
+                        e.target.checked
+                          ? [...capabilities, c.value]
+                          : capabilities.filter((v) => v !== c.value),
+                      )
+                    }
+                    disabled={!allowed(FIELD_PATHS.capabilities)}
+                  />
+                  <span>
+                    <span className="font-mono">{c.label}</span>
+                    <span className="block text-[11px] text-muted-foreground/70">{c.hint}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </Field>
+
+          <Field
+            label="Direct secret reads"
+            htmlFor={`${uid}-secret-reads`}
+            locked={!allowed(FIELD_PATHS.directSecretReads)}
+            hint="One per line, relative to <platform>/<environment>/ — write oncall/webhook-hmac, not the full path."
+          >
+            <textarea
+              id={`${uid}-secret-reads`}
+              value={secretReads}
+              onChange={(e) => setSecretReads(e.target.value)}
+              rows={3}
+              placeholder={'oncall/webhook-hmac\nvendor-api-token'}
+              disabled={!allowed(FIELD_PATHS.directSecretReads)}
+              className="w-full rounded-md border border-border/60 bg-transparent px-2.5 py-1.5 text-xs font-mono disabled:opacity-40"
+            />
+          </Field>
+
+          <Field
+            label="Attribution operators"
+            htmlFor={`${uid}-attribution`}
+            className="sm:col-span-2"
+            locked={!allowed(FIELD_PATHS.attributionOperators)}
+            hint="One lowercased identity per line. Naming anyone turns attribution on: sessions then carry that person as STS SourceIdentity and may impersonate them at the apiserver, so the string must match their Kubernetes RBAC subject exactly. Leave empty for an unattributed tenant."
+          >
+            <textarea
+              id={`${uid}-attribution`}
+              value={attributionOperators}
+              onChange={(e) => setAttributionOperators(e.target.value)}
+              rows={2}
+              placeholder="operator@example.com"
+              disabled={!allowed(FIELD_PATHS.attributionOperators)}
+              className="w-full rounded-md border border-border/60 bg-transparent px-2.5 py-1.5 text-xs font-mono disabled:opacity-40"
+            />
           </Field>
 
           <div className="sm:col-span-2 flex justify-end gap-2 pt-3 border-t border-border/40">

@@ -449,21 +449,26 @@ func (s *seeder) seed() {
 		budget                  int
 		models, compliance      []string
 		overrides               []string
+		// Datastore kinds an operator may declare. Empty places no restriction —
+		// which is why the locked-down template leaves the datastores override off
+		// entirely rather than relying on an empty cap.
+		datastoreKinds []string
 	}
 	tpls := []tpl{
-		{id(), "marketing-analyst", "analyst", "Marketing analytics persona with Anthropic + Nova.", 5000, []string{"anthropic", "nova"}, []string{"soc2"}, []string{"budgetUsd", "modelFamilies"}},
-		{id(), "data-science", "batch", "Batch data-science workloads.", 10000, []string{"nova", "anthropic"}, []string{}, []string{"budgetUsd"}},
-		{id(), "security-audit", "audit", "Locked-down audit persona, no overrides.", 1000, []string{"anthropic"}, []string{"soc2", "hipaa"}, []string{}},
+		{id(), "marketing-analyst", "analyst", "Marketing analytics persona with Anthropic + Nova.", 5000, []string{"anthropic", "nova"}, []string{"soc2"}, []string{"budgetUsd", "modelFamilies"}, nil},
+		{id(), "data-science", "batch", "Batch data-science workloads.", 10000, []string{"nova", "anthropic"}, []string{}, []string{"budgetUsd", "datastores"}, []string{"objectStore", "keyValue", "queue"}},
+		{id(), "security-audit", "audit", "Locked-down audit persona, no overrides.", 1000, []string{"anthropic"}, []string{"soc2", "hipaa"}, []string{}, nil},
 	}
 	for i, t := range tpls {
 		s.ins("templates", map[string]any{
 			"id": t.id, "org_id": orgID, "name": t.name, "description": t.desc, "persona": t.persona,
-			"default_values":         jb(map[string]any{"persona": t.persona, "budgetUsd": t.budget, "modelFamilies": t.models}),
-			"allowed_overrides":      jb(t.overrides),
-			"max_budget_usd":         t.budget,
-			"allowed_model_families": jb(t.models),
-			"required_compliance":    jb(t.compliance),
-			"created_by":             admin, "created_at": s.ago(time.Duration(15-i*2) * d),
+			"default_values":          jb(map[string]any{"persona": t.persona, "budgetUsd": t.budget, "modelFamilies": t.models}),
+			"allowed_overrides":       jb(t.overrides),
+			"max_budget_usd":          t.budget,
+			"allowed_model_families":  jb(t.models),
+			"allowed_datastore_kinds": jb(t.datastoreKinds),
+			"required_compliance":     jb(t.compliance),
+			"created_by":              admin, "created_at": s.ago(time.Duration(15-i*2) * d),
 		})
 	}
 	tplMarketing := tpls[0].id
