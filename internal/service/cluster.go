@@ -10,6 +10,7 @@ import (
 	"github.com/oklog/ulid/v2"
 	"github.com/riverqueue/river"
 
+	"github.com/nanohype/portal/internal/apperr"
 	"github.com/nanohype/portal/internal/conv"
 	"github.com/nanohype/portal/internal/repository"
 	"github.com/nanohype/portal/internal/secrets"
@@ -158,7 +159,19 @@ func (s *ClusterService) Create(ctx context.Context, params CreateClusterParams)
 	})
 }
 
+// Update edits a cluster's mutable fields. Name and environment are not among
+// them: together they address every artifact portal has already committed for
+// this cluster — clusters/<environment>/<name>.yaml in the clusters repo, the
+// hub ArgoCD Application cluster-<environment>-<name>, tenants/<name>/ in the
+// tenants repo, and the EKS cluster <environment>-<name> itself. Editing the
+// row moves none of them. It just points portal somewhere empty, where a
+// deprovision finds no manifest to remove and the health watcher finds no
+// Application, while the cluster those names still belong to runs on.
 func (s *ClusterService) Update(ctx context.Context, params UpdateClusterParams) (repository.Cluster, error) {
+	if err := s.assertIdentityUnchanged(ctx, params); err != nil {
+		return repository.Cluster{}, err
+	}
+
 	caEnc, err := s.encryptIfSet(params.CABundle)
 	if err != nil {
 		return repository.Cluster{}, fmt.Errorf("encrypt ca bundle: %w", err)
@@ -179,6 +192,32 @@ func (s *ClusterService) Update(ctx context.Context, params UpdateClusterParams)
 		SATokenEncrypted:  tokenEnc,
 		Region:            params.Region,
 	})
+}
+
+// assertIdentityUnchanged rejects an edit that would move a cluster's name or
+// environment. Both are optional on the wire — empty means "leave it" — so only
+// a value that differs from the stored one is a rename.
+func (s *ClusterService) assertIdentityUnchanged(ctx context.Context, params UpdateClusterParams) error {
+	if params.Name == "" && params.Environment == "" {
+		return nil
+	}
+	current, err := s.queries.GetCluster(ctx, repository.GetClusterParams{ID: params.ID, OrgID: params.OrgID})
+	if err != nil {
+		return err
+	}
+	return identityChange(params.Name, params.Environment, current)
+}
+
+// identityChange reports the edit as a conflict when it would move the cluster's
+// name or environment. Empty means "leave it", so only a differing value counts.
+func identityChange(name, environment string, current repository.Cluster) error {
+	if name != "" && name != current.Name {
+		return apperr.Conflict(fmt.Sprintf("a cluster's name is fixed at %q: it addresses the manifest, the ArgoCD Application and the tenant directory already committed for this cluster, none of which a rename moves", current.Name))
+	}
+	if environment != "" && environment != current.Environment {
+		return apperr.Conflict(fmt.Sprintf("a cluster's environment is fixed at %q: it is a path segment in the clusters repo and part of both the ArgoCD Application name and the EKS cluster name", current.Environment))
+	}
+	return nil
 }
 
 func (s *ClusterService) Delete(ctx context.Context, id, orgID string) error {

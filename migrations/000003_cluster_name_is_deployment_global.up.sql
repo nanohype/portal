@@ -1,0 +1,27 @@
+-- A cluster's name is the key three deployment-global namespaces index it by,
+-- so the name is unique per portal deployment — not per org.
+--
+-- The vend path writes into namespaces that no org boundary partitions:
+--
+--   clusters/<environment>/<name>.yaml   one clusters GitOps repo
+--                                        (GITOPS_CLUSTERS_REPO_URL, one URL)
+--   cluster-<environment>-<name>         one ArgoCD Application on the hub
+--                                        (ARGOCD_NAMESPACE, one namespace)
+--   tenants/<name>/<tenant>.yaml         one tenants GitOps repo
+--                                        (GITOPS_TENANTS_REPO_URL, one URL)
+--   <environment>-<name>                 the EKS cluster in its account+region
+--
+-- The tenants path is the tightest: it keys on the cluster name alone, with no
+-- environment segment, so the name by itself has to identify one cluster.
+--
+-- Scoping the constraint to an org would let two rows that the database accepts
+-- resolve to the same manifest path, the same Application, and the same tenant
+-- directory — the second vend silently overwriting the first's CR while both
+-- EKS clusters exist and bill. A constraint narrower than the namespace it
+-- guards does not guard it.
+--
+-- The cost is that a name claimed in one org is unavailable in another. That is
+-- already true of the substrate; the constraint stops the schema from implying
+-- otherwise, and turns a silent overwrite into a conflict at order time.
+ALTER TABLE clusters DROP CONSTRAINT clusters_org_id_name_key;
+ALTER TABLE clusters ADD CONSTRAINT clusters_name_key UNIQUE (name);

@@ -68,13 +68,30 @@ func TestWriteFileCreatesParents(t *testing.T) {
 	}
 }
 
-// TestRemoveFileMissing — removing a non-existent file should be a no-op so
-// the delete worker can be invoked safely even if a prior create never
-// completed.
-func TestRemoveFileMissing(t *testing.T) {
+// TestRemoveFile — removing a non-existent file is not an error, so the delete
+// worker can be invoked safely even if a prior create never completed. But the
+// two outcomes have to be distinguishable: a caller that committed afterward
+// would see the same clean tree either way, and report a teardown it never did.
+func TestRemoveFile(t *testing.T) {
 	workdir := t.TempDir()
 	r := &Repo{workdir: workdir}
-	if err := r.RemoveFile("tenants/nope/missing.yaml"); err != nil {
+
+	removed, err := r.RemoveFile("tenants/nope/missing.yaml")
+	if err != nil {
 		t.Errorf("expected nil for missing file, got %v", err)
+	}
+	if removed {
+		t.Error("removed = true for a file that never existed")
+	}
+
+	if err := r.WriteFile("tenants/acme/app.yaml", []byte("kind: Platform\n")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	removed, err = r.RemoveFile("tenants/acme/app.yaml")
+	if err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	if !removed {
+		t.Error("removed = false after removing a file that existed")
 	}
 }

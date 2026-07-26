@@ -155,8 +155,16 @@ func (w *TenantApplyJobWorker) Work(ctx context.Context, job *river.Job[TenantAp
 		commitMsg = fmt.Sprintf("tenant: create %s on %s\n\nWritten by portal on behalf of %s (operation %s).",
 			op.TenantName, cluster.Name, op.CreatedBy, op.ID)
 	case "delete":
-		if err := w.tenantsRepo.RemoveFile(relPath); err != nil {
+		removed, err := w.tenantsRepo.RemoveFile(relPath)
+		if err != nil {
 			return w.fail(ctx, op.ID, op.OrgID, logger, fmt.Errorf("remove manifest: %w", err))
+		}
+		if !removed {
+			// A tenant whose create never committed has nothing to delete, and
+			// that is the ordinary reason to land here — so absence stays a
+			// success. It is logged because the other reason is that the
+			// manifest is somewhere this path no longer looks.
+			logger.Warn("tenant delete found no manifest to remove", "path", relPath, "tenant", op.TenantName)
 		}
 		commitMsg = fmt.Sprintf("tenant: delete %s from %s\n\nDeleted by portal on behalf of %s (operation %s).",
 			op.TenantName, cluster.Name, op.CreatedBy, op.ID)

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -150,9 +151,12 @@ func (s *ClusterProvisionWatchService) reconcileDeprovision(ctx context.Context,
 		return false, nil
 	}
 	// XR gone — teardown complete. Record the terminal phase first (best-effort),
-	// then flip the op; the status query is guarded WHERE status='committed', so a
-	// retry next tick is harmless if either write hiccups.
+	// then release the row, then flip the op; the status query is guarded WHERE
+	// status='committed', so a retry next tick is harmless if any write hiccups.
 	s.setVendPhase(ctx, op, "deprovisioned", "")
+	if err := s.releaseCluster(ctx, op); err != nil {
+		return false, err
+	}
 	if err := s.queries.DeprovisionClusterOperation(ctx, repository.DeprovisionClusterOperationParams{
 		ID: op.ID, OrgID: op.OrgID, CompletedAt: time.Now(),
 	}); err != nil {
@@ -194,14 +198,8 @@ func (s *ClusterProvisionWatchService) register(ctx context.Context, op reposito
 		CreatedBy:      op.CreatedBy,
 	})
 	if err != nil {
-		// A prior tick registered the cluster but crashed before activating the
-		// op — recover the existing row so the op still links + activates.
 		if isUniquePGViolation(err) {
-			existing, getErr := s.queries.GetClusterByName(ctx, repository.GetClusterByNameParams{OrgID: op.OrgID, Name: op.Name})
-			if getErr != nil {
-				return "", fmt.Errorf("cluster %q exists but lookup failed: %w", op.Name, getErr)
-			}
-			return existing.ID, nil
+			return s.recoverRegistered(ctx, op)
 		}
 		return "", fmt.Errorf("register cluster: %w", err)
 	}
@@ -212,6 +210,72 @@ func (s *ClusterProvisionWatchService) register(ctx context.Context, op reposito
 		slog.Warn("provision watch-back: enqueue connection test", "cluster_id", created.ID, "error", err)
 	}
 	return created.ID, nil
+}
+
+// releaseCluster drops the row for a cluster that no longer exists. It runs
+// before the op flips, so a failure leaves the op 'committed' and the next tick
+// tries again rather than stranding the row.
+//
+// The row has to go for two reasons. It describes an endpoint, CA and EKS
+// cluster that AWS has destroyed, so every surface reading it — the fleet page,
+// the connection test, the tenant watcher — is pointed at nothing. And it holds
+// the cluster's name, which is the deployment-global key, so leaving it would
+// make a torn-down cluster's name permanently unusable. The tenants, their
+// operations and their team grants cascade with it; the operation history
+// survives with cluster_id set null.
+func (s *ClusterProvisionWatchService) releaseCluster(ctx context.Context, op repository.ClusterOperation) error {
+	existing, err := s.queries.GetClusterByName(ctx, repository.GetClusterByNameParams{OrgID: op.OrgID, Name: op.Name})
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return nil // never registered, or a prior tick already released it
+	case err != nil:
+		return fmt.Errorf("look up torn-down cluster %q: %w", op.Name, err)
+	case existing.Environment != op.Environment:
+		// Not the cluster this op tore down. Nothing to release, and deleting
+		// the row would take a live cluster's tenants with it.
+		slog.Warn("cluster watch-back: deprovisioned op does not match the registered cluster's environment",
+			"op", op.ID, "name", op.Name, "op_environment", op.Environment, "row_environment", existing.Environment)
+		return nil
+	}
+	if err := s.clusters.Delete(ctx, existing.ID, op.OrgID); err != nil {
+		return fmt.Errorf("release cluster row %s: %w", existing.ID, err)
+	}
+	slog.Info("cluster watch-back: released cluster row", "op", op.ID, "cluster", existing.ID, "name", op.Name)
+	return nil
+}
+
+// recoverRegistered resolves a name collision on register. Exactly one reading
+// of that collision lets the op continue: the cluster this op vended is already
+// in the table, because a prior tick registered it and crashed before flipping
+// the op. Then the row belongs to this org and carries this op's environment,
+// and returning its id lets the op finish where it left off.
+//
+// Every other reading is a different cluster wearing the same name, and the op
+// has to fail rather than adopt it. Adopting one would mark the op active
+// against an endpoint, CA and EKS cluster name it never provisioned, while the
+// cluster it did provision stays out of the table — running, billing, and
+// invisible to the surfaces that would let anyone find or tear it down. A
+// failed op leaves the same cluster unregistered but says so, with the name it
+// collided on.
+func (s *ClusterProvisionWatchService) recoverRegistered(ctx context.Context, op repository.ClusterOperation) (string, error) {
+	existing, err := s.queries.GetClusterByName(ctx, repository.GetClusterByNameParams{OrgID: op.OrgID, Name: op.Name})
+	return resolveNameCollision(op, existing, err)
+}
+
+// resolveNameCollision is the decision recoverRegistered makes, separated from
+// the lookup so each reading of a collision is pinned without a database.
+func resolveNameCollision(op repository.ClusterOperation, existing repository.Cluster, lookupErr error) (string, error) {
+	switch {
+	case errors.Is(lookupErr, pgx.ErrNoRows):
+		// Names are unique per deployment, so a collision this org cannot see
+		// belongs to another org.
+		return "", fmt.Errorf("cluster name %q is held by another org in this deployment; op %s vended a cluster that is not registered", op.Name, op.ID)
+	case lookupErr != nil:
+		return "", fmt.Errorf("cluster %q exists but lookup failed: %w", op.Name, lookupErr)
+	case existing.Environment != op.Environment:
+		return "", fmt.Errorf("cluster name %q is registered in environment %q but op %s vended it in %q — two different clusters, and the vended one is not registered", op.Name, existing.Environment, op.ID, op.Environment)
+	}
+	return existing.ID, nil
 }
 
 type clusterXRStatus struct {

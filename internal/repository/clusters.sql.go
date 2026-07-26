@@ -4,7 +4,10 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 const clusterColumns = `id, org_id, account_id, name, description, environment, api_endpoint, ca_bundle_encrypted, sa_token_encrypted, region, auth_mode, eks_cluster_name, connection_status, last_connected_at, connection_error, node_count, k8s_version, argocd_sync_status, argocd_health_status, control_plane_status, platform_version, last_health_observed_at, created_by, created_at, updated_at`
@@ -33,16 +36,44 @@ type GetClusterByNameParams struct {
 	Name  string `json:"name"`
 }
 
-// GetClusterByName looks up a cluster by its org-unique name. The provision
-// watch-back uses it to stay idempotent: if a prior tick already registered
-// the vended cluster but crashed before activating the op, the next tick finds
-// the existing row instead of colliding on the UNIQUE(org_id, name) constraint.
+// GetClusterByName looks up one org's cluster by name. The provision watch-back
+// uses it to stay idempotent: if a prior tick already registered the vended
+// cluster but crashed before activating the op, the next tick finds the existing
+// row instead of colliding on the name constraint.
+//
+// The org filter makes a miss meaningful. Names are unique per deployment, not
+// per org, so a caller that collided and then finds nothing here has collided
+// with a *different* org's cluster — a real conflict, not its own replay.
 func (q *Queries) GetClusterByName(ctx context.Context, arg GetClusterByNameParams) (Cluster, error) {
 	row := q.db.QueryRow(ctx,
 		`SELECT `+clusterColumns+` FROM clusters WHERE org_id = $1 AND name = $2`,
 		arg.OrgID, arg.Name,
 	)
 	return scanCluster(row)
+}
+
+// ClusterNameTaken reports whether any cluster in the deployment already holds
+// this name, and which environment it sits in.
+//
+// Deliberately not org-scoped, unlike every other query here. A cluster's name
+// is the key the clusters repo path, the hub ArgoCD Application and the tenants
+// repo directory all index it by, and none of those is partitioned by org — so
+// "is this name available" is a question about the deployment, not about the
+// caller's org. It returns the environment rather than the row so an
+// order-time conflict can say what the name collides with without handing one
+// org another's cluster.
+func (q *Queries) ClusterNameTaken(ctx context.Context, name string) (bool, string, error) {
+	var environment string
+	err := q.db.QueryRow(ctx,
+		`SELECT environment FROM clusters WHERE name = $1`, name,
+	).Scan(&environment)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, "", nil
+		}
+		return false, "", err
+	}
+	return true, environment, nil
 }
 
 type ListClustersParams struct {

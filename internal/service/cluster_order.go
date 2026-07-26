@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -42,16 +43,108 @@ func (s *ClusterOrderService) EnqueueProvision(ctx context.Context, orgID, creat
 	if err := input.Validate(); err != nil {
 		return repository.ClusterOperation{}, err
 	}
+	if err := s.assertNameAvailable(ctx, input.Name); err != nil {
+		return repository.ClusterOperation{}, err
+	}
 	return s.enqueue(ctx, orgID, "provision", createdBy, input)
+}
+
+// assertNameAvailable rejects a provision whose cluster name is already vended.
+//
+// The uniqueness constraint on clusters is the authority, but reaching it costs
+// a cluster: the order commits a CR, ArgoCD applies it, Crossplane builds real
+// EKS, and only the watch-back's register call meets the constraint — half an
+// hour and a billing cluster later. Asking at order time makes the same answer
+// free, and it is the answer a user can act on.
+//
+// Deployment-wide, because the name is (see ClusterNameTaken), so this can
+// reject a name held by another org. It reports the environment and nothing
+// else: enough to explain the conflict without enumerating anyone's fleet.
+//
+// A registered cluster is only half the answer. Between the order and the
+// register there is a vend window of half an hour or so in which no clusters
+// row exists, and a second order landing in it overwrites the first's manifest
+// in place — same name, same path — while ArgoCD is mid-build. So an in-flight
+// provision holds the name too.
+func (s *ClusterOrderService) assertNameAvailable(ctx context.Context, name string) error {
+	taken, environment, err := s.queries.ClusterNameTaken(ctx, name)
+	if err != nil {
+		return fmt.Errorf("check cluster name: %w", err)
+	}
+	if taken {
+		return apperr.Conflict(fmt.Sprintf(
+			"a cluster named %q is already registered (environment %s); cluster names are unique per portal deployment, since the clusters repo path, the hub ArgoCD Application and the tenants repo directory all key on the name",
+			name, environment))
+	}
+
+	building, environment, err := s.queries.ProvisionInFlight(ctx, name)
+	if err != nil {
+		return fmt.Errorf("check in-flight provisions: %w", err)
+	}
+	if building {
+		return apperr.Conflict(fmt.Sprintf(
+			"a cluster named %q is already being vended (environment %s); ordering a second one would rewrite its manifest mid-build",
+			name, environment))
+	}
+	return nil
 }
 
 // EnqueueDeprovision records intent to tear a cluster down (remove its file →
 // ArgoCD prunes → Crossplane tofu destroy). name+environment locate the manifest;
 // team is recorded for the audit trail.
 func (s *ClusterOrderService) EnqueueDeprovision(ctx context.Context, orgID, name, environment, team, createdBy string) (repository.ClusterOperation, error) {
+	if err := s.assertDeprovisionable(ctx, orgID, name, environment); err != nil {
+		return repository.ClusterOperation{}, err
+	}
 	return s.enqueue(ctx, orgID, "deprovision", createdBy, clusterspec.Input{
 		Name: name, Environment: environment, Team: team,
 	})
+}
+
+// assertDeprovisionable rejects a teardown of something portal has no record
+// of vending. Teardown is removal: the worker deletes clusters/<environment>/
+// <name>.yaml and lets ArgoCD prune. Given the wrong pair it deletes nothing,
+// and "nothing to delete" and "deleted it" leave the same clean tree — which is
+// how a typo used to read as a completed teardown.
+//
+// A registered cluster is the usual record. A provision that committed its
+// manifest but never registered is the other one: the manifest is what teardown
+// removes, and it exists from the moment that op reaches 'committed', so a vend
+// that failed on the way to a portal row is still deprovisionable.
+func (s *ClusterOrderService) assertDeprovisionable(ctx context.Context, orgID, name, environment string) error {
+	cluster, err := s.queries.GetClusterByName(ctx, repository.GetClusterByNameParams{OrgID: orgID, Name: name})
+	switch {
+	case err == nil && cluster.Environment == environment:
+		return nil
+	case err != nil && !errors.Is(err, pgx.ErrNoRows):
+		return fmt.Errorf("look up cluster: %w", err)
+	}
+
+	ops, err := s.queries.ListClusterOperations(ctx, repository.ListClusterOperationsParams{
+		OrgID: orgID, Name: name, Environment: environment,
+	})
+	if err != nil {
+		return fmt.Errorf("list operations: %w", err)
+	}
+	if hasCommittedProvision(ops) {
+		return nil
+	}
+	return apperr.Conflict(fmt.Sprintf(
+		"no cluster %q on record in environment %s; there is no manifest to remove, so this would report a teardown that never happened",
+		name, environment))
+}
+
+// hasCommittedProvision reports whether any of these operations put a manifest
+// in the clusters repo. 'committed' means the worker pushed it; 'active' means
+// the vend also finished. 'pending' has not written anything yet, and 'failed'
+// and 'deprovisioned' are both states in which no manifest is left to remove.
+func hasCommittedProvision(ops []repository.ClusterOperation) bool {
+	for _, op := range ops {
+		if op.Operation == "provision" && (op.Status == "committed" || op.Status == "active") {
+			return true
+		}
+	}
+	return false
 }
 
 // EnqueueUnwedge records intent to break-glass tear down a wedged spoke and

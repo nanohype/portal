@@ -940,3 +940,130 @@ func TestConfigTargetsMatch(t *testing.T) {
 		t.Fatal("a replacement gate spelled differently must still count as guarding the config")
 	}
 }
+
+// TestClusterNameIsDeploymentGlobal asserts the one constraint the vend path
+// actually depends on. A cluster's name is the key three deployment-global
+// namespaces index it by — clusters/<environment>/<name>.yaml in the clusters
+// repo, the hub ArgoCD Application cluster-<environment>-<name>, and
+// tenants/<name>/ in the tenants repo — and none of them is partitioned by org.
+// An org-scoped constraint would accept two rows that resolve to the same
+// manifest path, so the second vend would overwrite the first's CR while both
+// EKS clusters exist and bill.
+func TestClusterNameIsDeploymentGlobal(t *testing.T) {
+	requireDB(t)
+	ctx := context.Background()
+
+	orgA, userA := seedOrg(t, ctx, "clname-a")
+	orgB, userB := seedOrg(t, ctx, "clname-b")
+	acctA, acctB := id(), id()
+	exec(t, ctx, `INSERT INTO accounts (id,org_id,name,aws_account_id,assume_role_arn,default_region,created_by) VALUES ($1,$2,'acc','111111111111','arn:aws:iam::111111111111:role/x','us-west-2',$3)`, acctA, orgA, userA)
+	exec(t, ctx, `INSERT INTO accounts (id,org_id,name,aws_account_id,assume_role_arn,default_region,created_by) VALUES ($1,$2,'acc','222222222222','arn:aws:iam::222222222222:role/x','us-west-2',$3)`, acctB, orgB, userB)
+
+	name := "web-" + id()
+	insertCluster := func(clID, orgID, acctID, userID, environment string) error {
+		_, err := testPool.Exec(ctx,
+			`INSERT INTO clusters (id,org_id,account_id,name,environment,api_endpoint,ca_bundle_encrypted,sa_token_encrypted,region,created_by)
+			 VALUES ($1,$2,$3,$4,$5,'https://x','x','x','us-west-2',$6)`,
+			clID, orgID, acctID, name, environment, userID)
+		return err
+	}
+
+	if err := insertCluster(id(), orgA, acctA, userA, "development"); err != nil {
+		t.Fatalf("first cluster must insert: %v", err)
+	}
+
+	// Another org, same name: rejected. Both would write tenants/<name>/.
+	if err := insertCluster(id(), orgB, acctB, userB, "development"); err == nil {
+		t.Error("a second org took the same cluster name; both vends resolve to one manifest path")
+	}
+
+	// Same org, same name, different environment: also rejected. These are two
+	// distinct EKS clusters (<environment>-<name>) whose tenants would share one
+	// tenants/<name>/ directory, and whose registration would collide with only
+	// the name to tell them apart.
+	if err := insertCluster(id(), orgA, acctA, userA, "production"); err == nil {
+		t.Error("the same name was taken twice in one org across environments")
+	}
+
+	// ClusterNameTaken answers for the deployment, not the caller's org — orgB
+	// must see orgA's claim, or the order desk would accept a doomed provision.
+	taken, environment, err := testQueries.ClusterNameTaken(ctx, name)
+	if err != nil {
+		t.Fatalf("ClusterNameTaken: %v", err)
+	}
+	if !taken {
+		t.Error("taken = false for a registered name")
+	}
+	if environment != "development" {
+		t.Errorf("environment = %q, want development — the conflict has to say what it collides with", environment)
+	}
+
+	// A free name reports free, with no error to mistake for a claim.
+	taken, environment, err = testQueries.ClusterNameTaken(ctx, "unclaimed-"+id())
+	if err != nil {
+		t.Fatalf("ClusterNameTaken on a free name must not error: %v", err)
+	}
+	if taken || environment != "" {
+		t.Errorf("free name reported as taken=%v environment=%q", taken, environment)
+	}
+}
+
+// TestProvisionInFlight covers the vend window — the half hour between an order
+// and its cluster row, where the clusters constraint cannot help because there
+// is nothing to collide with yet. A second order accepted in that window
+// rewrites the first's manifest in the clusters repo while ArgoCD is building
+// from it.
+func TestProvisionInFlight(t *testing.T) {
+	requireDB(t)
+	ctx := context.Background()
+	orgID, userID := seedOrg(t, ctx, "inflight")
+
+	name := "apex-" + id()
+	order := func(status string) {
+		exec(t, ctx, `INSERT INTO cluster_operations (id, org_id, name, environment, team, operation, status, spec_json, created_by)
+			VALUES ($1,$2,$3,'staging','platform','provision'::cluster_op_kind,$4::cluster_op_status,'{}'::jsonb,$5)`,
+			id(), orgID, name, status, userID)
+	}
+
+	inFlight, environment, err := testQueries.ProvisionInFlight(ctx, name)
+	if err != nil {
+		t.Fatalf("ProvisionInFlight: %v", err)
+	}
+	if inFlight {
+		t.Fatal("in-flight before any order was placed")
+	}
+
+	// Ordered, worker hasn't written yet — already claims the name, because the
+	// worker is about to write to exactly that path.
+	order("pending")
+	if inFlight, environment, _ = testQueries.ProvisionInFlight(ctx, name); !inFlight || environment != "staging" {
+		t.Errorf("pending provision: in-flight=%v environment=%q, want true/staging", inFlight, environment)
+	}
+
+	// Manifest pushed, cluster building — the window this exists for.
+	exec(t, ctx, `UPDATE cluster_operations SET status='committed' WHERE name=$1`, name)
+	if inFlight, _, _ = testQueries.ProvisionInFlight(ctx, name); !inFlight {
+		t.Error("committed provision must still hold the name; the cluster is mid-build")
+	}
+
+	// Registered: the clusters row takes over as the authority, so the op no
+	// longer needs to hold the name.
+	exec(t, ctx, `UPDATE cluster_operations SET status='active' WHERE name=$1`, name)
+	if inFlight, _, _ = testQueries.ProvisionInFlight(ctx, name); inFlight {
+		t.Error("an active provision is registered; ClusterNameTaken holds the name from there")
+	}
+
+	// Failed and torn down are both terminal — the name is free again.
+	for _, status := range []string{"failed", "deprovisioned"} {
+		exec(t, ctx, `UPDATE cluster_operations SET status=$2 WHERE name=$1`, name, status)
+		if inFlight, _, _ = testQueries.ProvisionInFlight(ctx, name); inFlight {
+			t.Errorf("%s provision still holds the name; it can never be reused", status)
+		}
+	}
+
+	// A deprovision op never claims the name for a future provision.
+	exec(t, ctx, `UPDATE cluster_operations SET operation='deprovision', status='committed' WHERE name=$1`, name)
+	if inFlight, _, _ = testQueries.ProvisionInFlight(ctx, name); inFlight {
+		t.Error("a committed deprovision must not block a re-vend of the same name")
+	}
+}

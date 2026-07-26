@@ -142,8 +142,20 @@ func (w *ClusterApplyJobWorker) Work(ctx context.Context, job *river.Job[Cluster
 		commitMsg = fmt.Sprintf("cluster: provision %s (%s)\n\nWritten by portal on behalf of %s (operation %s).",
 			op.Name, op.Environment, op.CreatedBy, op.ID)
 	case "deprovision":
-		if err := w.clustersRepo.RemoveFile(relPath); err != nil {
+		removed, err := w.clustersRepo.RemoveFile(relPath)
+		if err != nil {
 			return w.fail(ctx, op.ID, op.OrgID, logger, fmt.Errorf("remove manifest: %w", err))
+		}
+		if !removed {
+			// Nothing at that path means portal cannot tear this cluster down —
+			// the manifest it would delete is the only thing that makes ArgoCD
+			// prune the Cluster CR and Crossplane run destroy. Left to run, the
+			// commit finds a clean tree, the op completes, and the watch-back
+			// reads the absent XR as "teardown complete": a green timeline over
+			// an EKS cluster that is still running and still billing. Fail
+			// instead, naming the path, so the gap is visible.
+			return w.fail(ctx, op.ID, op.OrgID, logger,
+				fmt.Errorf("no manifest at %s: nothing was torn down; the cluster may still be running under a different name or environment", relPath))
 		}
 		commitMsg = fmt.Sprintf("cluster: deprovision %s (%s)\n\nDeleted by portal on behalf of %s (operation %s).",
 			op.Name, op.Environment, op.CreatedBy, op.ID)

@@ -214,7 +214,7 @@ a "wrapper" flag.
 
 ### Adding a database migration
 
-The schema is a single pair: `migrations/000001_initial_schema.{up,down}.sql`. For dev, modify it directly and `docker compose down -v && docker compose up -d` to reset. For production, create a new numbered migration pair — `cmd/migrate` walks the directory.
+`cmd/migrate` walks `migrations/` and applies every numbered pair in order, so a change lands as a new `{up,down}.sql` pair. `000001_initial_schema` is the whole schema; later pairs are the deltas on top of it.
 
 ## Environment
 

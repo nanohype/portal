@@ -73,7 +73,6 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
     },
   });
 
-  const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [apiEndpoint, setApiEndpoint] = useState('');
   const [region, setRegion] = useState('');
@@ -84,7 +83,6 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
   useEffect(() => {
     if (!data) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional one-time sync of editable form fields from fetched data
-    setName(data.name);
     setDescription(data.description ?? '');
     setApiEndpoint(data.api_endpoint);
     setRegion(data.region);
@@ -94,7 +92,6 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
     mutationFn: async () => {
       const body: Record<string, string> = {};
       if (data) {
-        if (name !== data.name) body.name = name.trim();
         if (description !== (data.description ?? '')) body.description = description.trim();
         if (apiEndpoint !== data.api_endpoint) body.api_endpoint = apiEndpoint.trim();
         if (region !== data.region) body.region = region.trim();
@@ -247,7 +244,6 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
   }
 
   const hasChanges =
-    name !== data.name ||
     description !== (data.description ?? '') ||
     apiEndpoint !== data.api_endpoint ||
     region !== data.region ||
@@ -412,13 +408,15 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
       )}
 
       <div className="space-y-5">
-        <FormRow label="Name" htmlFor={`${uid}-name`}>
-          <Input
-            id={`${uid}-name`}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            disabled={!isAdmin}
-          />
+        <FormRow
+          label="Name"
+          htmlFor={`${uid}-name`}
+          hint="Immutable. The name addresses this cluster's manifest, its ArgoCD Application and its tenant directory."
+        >
+          <div className="flex items-center gap-2">
+            <Input id={`${uid}-name`} value={data.name} disabled />
+            <Lock className="w-3.5 h-3.5 text-muted-foreground/50" />
+          </div>
         </FormRow>
 
         <FormRow label="Description" htmlFor={`${uid}-description`}>
@@ -523,7 +521,7 @@ export function ClusterDetail({ clusterId }: { clusterId: string }) {
             <Button
               size="sm"
               onClick={() => updateMutation.mutate()}
-              disabled={!hasChanges || updateMutation.isPending || name.trim() === ''}
+              disabled={!hasChanges || updateMutation.isPending}
             >
               <Save className="w-3 h-3" />
               {updateMutation.isPending ? 'Saving...' : 'Save changes'}

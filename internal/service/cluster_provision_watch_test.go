@@ -1,6 +1,14 @@
 package service
 
-import "testing"
+import (
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/nanohype/portal/internal/repository"
+)
 
 // clusterStatus must extract the watch-back's fields from an eks-fleet Cluster
 // XR .status defensively, and ready() must gate registration on all three being
@@ -164,4 +172,68 @@ func TestTofuState(t *testing.T) {
 	if b, msg := tofuState([][]condition{nil}); !b || msg != "" {
 		t.Errorf("present-no-conditions: got (%v, %q), want (true, '')", b, msg)
 	}
+}
+
+// TestResolveNameCollision pins what a register-time name collision is allowed
+// to mean. Only one reading lets the op continue — its own earlier tick. Any
+// other reading means a different cluster holds the name, and returning that
+// cluster's id would mark the op active against an endpoint it never
+// provisioned while the cluster it did provision runs unregistered and billing.
+func TestResolveNameCollision(t *testing.T) {
+	op := repository.ClusterOperation{
+		ID: "op1", OrgID: "org-a", Name: "web", Environment: "production",
+	}
+
+	t.Run("own earlier tick resumes", func(t *testing.T) {
+		existing := repository.Cluster{ID: "cl-1", OrgID: "org-a", Name: "web", Environment: "production"}
+		id, err := resolveNameCollision(op, existing, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if id != "cl-1" {
+			t.Errorf("id = %q, want cl-1 — a crashed-then-retried tick must find its own row", id)
+		}
+	})
+
+	t.Run("same name in another environment is another cluster", func(t *testing.T) {
+		// The vend path writes clusters/<environment>/<name>.yaml, so this row
+		// and this op are two separate EKS clusters that happen to share a name.
+		existing := repository.Cluster{ID: "cl-dev", OrgID: "org-a", Name: "web", Environment: "development"}
+		id, err := resolveNameCollision(op, existing, nil)
+		if err == nil {
+			t.Fatal("want an error; adopting the development row would alias the production vend onto it")
+		}
+		if id != "" {
+			t.Errorf("id = %q, want empty — no id may be returned for a cluster this op did not vend", id)
+		}
+		if !strings.Contains(err.Error(), "development") || !strings.Contains(err.Error(), "production") {
+			t.Errorf("error must name both environments so the collision is diagnosable, got: %v", err)
+		}
+	})
+
+	t.Run("name held outside this org", func(t *testing.T) {
+		// GetClusterByName is org-scoped, so a collision plus no row means the
+		// name belongs to another org in the same deployment.
+		id, err := resolveNameCollision(op, repository.Cluster{}, pgx.ErrNoRows)
+		if err == nil {
+			t.Fatal("want an error, not a silent success on an empty row")
+		}
+		if id != "" {
+			t.Errorf("id = %q, want empty", id)
+		}
+		if !strings.Contains(err.Error(), "another org") {
+			t.Errorf("error should say the name is held elsewhere, got: %v", err)
+		}
+	})
+
+	t.Run("lookup failure is not a resume", func(t *testing.T) {
+		boom := errors.New("connection reset")
+		id, err := resolveNameCollision(op, repository.Cluster{}, boom)
+		if !errors.Is(err, boom) {
+			t.Errorf("error = %v, want it to wrap the lookup failure", err)
+		}
+		if id != "" {
+			t.Errorf("id = %q, want empty", id)
+		}
+	})
 }

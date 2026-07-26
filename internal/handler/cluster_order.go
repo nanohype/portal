@@ -94,14 +94,18 @@ func (h *ClusterOrderHandler) Provision(w http.ResponseWriter, r *http.Request) 
 	in.Region = strings.TrimSpace(in.Region)
 	in.Team = strings.TrimSpace(in.Team)
 
-	// Validation is a user error (400); enqueue failure is infra (500).
+	// Validation is a user error (400).
 	if err := in.Validate(); err != nil {
 		respond.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	op, err := h.svc.EnqueueProvision(r.Context(), userCtx.OrgID, userCtx.UserID, in)
 	if err != nil {
-		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to enqueue cluster provision")
+		// A taken cluster name is a conflict the caller can act on, and it
+		// carries the name it collided with — surfacing it as a generic 500
+		// would throw away the only part worth reading. Anything else is infra
+		// and still lands on 500, cause logged. Same mapping as Unwedge below.
+		respond.FromError(w, r, err)
 		return
 	}
 
@@ -130,7 +134,9 @@ func (h *ClusterOrderHandler) Deprovision(w http.ResponseWriter, r *http.Request
 
 	op, err := h.svc.EnqueueDeprovision(r.Context(), userCtx.OrgID, name, environment, team, userCtx.UserID)
 	if err != nil {
-		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to enqueue cluster deprovision")
+		// A teardown for a cluster portal has no record of is a conflict the
+		// caller can fix; everything else is infra. Same mapping as Provision.
+		respond.FromError(w, r, err)
 		return
 	}
 

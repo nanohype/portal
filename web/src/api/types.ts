@@ -1853,8 +1853,10 @@ export interface components {
             eks_cluster_name?: string;
         };
         UpdateClusterRequest: {
+            /** @description Immutable. Sending a different value is a conflict. */
             name?: string;
             description?: string;
+            /** @description Immutable. Sending a different value is a conflict. */
             environment?: string;
             api_endpoint?: string;
             ca_bundle?: string;

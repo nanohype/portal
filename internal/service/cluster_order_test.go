@@ -83,3 +83,74 @@ func TestVendPhaseFragment(t *testing.T) {
 		t.Errorf("detail = %v, want 'git push rejected'", got)
 	}
 }
+
+// TestHasCommittedProvision pins what makes a cluster deprovisionable: a
+// manifest in the clusters repo, which is what teardown removes. Without one,
+// the delete removes nothing and the clean tree that follows is
+// indistinguishable from a successful teardown.
+func TestHasCommittedProvision(t *testing.T) {
+	tests := []struct {
+		name string
+		ops  []repository.ClusterOperation
+		want bool
+	}{
+		{"nothing on record", nil, false},
+		{
+			// The manifest is pushed on the way to 'committed'.
+			"committed provision", []repository.ClusterOperation{{Operation: "provision", Status: "committed"}}, true,
+		},
+		{
+			// Registered too — the ordinary case.
+			"active provision", []repository.ClusterOperation{{Operation: "provision", Status: "active"}}, true,
+		},
+		{
+			// Ordered but the worker hasn't written anything yet.
+			"pending provision", []repository.ClusterOperation{{Operation: "provision", Status: "pending"}}, false,
+		},
+		{
+			// The write failed, so there is nothing in the repo to remove.
+			"failed provision", []repository.ClusterOperation{{Operation: "provision", Status: "failed"}}, false,
+		},
+		{
+			// Already torn down: the manifest is gone.
+			"deprovisioned provision", []repository.ClusterOperation{{Operation: "provision", Status: "deprovisioned"}}, false,
+		},
+		{
+			// A deprovision op is not evidence that a manifest exists.
+			"deprovision op only", []repository.ClusterOperation{{Operation: "deprovision", Status: "committed"}}, false,
+		},
+		{
+			"mixed history finds the provision", []repository.ClusterOperation{
+				{Operation: "deprovision", Status: "failed"},
+				{Operation: "provision", Status: "active"},
+			}, true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := hasCommittedProvision(tt.ops); got != tt.want {
+				t.Errorf("hasCommittedProvision() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestIdentityChange pins the two fields an edit may not move. Both address
+// artifacts already committed under the old value, and the row is the only
+// thing an edit changes.
+func TestIdentityChange(t *testing.T) {
+	current := repository.Cluster{Name: "apex", Environment: "production"}
+
+	if err := identityChange("", "", current); err != nil {
+		t.Errorf("an edit that touches neither field must pass, got %v", err)
+	}
+	if err := identityChange("apex", "production", current); err != nil {
+		t.Errorf("resubmitting the same values is not a rename, got %v", err)
+	}
+	if err := identityChange("apex-prod", "", current); apperr.KindOf(err) != apperr.KindConflict {
+		t.Errorf("rename error = %v, want apperr.Conflict", err)
+	}
+	if err := identityChange("", "staging", current); apperr.KindOf(err) != apperr.KindConflict {
+		t.Errorf("environment-move error = %v, want apperr.Conflict", err)
+	}
+}

@@ -5,7 +5,10 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 const clusterOperationColumns = `id, org_id, name, environment, team, operation, status, git_commit_sha, error, spec_json, cluster_id, created_by, created_at, completed_at, vend_phases`
@@ -87,6 +90,33 @@ func (q *Queries) ListClusterOperationsByOrg(ctx context.Context, orgID string) 
 		ops = append(ops, op)
 	}
 	return ops, rows.Err()
+}
+
+// ProvisionInFlight reports whether a provision for this cluster name is still
+// running anywhere in the deployment, and which environment it is vending into.
+//
+// 'pending' and 'committed' are the non-terminal provision states: the CR is
+// either not yet written or written and building, and in neither case does a
+// clusters row exist to collide with. That window is the whole point — it is
+// where a second order for the same name would overwrite the first's manifest
+// in the clusters repo while ArgoCD is mid-build. Not org-scoped, for the same
+// reason ClusterNameTaken isn't: the manifest path it protects isn't either.
+func (q *Queries) ProvisionInFlight(ctx context.Context, name string) (bool, string, error) {
+	var environment string
+	err := q.db.QueryRow(ctx,
+		`SELECT environment FROM cluster_operations
+		WHERE name = $1 AND operation = 'provision'::cluster_op_kind
+		  AND status IN ('pending'::cluster_op_status, 'committed'::cluster_op_status)
+		ORDER BY created_at DESC LIMIT 1`,
+		name,
+	).Scan(&environment)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, "", nil
+		}
+		return false, "", err
+	}
+	return true, environment, nil
 }
 
 // ListClusterOperationsByStatus returns operations in a given status across all

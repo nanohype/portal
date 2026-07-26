@@ -137,18 +137,24 @@ func (r *Repo) WriteFile(relPath string, content []byte) error {
 	return os.WriteFile(abs, content, 0o644)
 }
 
-// RemoveFile deletes a file at `relPath`. Missing files are a no-op so this
-// can be used as "ensure absent" from a worker that doesn't know whether the
-// previous create made it through.
-func (r *Repo) RemoveFile(relPath string) error {
+// RemoveFile deletes a file at `relPath` and reports whether it removed
+// anything. Missing files are not an error, so this can be used as "ensure
+// absent" from a worker that doesn't know whether the previous create made it
+// through — but a caller whose whole job is to take something away needs to
+// know the difference between having done so and there having been nothing
+// there. Committing a clean tree looks identical either way.
+func (r *Repo) RemoveFile(relPath string) (bool, error) {
 	abs, err := r.safeAbs(relPath)
 	if err != nil {
-		return err
+		return false, err
 	}
-	if err := os.Remove(abs); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove: %w", err)
+	if err := os.Remove(abs); err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("remove: %w", err)
 	}
-	return nil
+	return true, nil
 }
 
 // safeAbs resolves relPath within workdir, rejecting traversal attempts.

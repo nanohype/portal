@@ -2456,9 +2456,14 @@ components:
     UpdateClusterRequest:
       type: object
       properties:
-        name: { type: string }
+        # name and environment round-trip so a read-modify-write PUT can send the
+        # whole object back, but they are fixed once the cluster exists: together
+        # they address its manifest in the clusters repo, its ArgoCD Application
+        # and its tenant directory, none of which an edit to this row moves. A
+        # value that differs from the stored one is a 409.
+        name: { type: string, description: "Immutable. Sending a different value is a conflict." }
         description: { type: string }
-        environment: { type: string }
+        environment: { type: string, description: "Immutable. Sending a different value is a conflict." }
         api_endpoint: { type: string }
         ca_bundle: { type: string }
         sa_token: { type: string }
