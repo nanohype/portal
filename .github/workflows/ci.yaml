@@ -40,11 +40,25 @@ jobs:
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@v1.3.0
           govulncheck ./...
-      # TEST_DATABASE_URL points the repository integration tests at the service
-      # Postgres; without it they skip (so `go test` still works with no DB).
-      - run: go test ./...
+      # Runs the suite with coverage and enforces .coverage-floors: per-package
+      # ratchets, plus per-file 100% on the security-critical path. A drop below
+      # any floor fails the build.
+      #
+      # TEST_DATABASE_URL points the DB tier (repository, service, worker,
+      # handler) at the service Postgres. It is not optional here: those tests
+      # skip without it, and a skipped test lowers coverage rather than failing,
+      # so the floors are calibrated against a run that includes them.
+      - name: test with coverage floors
+        run: scripts/coverage.sh
         env:
           TEST_DATABASE_URL: postgres://portal:portal@localhost:5432/postgres?sslmode=disable
+      - name: upload coverage profile
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-coverage
+          path: coverage.out
+          if-no-files-found: ignore
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -76,7 +90,9 @@ jobs:
         working-directory: web
       - run: npx vite build
         working-directory: web
-      - run: npm test
+      # Coverage thresholds live in web/vite.config.ts, so vitest itself fails
+      # the run when one is missed — no separate assertion step.
+      - run: npm run test:coverage
         working-directory: web
 
   chart:

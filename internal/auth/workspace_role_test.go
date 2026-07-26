@@ -253,3 +253,13 @@ func TestWorkspaceRole_UnsetContext(t *testing.T) {
 		t.Errorf("WorkspaceRole on a bare context = %q, want empty", got)
 	}
 }
+
+// TestEffectiveWorkspaceRole_NilUser: an unauthenticated caller resolves to the
+// empty role, not to a workspace grant. Returning anything else here would let
+// a request that never established an identity inherit team access.
+func TestEffectiveWorkspaceRole_NilUser(t *testing.T) {
+	got := EffectiveWorkspaceRole(context.Background(), nil, nil, "workspace-1")
+	if got != "" {
+		t.Errorf("nil user resolved to role %q; it must resolve to no role at all", got)
+	}
+}

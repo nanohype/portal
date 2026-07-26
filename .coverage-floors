@@ -1,0 +1,70 @@
+# Go statement-coverage floors, enforced by scripts/coverage.sh in CI.
+#
+#   package <import path>  <pct>   floor for a whole package
+#   file    <repo path>    <pct>   floor for one file
+#
+# Package floors are a ratchet, set a few points below current coverage so an
+# ordinary change does not trip them: raise the floor when you raise the
+# coverage. Every package that reports coverage needs an entry — a package with
+# no floor fails the gate, so new code cannot land ungated.
+#
+# File floors are not a ratchet. They are pinned at 100 on the security-critical
+# path (auth, the audit ledger, the approval gate, secret handling, signature
+# verification) because a package floor averages those files with everything
+# around them: internal/auth can sit above its package floor while an uncovered
+# branch in the RBAC check ships. A branch there is an unproven security control,
+# so the file is read on its own.
+
+# ── security-critical: per-file 100%, no ratchet ──────────────────────────────
+file    internal/auth/jwt.go             100   # JWT mint + verify
+file    internal/auth/middleware.go      100   # request auth, bearer + WS subprotocol
+file    internal/auth/rbac.go            100   # org role → permitted action
+file    internal/auth/workspace_role.go  100   # per-workspace role resolution
+file    internal/secrets/encrypt.go      100   # variable secret envelope
+file    internal/service/audit.go        100   # the audit ledger
+
+# approval.go is the one file on this list not yet at 100, and the gap is not
+# untested logic — every decision path, status guard and transition is covered.
+# What is left is the `if err != nil { return fmt.Errorf(...) }` wrap around each
+# pgx call *inside* the approval transaction. Reaching those means making one
+# statement fail while the others succeed on a connection already holding row
+# locks, which the service cannot express: it takes a concrete *repository.Queries
+# and *pgxpool.Pool, so there is nothing to inject a failure through.
+#
+# Closing it is a seam change to the approval write path — the narrow-interface
+# treatment internal/auth already uses for WorkspaceRoleResolver — and that is a
+# design change to the most safety-critical transaction in the product, not a
+# side effect of installing this gate. Floored at the measured value so it
+# ratchets, and raised to 100 when the seam lands.
+file    internal/service/approval.go     82
+file    internal/vcs/github.go           100   # webhook signature verification
+
+# ── packages ──────────────────────────────────────────────────────────────────
+package internal/apperr             0     # error taxonomy — declarations, no logic
+package internal/auth               85
+package internal/aws                33
+package internal/clusterspec        92
+package internal/config             88
+package internal/conv               100
+package internal/git                18
+package internal/handler            8     # transport-only; the logic under it is floored above
+package internal/handler/respond    0     # three response helpers exercised through handlers
+package internal/helm               53
+package internal/k8s                80
+package internal/logstream          0     # redis pub/sub, exercised end-to-end not in unit tests
+package internal/metrics            0     # prometheus collector registration
+package internal/repository         10    # hand-written pgx; needs TEST_DATABASE_URL
+package internal/secrets            88
+package internal/server             88
+package internal/service            30
+package internal/storage            0     # s3/minio client construction
+package internal/tfparse            75
+package internal/tfstate            74
+package internal/tracing            0     # otel wiring
+package internal/vcs                100
+package internal/worker             21
+package internal/worker/executor    15
+package cmd/migrate                 0     # main() wrappers
+package cmd/seeddemo                0
+package cmd/server                  0
+package cmd/worker                  0

@@ -233,6 +233,16 @@ tasks:
     desc: Run tests
     cmds:
       - go test ./...
+      - cd web && npm test
+
+  test:cover:
+    desc: Run tests with the coverage floors CI enforces (needs a database)
+    cmds:
+      # The DB tier skips without TEST_DATABASE_URL, and skipped tests lower
+      # coverage rather than failing, so the floors assume it is set. `task db:up`
+      # first if nothing is listening.
+      - TEST_DATABASE_URL="${TEST_DATABASE_URL:-postgres://portal:portal@localhost:5432/postgres?sslmode=disable}" scripts/coverage.sh
+      - cd web && npm run test:coverage
 
   fmt:
     desc: Format code

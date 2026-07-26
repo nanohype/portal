@@ -6,10 +6,12 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 
 	"github.com/nanohype/portal/internal/apperr"
+	"github.com/nanohype/portal/internal/repository"
 	"github.com/nanohype/portal/internal/service"
 )
 
@@ -339,4 +341,93 @@ func auditCount(t *testing.T, ctx context.Context, orgID, entityType, entityID s
 		t.Fatalf("count audit rows: %v", err)
 	}
 	return n
+}
+
+// TestApprovalServiceList covers the read path's two outcomes: a run the caller
+// was authorized against returns its decisions, and a run outside that
+// workspace/org is a 404 rather than an empty list — the difference between
+// "no approvals" and "not yours".
+func TestApprovalServiceList(t *testing.T) {
+	requireDB(t)
+	ctx := context.Background()
+
+	orgID, userID := seedOrg(t, ctx, "appr-list")
+	wsID := seedWorkspace(t, ctx, orgID, userID)
+	svc := service.NewApprovalService(testQueries, testPool, service.NewAuditService(testQueries))
+
+	runID := seedPlannedRun(t, ctx, wsID, orgID, userID)
+
+	got, err := svc.List(ctx, runID, wsID, orgID)
+	if err != nil {
+		t.Fatalf("List on a fresh run: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("a run with no decisions should list none, got %d", len(got))
+	}
+
+	if _, err := svc.Create(ctx, runID, wsID, orgID, userID, "approved", "ship it", "127.0.0.1", "test"); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	got, err = svc.List(ctx, runID, wsID, orgID)
+	if err != nil {
+		t.Fatalf("List after a decision: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected the decision to be listed, got %d", len(got))
+	}
+	if got[0].Status != "approved" || got[0].Comment != "ship it" {
+		t.Errorf("listed decision does not match what was recorded: %+v", got[0])
+	}
+
+	otherWS := seedWorkspace(t, ctx, orgID, userID)
+	if _, err := svc.List(ctx, runID, otherWS, orgID); err == nil {
+		t.Error("listing a run through another workspace succeeded; the workspace scope is not enforced on the read path")
+	}
+}
+
+// TestApprovalServiceCreate_UnknownApproverIsRejected: the approval row carries
+// the signer, so a user id with no row must fail the write rather than record a
+// decision attributed to nobody. The transaction aborts, leaving the run in its
+// pre-decision state.
+func TestApprovalServiceCreate_UnknownApproverIsRejected(t *testing.T) {
+	requireDB(t)
+	ctx := context.Background()
+
+	orgID, userID := seedOrg(t, ctx, "appr-ghost")
+	wsID := seedWorkspace(t, ctx, orgID, userID)
+	svc := service.NewApprovalService(testQueries, testPool, service.NewAuditService(testQueries))
+	runID := seedPlannedRun(t, ctx, wsID, orgID, userID)
+
+	if _, err := svc.Create(ctx, runID, wsID, orgID, id(), "approved", "", "127.0.0.1", "test"); err == nil {
+		t.Fatal("an approval signed by a nonexistent user was recorded")
+	}
+	if got := runStatus(t, ctx, runID); got != "planned" {
+		t.Errorf("the failed decision moved the run to %q; it must stay planned", got)
+	}
+}
+
+// TestApprovalServiceCreate_ClosedPool: with no usable connection the decision
+// must fail before anything is recorded, not partially apply.
+func TestApprovalServiceCreate_ClosedPool(t *testing.T) {
+	requireDB(t)
+	ctx := context.Background()
+
+	orgID, userID := seedOrg(t, ctx, "appr-closed")
+	wsID := seedWorkspace(t, ctx, orgID, userID)
+	runID := seedPlannedRun(t, ctx, wsID, orgID, userID)
+
+	dead, err := pgxpool.New(ctx, testDSN)
+	if err != nil {
+		t.Fatalf("pool: %v", err)
+	}
+	dead.Close()
+
+	svc := service.NewApprovalService(repository.New(dead), dead, service.NewAuditService(testQueries))
+	if _, err := svc.Create(ctx, runID, wsID, orgID, userID, "approved", "", "127.0.0.1", "test"); err == nil {
+		t.Fatal("Create succeeded against a closed pool")
+	}
+	if got := runStatus(t, ctx, runID); got != "planned" {
+		t.Errorf("run moved to %q despite the decision failing to begin", got)
+	}
 }

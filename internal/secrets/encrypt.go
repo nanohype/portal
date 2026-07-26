@@ -26,12 +26,16 @@ func NewEncryptor(key string) (*Encryptor, error) {
 
 	block, err := aes.NewCipher(keyBytes)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create cipher: %w", err)
+		// Unreachable: aes.NewCipher only rejects a key that is not 16/24/32
+		// bytes, and the length check above already returned for anything but 32.
+		return nil, fmt.Errorf("failed to create cipher: %w", err) //coverage:ignore unreachable — key length validated above
 	}
 
 	gcm, err := cipher.NewGCM(block)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create GCM: %w", err)
+		// Unreachable: NewGCM only rejects a block whose size is not 16, and AES
+		// is always 16.
+		return nil, fmt.Errorf("failed to create GCM: %w", err) //coverage:ignore unreachable — AES block size is always 16
 	}
 
 	return &Encryptor{gcm: gcm, key: keyBytes}, nil

@@ -58,7 +58,10 @@ func (j *JWTAuth) ValidateToken(tokenString string) (*Claims, error) {
 
 	claims, ok := token.Claims.(*Claims)
 	if !ok || !token.Valid {
-		return nil, fmt.Errorf("invalid token claims")
+		// Unreachable: ParseWithClaims was given a *Claims to populate, and it
+		// only leaves Valid false alongside a non-nil error, which returned above.
+		// Kept as a belt-and-braces assertion rather than trusting that contract.
+		return nil, fmt.Errorf("invalid token claims") //coverage:ignore unreachable — a nil error implies Valid and the claims type
 	}
 
 	return claims, nil

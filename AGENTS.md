@@ -97,7 +97,9 @@ Helpers: `task docker:build` (server/worker/web/migrate images), `task hub:insta
 
 `.github/workflows/ci.yaml` (push/PR to main), two jobs:
 
-- **ci** (with a Postgres 17 service): `gofmt -l` empty, `go build`/`go vet`, `govulncheck` (pinned, live CVE data), `go test` (with `TEST_DATABASE_URL` → the service Postgres), then `npm ci` + `npm audit --audit-level=high` + `npx tsc -b` + `npx vite build`.
+- **ci** (with a Postgres 17 service): `gofmt -l` empty, `go build`/`go vet`, `govulncheck` (pinned, live CVE data), `scripts/coverage.sh` (the Go suite plus the `.coverage-floors` gate, with `TEST_DATABASE_URL` → the service Postgres), then `npm ci` + `npm audit --audit-level=high` + `npm run lint` + `npm run format:check` + the API contract drift check (`npm run generate:api` must leave `src/api/types.ts` unchanged) + `npx tsc -b` + `npx vite build` + `npm run test:coverage`.
+
+  Both test steps are coverage-gated. Go floors live in `.coverage-floors` — per-package ratchets plus per-file 100% on the security-critical path (auth, the audit ledger, secret handling, webhook signature verification); web thresholds live in `web/vite.config.ts`, where `src/lib/**` carries the org floor and `src/lib/roles.ts` is pinned at 100 for the same reason its Go counterpart is. Raise a floor when you raise its coverage; never lower one to make a build pass.
 - **chart**: `helm lint` + `helm template` (with a dummy `database.url`, which the chart requires) + `kubeconform -strict` + the org [`render-assert`](https://github.com/nanohype/nanohype/tree/main/.github/actions/render-assert) action (no unfilled sentinels in the rendered manifests).
 
 Match this locally before pushing. **portal is a PUBLIC repo** — never commit real AWS account ids; use placeholders `111111111111` / `222222222222`.

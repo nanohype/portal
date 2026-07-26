@@ -1,7 +1,9 @@
 package secrets
 
 import (
+	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -95,5 +97,34 @@ func TestEncryptUsesRandomNonce(t *testing.T) {
 	ct2, _ := e.Encrypt("same-plaintext")
 	if ct1 == ct2 {
 		t.Error("two encryptions of the same plaintext produced identical ciphertext; nonce is not random")
+	}
+}
+
+// failingReader stands in for a crypto/rand source that cannot produce entropy.
+type failingReader struct{}
+
+func (failingReader) Read([]byte) (int, error) { return 0, errors.New("entropy source unavailable") }
+
+// TestEncrypt_NonceFailureIsNotSilent: the nonce is what makes AES-GCM safe to
+// reuse a key with, so a nonce that could not be generated must abort the
+// encryption. Returning the error rather than proceeding with a zero nonce is
+// the whole point of the check — a zero nonce repeated across two ciphertexts
+// under one key is a catastrophic GCM failure, not a degraded one.
+func TestEncrypt_NonceFailureIsNotSilent(t *testing.T) {
+	e, err := NewEncryptor(testKey)
+	if err != nil {
+		t.Fatalf("NewEncryptor: %v", err)
+	}
+
+	orig := rand.Reader
+	rand.Reader = failingReader{}
+	t.Cleanup(func() { rand.Reader = orig })
+
+	out, err := e.Encrypt("secret-value")
+	if err == nil {
+		t.Fatal("Encrypt succeeded with no entropy available")
+	}
+	if out != "" {
+		t.Errorf("Encrypt returned ciphertext %q alongside its error", out)
 	}
 }

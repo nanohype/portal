@@ -34,6 +34,9 @@ import (
 var (
 	testPool    *pgxpool.Pool
 	testQueries *repository.Queries
+	// testDSN is the scratch database's URL, so a test can build a second pool
+	// (e.g. one it closes, to exercise a failure to begin a transaction).
+	testDSN string
 )
 
 func TestMain(m *testing.M) {
@@ -80,6 +83,7 @@ func TestMain(m *testing.M) {
 	}
 	mig.Close()
 
+	testDSN = dbURL
 	testPool, err = pgxpool.New(ctx, dbURL)
 	if err != nil {
 		panic("connect test pool: " + err.Error())
