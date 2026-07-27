@@ -71,8 +71,8 @@ jobs:
         working-directory: web
       - run: npm run lint
         working-directory: web
-      # Fail the build on unformatted web sources — the prettier counterpart to
-      # the gofmt gate above. src/api/types.ts is prettier-ignored (generated;
+      # Fail the build on unformatted web sources — the biome counterpart to
+      # the gofmt gate above. src/api/types.ts is biome-ignored (generated;
       # its byte-identity with the generator is asserted by the drift step below).
       - run: npm run format:check
         working-directory: web
