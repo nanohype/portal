@@ -117,6 +117,29 @@ func equalUnordered(a, b []string) bool {
 	return true
 }
 
+// TestTenantCreateBlocked covers the create-path existence gate: a live
+// inventory row or a pending create blocks overwrite; a free name does not.
+// This is the check that was missing when create skipped fetchTenantForCaller.
+func TestTenantCreateBlocked(t *testing.T) {
+	if err := tenantCreateBlocked("acme", false, false); err != nil {
+		t.Fatalf("free name must allow create: %v", err)
+	}
+	if err := tenantCreateBlocked("acme", true, false); apperr.KindOf(err) != apperr.KindConflict {
+		t.Fatalf("live tenant must be KindConflict, got %v (kind %v)", err, apperr.KindOf(err))
+	}
+	if err := tenantCreateBlocked("acme", false, true); apperr.KindOf(err) != apperr.KindConflict {
+		t.Fatalf("pending create must be KindConflict, got %v (kind %v)", err, apperr.KindOf(err))
+	}
+	// Live wins the message when both are true (shouldn't happen in practice).
+	err := tenantCreateBlocked("acme", true, true)
+	if apperr.KindOf(err) != apperr.KindConflict {
+		t.Fatalf("want conflict, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "already exists") {
+		t.Errorf("live row should win the message: %v", err)
+	}
+}
+
 // TestCreateTenantInputValidate covers the tenant identity rules — a cluster is
 // required and the name must be an RFC-1123 label — and that failures carry
 // KindValidation so the handler maps them to 400.

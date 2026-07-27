@@ -216,10 +216,11 @@ func (h *TenantHandler) fetchTenantForCaller(r *http.Request, tenantID string) (
 
 var errTenantNotVisible = stderrs.New("tenant not visible to caller")
 
-// Create enqueues a tenant_operation of kind=create. The actual k8s resource
-// will appear in the tenants table once ArgoCD applies the commit and the
-// watcher observes the resulting Tenant CR (typically within ~60s after
-// commit + ArgoCD's polling interval).
+// Create enqueues a tenant_operation of kind=create. EnqueueCreate refuses if
+// the inventory already holds (cluster_id, name) or a create is pending — create
+// does not overwrite a live Platform. The tenants table row appears once ArgoCD
+// applies the commit and the watcher observes the CR (typically within ~60s
+// after commit + ArgoCD's polling interval).
 func (h *TenantHandler) Create(w http.ResponseWriter, r *http.Request) {
 	userCtx := auth.GetUser(r.Context())
 

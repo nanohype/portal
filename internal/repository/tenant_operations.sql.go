@@ -89,6 +89,24 @@ func (q *Queries) ListTenantOperationsByOrg(ctx context.Context, orgID string) (
 	return ops, rows.Err()
 }
 
+// HasPendingTenantCreate reports whether a create for (cluster, name) is already
+// in flight. The inventory row only appears after ArgoCD applies and the watcher
+// observes the CR — without this check two concurrent creates of the same name
+// both enqueue and the later git write overwrites the earlier Platform.
+func (q *Queries) HasPendingTenantCreate(ctx context.Context, orgID, clusterID, tenantName string) (bool, error) {
+	row := q.db.QueryRow(ctx,
+		`SELECT EXISTS(
+			SELECT 1 FROM tenant_operations
+			WHERE org_id = $1 AND cluster_id = $2 AND tenant_name = $3
+			  AND operation = 'create' AND status = 'pending'
+		)`,
+		orgID, clusterID, tenantName,
+	)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 type CreateTenantOperationParams struct {
 	ID         string          `json:"id"`
 	OrgID      string          `json:"org_id"`

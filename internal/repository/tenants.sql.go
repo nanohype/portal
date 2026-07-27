@@ -29,6 +29,18 @@ func (q *Queries) GetTenant(ctx context.Context, arg GetTenantParams) (Tenant, e
 	return scanTenant(row)
 }
 
+// GetTenantByClusterAndName looks up a tenant by its deployment key
+// (cluster_id, name) within an org. The create path uses this to refuse an
+// overwrite of a live Platform; the UNIQUE(cluster_id, name) on the inventory
+// table only fires on the watcher upsert path, never on create.
+func (q *Queries) GetTenantByClusterAndName(ctx context.Context, orgID, clusterID, name string) (Tenant, error) {
+	row := q.db.QueryRow(ctx,
+		`SELECT `+tenantColumns+` FROM tenants WHERE org_id = $1 AND cluster_id = $2 AND name = $3`,
+		orgID, clusterID, name,
+	)
+	return scanTenant(row)
+}
+
 type ListTenantsParams struct {
 	OrgID     string `json:"org_id"`
 	ClusterID string `json:"cluster_id"`

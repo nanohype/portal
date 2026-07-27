@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -314,7 +315,8 @@ func forcePlatformIdentity(values map[string]interface{}, name string) {
 	}
 }
 
-// EnqueueCreate validates the input, forces the authoritative Platform identity
+// EnqueueCreate validates the input, refuses to overwrite a live or in-flight
+// tenant of the same (cluster, name), forces the authoritative Platform identity
 // onto the values blob, records a "portal wants this tenant to exist" intent,
 // and schedules the worker job that renders the chart + commits to git. The
 // returned TenantOperation carries status=pending until the worker transitions
@@ -325,8 +327,18 @@ func forcePlatformIdentity(values map[string]interface{}, name string) {
 // operation row (mirrors ClusterOrderService.EnqueueProvision). The caller
 // ApplyToValues-es any referenced template before this layer; the service
 // trusts the merged values but always re-forces platform.name/platform.tenant.
+//
+// Create is the one write path that used to skip the existence gate every other
+// tenant handler routes through (fetchTenantForCaller). Without this check the
+// worker's unconditional git write replaces another team's live Platform
+// (budget, datastores, capabilities) and GrantTenant upserts the caller onto
+// the overwritten name. The inventory UNIQUE(cluster_id, name) never fires on
+// this path — only the watcher upserts that table.
 func (s *TenantService) EnqueueCreate(ctx context.Context, in CreateTenantInput) (repository.TenantOperation, error) {
 	if err := in.Validate(); err != nil {
+		return repository.TenantOperation{}, err
+	}
+	if err := s.assertTenantNameFree(ctx, in.OrgID, in.ClusterID, in.Name); err != nil {
 		return repository.TenantOperation{}, err
 	}
 	values := in.Values
@@ -335,6 +347,45 @@ func (s *TenantService) EnqueueCreate(ctx context.Context, in CreateTenantInput)
 	}
 	forcePlatformIdentity(values, in.Name)
 	return s.enqueue(ctx, in.OrgID, in.ClusterID, in.Name, "create", in.TemplateID, in.CreatedBy, values)
+}
+
+// assertTenantNameFree refuses a create when the inventory already holds the
+// name or a create for it is already pending. Returns apperr.Conflict so the
+// handler maps it to 409. A failed prior create does not block retry (status
+// is not pending); a live CR still in the inventory does.
+func (s *TenantService) assertTenantNameFree(ctx context.Context, orgID, clusterID, name string) error {
+	_, err := s.queries.GetTenantByClusterAndName(ctx, orgID, clusterID, name)
+	exists := false
+	switch {
+	case err == nil:
+		exists = true
+	case !errors.Is(err, pgx.ErrNoRows):
+		return fmt.Errorf("lookup tenant %s/%s: %w", clusterID, name, err)
+	}
+	pending, err := s.queries.HasPendingTenantCreate(ctx, orgID, clusterID, name)
+	if err != nil {
+		return fmt.Errorf("lookup pending create %s/%s: %w", clusterID, name, err)
+	}
+	return tenantCreateBlocked(name, exists, pending)
+}
+
+// tenantCreateBlocked is the pure gate EnqueueCreate applies after looking up
+// inventory + pending ops. Kept pure so the conflict rules are unit-tested
+// without a database or river client.
+func tenantCreateBlocked(name string, exists, pending bool) error {
+	if exists {
+		return apperr.Conflict(fmt.Sprintf(
+			"tenant %q already exists on this cluster — delete it first or pick another name; create does not overwrite a live Platform",
+			name,
+		))
+	}
+	if pending {
+		return apperr.Conflict(fmt.Sprintf(
+			"a create for tenant %q is already in flight on this cluster — wait for it to finish or fail before retrying",
+			name,
+		))
+	}
+	return nil
 }
 
 // EnqueueDelete is the symmetric operation: records intent to remove a

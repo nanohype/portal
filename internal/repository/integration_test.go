@@ -394,6 +394,61 @@ func TestBatchUpsertTenants(t *testing.T) {
 	}
 }
 
+// TestGetTenantByClusterAndNameAndPendingCreate covers the two lookups the
+// create-path existence gate uses: inventory by (cluster, name), and a pending
+// create op for the same key.
+func TestGetTenantByClusterAndNameAndPendingCreate(t *testing.T) {
+	requireDB(t)
+	ctx := context.Background()
+	orgID, userID := seedOrg(t, ctx, "tcreate")
+	acctID := id()
+	exec(t, ctx, `INSERT INTO accounts (id,org_id,name,aws_account_id,assume_role_arn,default_region,created_by) VALUES ($1,$2,'acc','111111111111','arn:aws:iam::111111111111:role/x','us-west-2',$3)`, acctID, orgID, userID)
+	clID := id()
+	exec(t, ctx, `INSERT INTO clusters (id,org_id,account_id,name,api_endpoint,ca_bundle_encrypted,sa_token_encrypted,region,created_by) VALUES ($1,$2,$3,'cl-tcreate','https://x','x','x','us-west-2',$4)`, clID, orgID, acctID, userID)
+
+	// Empty inventory.
+	if _, err := testQueries.GetTenantByClusterAndName(ctx, orgID, clID, "acme"); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("empty inventory: want ErrNoRows, got %v", err)
+	}
+	pending, err := testQueries.HasPendingTenantCreate(ctx, orgID, clID, "acme")
+	if err != nil || pending {
+		t.Fatalf("no ops yet: pending=%v err=%v", pending, err)
+	}
+
+	// Seed a live tenant row.
+	tid := id()
+	exec(t, ctx, `INSERT INTO tenants (id,org_id,cluster_id,name,phase,spec,status,last_observed_at) VALUES ($1,$2,$3,'acme','Ready','{}','{}',now())`, tid, orgID, clID)
+	got, err := testQueries.GetTenantByClusterAndName(ctx, orgID, clID, "acme")
+	if err != nil {
+		t.Fatalf("lookup live tenant: %v", err)
+	}
+	if got.ID != tid || got.Name != "acme" {
+		t.Errorf("got %+v, want id=%s name=acme", got, tid)
+	}
+
+	// Pending create for a different name.
+	opID := id()
+	exec(t, ctx, `INSERT INTO tenant_operations (id,org_id,cluster_id,tenant_name,operation,status,values_json,created_by)
+		VALUES ($1,$2,$3,'other','create','pending','{}',$4)`, opID, orgID, clID, userID)
+	pending, err = testQueries.HasPendingTenantCreate(ctx, orgID, clID, "other")
+	if err != nil || !pending {
+		t.Fatalf("pending create for other: pending=%v err=%v", pending, err)
+	}
+	pending, err = testQueries.HasPendingTenantCreate(ctx, orgID, clID, "acme")
+	if err != nil || pending {
+		t.Fatalf("acme has no pending create: pending=%v err=%v", pending, err)
+	}
+
+	// Failed create does not count as pending.
+	failID := id()
+	exec(t, ctx, `INSERT INTO tenant_operations (id,org_id,cluster_id,tenant_name,operation,status,values_json,created_by)
+		VALUES ($1,$2,$3,'retry-me','create','failed','{}',$4)`, failID, orgID, clID, userID)
+	pending, err = testQueries.HasPendingTenantCreate(ctx, orgID, clID, "retry-me")
+	if err != nil || pending {
+		t.Fatalf("failed create must not block retry: pending=%v err=%v", pending, err)
+	}
+}
+
 // TestExpireClusterOperation covers the watch-back's stuck-provision reap: a
 // committed op is marked failed with a reason, and the WHERE status='committed'
 // guard leaves a non-committed (e.g. already active) op untouched so the reap
