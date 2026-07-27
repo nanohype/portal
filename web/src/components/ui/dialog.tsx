@@ -1,6 +1,5 @@
 import {
   type ReactNode,
-  type MouseEvent,
   type AnimationEvent,
   createContext,
   useContext,
@@ -135,12 +134,13 @@ export function Dialog({ open, onClose, children, size = 'md' }: DialogProps) {
       aria-modal="true"
       aria-labelledby={titleId}
     >
-      <div
+      <button
+        type="button"
+        aria-label="Close dialog"
         className={cn(
-          'fixed inset-0 bg-black/70 backdrop-blur-md',
+          'fixed inset-0 cursor-default bg-black/70 backdrop-blur-md',
           closing ? 'animate-overlay-out' : 'animate-overlay-in',
         )}
-        aria-hidden="true"
         onClick={onClose}
       />
       <div
@@ -172,7 +172,6 @@ export function DialogContent({
         'rounded-[10px] border border-border bg-card/80 backdrop-blur-xl p-6 shadow-2xl shadow-black/40',
         className,
       )}
-      onClick={(e: MouseEvent) => e.stopPropagation()}
       {...props}
     >
       {children}

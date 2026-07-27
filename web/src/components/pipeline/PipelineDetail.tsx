@@ -127,6 +127,7 @@ export function PipelineDetail({ pipelineId }: { pipelineId: string }) {
       <div className="flex gap-0.5 border-b border-border/50 mb-6" role="tablist">
         {(['stages', 'variables', 'runs'] as const).map((t) => (
           <button
+            type="button"
             key={t}
             role="tab"
             aria-selected={tab === t}
@@ -494,12 +495,14 @@ function PipelineVariablesTab({ pipelineId }: { pipelineId: string }) {
                   {canManage && (
                     <>
                       <button
+                        type="button"
                         onClick={() => startEdit(v)}
                         className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
                       >
                         <Pencil className="w-3.5 h-3.5" />
                       </button>
                       <button
+                        type="button"
                         onClick={async () => {
                           if (await confirm({ title: `Delete ${v.key}?`, confirmLabel: 'Delete' }))
                             deleteMutation.mutate(v.id);

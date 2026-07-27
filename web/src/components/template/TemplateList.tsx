@@ -109,6 +109,7 @@ export function TemplateList() {
                 {isAdmin && (
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button
+                      type="button"
                       onClick={() => setEditing(t)}
                       className="p-1.5 rounded-md hover:bg-hover text-muted-foreground hover:text-foreground cursor-pointer"
                       aria-label="Edit"
@@ -116,6 +117,7 @@ export function TemplateList() {
                       <Pencil className="w-3 h-3" />
                     </button>
                     <button
+                      type="button"
                       onClick={async () => {
                         if (
                           await confirm({

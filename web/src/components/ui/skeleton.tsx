@@ -21,9 +21,9 @@ export function Skeleton({ className }: { className?: string }) {
 export function SkeletonRows({ rows = 5 }: { rows?: number }) {
   return (
     <div className="space-y-2" role="status" aria-label="Loading">
-      {Array.from({ length: rows }).map((_, i) => (
+      {Array.from({ length: rows }, (_, i) => `skeleton-row-${i}`).map((id) => (
         <div
-          key={i}
+          key={id}
           className="flex items-center justify-between rounded-lg border border-border/60 px-4 py-3.5"
         >
           <div className="flex min-w-0 flex-1 items-center gap-3">
@@ -45,8 +45,8 @@ export function SkeletonRows({ rows = 5 }: { rows?: number }) {
 export function SkeletonCards({ cards = 4 }: { cards?: number }) {
   return (
     <div className="grid gap-3" role="status" aria-label="Loading">
-      {Array.from({ length: cards }).map((_, i) => (
-        <div key={i} className="rounded-lg border border-border bg-card p-5">
+      {Array.from({ length: cards }, (_, i) => `skeleton-card-${i}`).map((id) => (
+        <div key={id} className="rounded-lg border border-border bg-card p-5">
           <div className="mb-3 flex items-center gap-3">
             <Skeleton className="h-4 w-44 max-w-[30%]" />
             <Skeleton className="h-4 w-20 rounded-full" />

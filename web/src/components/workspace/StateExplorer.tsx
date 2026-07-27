@@ -269,6 +269,7 @@ export function StateExplorer({ workspaceId, role }: Props) {
                 </span>
                 {canManageState && (
                   <button
+                    type="button"
                     onClick={() => downloadState(workspaceId, sv.id)}
                     className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
                     title="Download state file"
@@ -278,6 +279,7 @@ export function StateExplorer({ workspaceId, role }: Props) {
                 )}
                 {canManageState && (
                   <button
+                    type="button"
                     onClick={async () => {
                       if (
                         await confirm({

@@ -169,12 +169,11 @@ export function WorkspaceList() {
         </div>
       ) : (
         <>
-          <div className="grid gap-3" role="list" aria-label="Workspaces">
+          <div className="grid gap-3">
             {data.data.map((workspace: Workspace) => (
               <Link
                 key={workspace.id}
                 href={`/workspaces/${workspace.id}`}
-                role="listitem"
                 aria-label={`Workspace ${workspace.name}, ${workspace.environment}`}
                 className="group block rounded-lg border border-border bg-card p-5 transition-all hover:border-border hover:shadow-lg hover:shadow-black/10"
               >
@@ -221,9 +220,7 @@ export function WorkspaceList() {
                         </Badge>
                       )}
                       {workspace.locked && (
-                        <span aria-label="Locked">
-                          <Lock className="w-3.5 h-3.5 text-warning" aria-hidden="true" />
-                        </span>
+                        <Lock className="w-3.5 h-3.5 text-warning" aria-label="Locked" />
                       )}
                     </div>
                     {workspace.description && (

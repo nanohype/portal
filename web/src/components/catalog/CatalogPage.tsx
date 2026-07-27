@@ -237,6 +237,7 @@ export function CatalogPage() {
           const Icon = KIND_META[k].icon;
           return (
             <button
+              type="button"
               key={k}
               onClick={() => setActiveKind(activeKind === k ? 'all' : k)}
               className={`group flex items-center gap-3 border rounded-lg px-3 py-2.5 transition-all duration-150 cursor-pointer text-left ${
@@ -271,6 +272,7 @@ export function CatalogPage() {
           />
         </div>
         <button
+          type="button"
           onClick={() => setActiveKind('all')}
           className={`text-[11px] px-2.5 py-1 rounded-md font-medium transition-colors cursor-pointer ${
             activeKind === 'all'

@@ -15,8 +15,10 @@ interface ResourceBlock {
 }
 
 function stripAnsi(str: string): string {
-  // eslint-disable-next-line no-control-regex -- ANSI escape sequences begin with \x1b (ESC)
-  return str.replace(/\x1b\[[0-9;]*m/g, '');
+  // ANSI escape sequences begin with ESC (U+001B). Built via fromCharCode so
+  // the source doesn't embed a control character in a regex literal.
+  const ansi = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
+  return str.replace(ansi, '');
 }
 
 function parseAction(header: string): ResourceBlock['action'] {
@@ -162,6 +164,7 @@ function JSONResourceChange({ rc }: { rc: TofuResourceChange }) {
   return (
     <div className={cn('rounded-lg border overflow-hidden', style.border)}>
       <button
+        type="button"
         onClick={() => setExpanded(!expanded)}
         className={cn(
           'w-full px-4 py-2 flex items-center gap-2 text-sm font-medium font-mono text-left cursor-pointer',
@@ -264,10 +267,13 @@ export function PlanDiffViewer({ planOutput, planJSON }: Props) {
         </pre>
       )}
 
-      {blocks.map((block, i) => {
+      {blocks.map((block, _i) => {
         const style = actionStyles[block.action];
         return (
-          <div key={i} className={cn('rounded-lg border overflow-hidden', style.border)}>
+          <div
+            key={`${block.header}::${block.action}::${block.lines.join('\n').slice(0, 80)}`}
+            className={cn('rounded-lg border overflow-hidden', style.border)}
+          >
             <div
               className={cn(
                 'px-4 py-2 flex items-center gap-2 text-sm font-medium font-mono',

@@ -79,7 +79,6 @@ export function TemplateEditorDialog({
 
   useEffect(() => {
     if (existing) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional one-time prefill of editable fields from the existing template
       setName(existing.name);
       setDescription(existing.description);
       setPersona(existing.persona);
@@ -100,7 +99,7 @@ export function TemplateEditorDialog({
       setAllowedOverrides(new Set());
       setDefaultValuesYaml('{}');
     }
-  }, [existing, open]);
+  }, [existing]);
 
   const parseDefaults = (): {
     ok: boolean;
@@ -415,6 +414,7 @@ function TemplateAccessSection({ templateID }: { templateID: string }) {
                 {formatRelativeTime(a.granted_at)}
               </span>
               <button
+                type="button"
                 onClick={async () => {
                   if (
                     await confirm({

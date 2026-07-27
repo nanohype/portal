@@ -131,6 +131,7 @@ export function PipelineList() {
                     {new Date(p.created_at).toLocaleDateString()}
                   </span>
                   <button
+                    type="button"
                     onClick={async (e) => {
                       e.preventDefault();
                       e.stopPropagation();
@@ -334,6 +335,7 @@ function CreatePipelineDialog({ open, onClose }: { open: boolean; onClose: () =>
             {stages.length > 0 && (
               <div className="space-y-1 mb-3">
                 {stages.map((stage, i) => (
+                  // biome-ignore lint/a11y/noStaticElementInteractions: HTML5 drag-reorder row
                   <div
                     key={stage.workspace_id}
                     draggable

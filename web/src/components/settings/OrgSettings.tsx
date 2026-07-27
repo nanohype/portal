@@ -296,6 +296,7 @@ export function OrgSettings() {
                   </span>
                   {v.sensitive && (
                     <button
+                      type="button"
                       onClick={() => toggleReveal(v)}
                       className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
                     >
@@ -307,12 +308,14 @@ export function OrgSettings() {
                     </button>
                   )}
                   <button
+                    type="button"
                     onClick={() => startEdit(v)}
                     className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
                   >
                     <Pencil className="w-3.5 h-3.5" />
                   </button>
                   <button
+                    type="button"
                     onClick={async () => {
                       if (await confirm({ title: `Delete ${v.key}?`, confirmLabel: 'Delete' }))
                         deleteMutation.mutate(v.id);

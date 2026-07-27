@@ -15,7 +15,7 @@
       // Set the theme class before paint so there's no flash of the wrong theme.
       (function () {
         try {
-          var t = localStorage.getItem('portal_theme');
+          let t = localStorage.getItem('portal_theme');
           if (t !== 'light' && t !== 'dark') {
             t = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
           }

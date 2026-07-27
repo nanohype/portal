@@ -60,6 +60,8 @@ export function ConfigUpload({ workspaceId, currentConfigVersion }: Props) {
 
   return (
     <div className="space-y-3">
+      {/* Drop target is pointer/drag only; keyboard users use the file input below. */}
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: native file drop zone */}
       <div
         onDragOver={(e) => {
           e.preventDefault();

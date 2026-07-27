@@ -46,8 +46,9 @@ function isTagsKey(key: string) {
 interface Props {
   workspaceId: string;
   // The caller's effective role on this workspace — their org role, or a
-  // higher role one of their teams was granted here.
-  role?: string;
+  // higher role one of their teams was granted here. Named accessRole (not
+  // `role`) so a11y linters don't treat the JSX prop as an ARIA role.
+  accessRole?: string;
 }
 
 function parseEnvFormat(text: string): { key: string; value: string }[] {
@@ -71,10 +72,10 @@ function parseEnvFormat(text: string): { key: string; value: string }[] {
   return result;
 }
 
-export function VariablesPanel({ workspaceId, role }: Props) {
+export function VariablesPanel({ workspaceId, accessRole }: Props) {
   // Variable writes feed the worker's tfvars file and process environment, so
   // the API holds them at admin. Reads stay open, with values redacted.
-  const canManage = roleAtLeast(role, 'admin');
+  const canManage = roleAtLeast(accessRole, 'admin');
   // Handing back a decrypted secret is at least as sensitive as editing it, so
   // reveal sits at the same bar as the writes.
   const canReveal = canManage;
@@ -83,7 +84,7 @@ export function VariablesPanel({ workspaceId, role }: Props) {
   // tells an operator what a workspace still needs has to be reachable by one.
   // Below the write bar the API strips the values from the answer, so the rows
   // come back as names, types and provenance with no `=value` beside them.
-  const canDiscover = roleAtLeast(role, 'viewer');
+  const canDiscover = roleAtLeast(accessRole, 'viewer');
   const uid = useId();
   const queryClient = useQueryClient();
   const [showForm, setShowForm] = useState(false);
@@ -415,6 +416,7 @@ export function VariablesPanel({ workspaceId, role }: Props) {
         <div className="flex items-center gap-3">
           <h3 className="text-base font-semibold">Variables</h3>
           <button
+            type="button"
             onClick={() => setShowEffective(!showEffective)}
             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all cursor-pointer ${
               showEffective
@@ -504,6 +506,7 @@ export function VariablesPanel({ workspaceId, role }: Props) {
                 </Button>
               )}
               <button
+                type="button"
                 onClick={() => setDiscoveredVars(null)}
                 className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
               >
@@ -792,6 +795,7 @@ export function VariablesPanel({ workspaceId, role }: Props) {
                   </span>
                   {v.sensitive && canReveal && (
                     <button
+                      type="button"
                       onClick={() => toggleReveal(v)}
                       className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
                       title={revealedValues[v.id] ? 'Hide value' : 'Reveal value'}
@@ -806,6 +810,7 @@ export function VariablesPanel({ workspaceId, role }: Props) {
                   {canManage && (
                     <>
                       <button
+                        type="button"
                         onClick={() => startEdit(v)}
                         className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
                         title="Edit variable"
@@ -813,6 +818,7 @@ export function VariablesPanel({ workspaceId, role }: Props) {
                         <Pencil className="w-3.5 h-3.5" />
                       </button>
                       <button
+                        type="button"
                         onClick={() => setDeleteTarget(v)}
                         className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors cursor-pointer"
                       >
@@ -879,6 +885,7 @@ export function VariablesPanel({ workspaceId, role }: Props) {
             ) : (
               importWorkspaces?.map((ws) => (
                 <button
+                  type="button"
                   key={ws.id}
                   onClick={() => importOutputsMutation.mutate(ws.id)}
                   disabled={importOutputsMutation.isPending}
@@ -927,6 +934,7 @@ export function VariablesPanel({ workspaceId, role }: Props) {
               <div className="rounded-lg border border-border divide-y divide-border max-h-60 overflow-auto">
                 {copyWorkspaces.map((w: Workspace) => (
                   <button
+                    type="button"
                     key={w.id}
                     className="flex items-center justify-between w-full px-4 py-3 text-left hover:bg-accent/50 transition-colors cursor-pointer"
                     onClick={() => copyVariablesMutation.mutate(w.id)}
@@ -1040,8 +1048,8 @@ export function VariablesPanel({ workspaceId, role }: Props) {
           ) : (
             <div className="space-y-3 mt-2">
               <div className="rounded-lg border border-border divide-y divide-border max-h-60 overflow-auto">
-                {bulkParsed.map((v, i) => (
-                  <div key={i} className="flex items-center justify-between px-3 py-2">
+                {bulkParsed.map((v) => (
+                  <div key={v.key} className="flex items-center justify-between px-3 py-2">
                     <code className="text-sm font-mono">{v.key}</code>
                     <span className="text-sm font-mono text-muted-foreground break-all">
                       {bulkSensitive ? '***' : v.value}

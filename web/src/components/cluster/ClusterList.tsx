@@ -261,6 +261,7 @@ export function ClusterList() {
           {operations.length > 5 && (
             <div className="flex items-center justify-between mt-3 text-[11px] text-muted-foreground/70">
               <button
+                type="button"
                 onClick={() => setOpsPage((p) => Math.max(1, p - 1))}
                 disabled={opsPage === 1}
                 className="hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
@@ -272,6 +273,7 @@ export function ClusterList() {
                 {operations.length}
               </span>
               <button
+                type="button"
                 onClick={() => setOpsPage((p) => (p * 5 < operations.length ? p + 1 : p))}
                 disabled={opsPage * 5 >= operations.length}
                 className="hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"

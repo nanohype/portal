@@ -249,6 +249,7 @@ export function AccessPanel({ workspaceId }: Props) {
                     </Badge>
                     {canManage && (
                       <button
+                        type="button"
                         onClick={() => revokeMutation.mutate(access.team_id)}
                         disabled={revokeMutation.isPending}
                         className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors cursor-pointer"

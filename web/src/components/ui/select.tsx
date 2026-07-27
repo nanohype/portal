@@ -181,12 +181,20 @@ export function Select({
             const isHighlighted = i === highlightIndex;
             return (
               <div
-                key={`${option.value}-${i}`}
+                key={option.value}
                 role="option"
+                tabIndex={option.disabled ? -1 : 0}
                 aria-selected={isSelected}
                 aria-disabled={option.disabled}
                 onClick={() => {
                   if (!option.disabled) select(option.value);
+                }}
+                onKeyDown={(e) => {
+                  if (option.disabled) return;
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    select(option.value);
+                  }
                 }}
                 onMouseEnter={() => {
                   if (!option.disabled) setHighlightIndex(i);

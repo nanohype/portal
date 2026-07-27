@@ -309,6 +309,7 @@ export function RunView({ workspaceId, runId }: Props) {
         <div className="flex border-b border-border bg-card" role="tablist" aria-label="Run output">
           {(['logs', 'changes'] as const).map((tab) => (
             <button
+              type="button"
               key={tab}
               role="tab"
               aria-selected={activeTab === tab}

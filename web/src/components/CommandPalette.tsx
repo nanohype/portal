@@ -33,14 +33,14 @@ export function CommandPalette({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center pt-[18vh] bg-black/50 backdrop-blur-sm animate-fade-overlay"
-      onClick={() => onOpenChange(false)}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-lg mx-4 glass rounded-xl shadow-2xl shadow-black/40 overflow-hidden animate-scale-in"
-      >
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-[18vh] animate-fade-overlay">
+      <button
+        type="button"
+        aria-label="Close command palette"
+        className="absolute inset-0 cursor-default bg-black/50 backdrop-blur-sm"
+        onClick={() => onOpenChange(false)}
+      />
+      <div className="relative z-10 w-full max-w-lg mx-4 glass rounded-xl shadow-2xl shadow-black/40 overflow-hidden animate-scale-in">
         <Command loop className="outline-none">
           <div className="flex items-center gap-2 px-3.5 border-b border-border">
             <Search className="w-4 h-4 text-dim shrink-0" />

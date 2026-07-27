@@ -67,6 +67,7 @@ export function DatastoreFields({
         const error = datastoreError(draft, platformName, value);
         return (
           <div
+            // biome-ignore lint/suspicious/noArrayIndexKey: drafts have no stable id until named
             key={index}
             className="rounded-md border border-border/40 px-3 py-2.5 flex flex-col gap-2"
           >

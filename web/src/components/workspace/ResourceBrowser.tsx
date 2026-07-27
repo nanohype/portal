@@ -17,6 +17,7 @@ function ResourceRow({ resource }: { resource: StateResource }) {
   return (
     <div className="border-b border-border last:border-b-0">
       <button
+        type="button"
         onClick={() => setExpanded(!expanded)}
         className="w-full px-4 py-2.5 flex items-center gap-2 text-sm font-mono text-left hover:bg-accent/50 transition-colors cursor-pointer"
       >
@@ -146,8 +147,8 @@ export function ResourceBrowser({ workspaceId, enabled }: Props) {
               <span> (of {resources.length} total)</span>
             )}
           </div>
-          {filtered.map((r, i) => (
-            <ResourceRow key={`${r.module}.${r.type}.${r.name}-${i}`} resource={r} />
+          {filtered.map((r) => (
+            <ResourceRow key={`${r.module}.${r.type}.${r.name}`} resource={r} />
           ))}
         </div>
       )}

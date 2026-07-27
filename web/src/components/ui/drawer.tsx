@@ -1,6 +1,5 @@
 import {
   type ReactNode,
-  type MouseEvent,
   type AnimationEvent,
   createContext,
   useCallback,
@@ -132,18 +131,18 @@ export function Drawer({ open, onClose, children, className, width = 'max-w-md' 
 
   return (
     <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-labelledby={titleId}>
-      <div
+      <button
+        type="button"
+        aria-label="Close drawer"
         className={cn(
-          'fixed inset-0 bg-black/70 backdrop-blur-md',
+          'fixed inset-0 cursor-default bg-black/70 backdrop-blur-md',
           closing ? 'animate-overlay-out' : 'animate-overlay-in',
         )}
-        aria-hidden="true"
         onClick={onClose}
       />
       <div
         ref={contentRef}
         onAnimationEnd={onPanelAnimEnd}
-        onClick={(e: MouseEvent) => e.stopPropagation()}
         className={cn(
           'fixed inset-y-0 right-0 z-50 flex h-full w-full flex-col border-l border-border bg-card/80 backdrop-blur-xl shadow-2xl shadow-black/40',
           width,
@@ -163,6 +162,7 @@ export function DrawerHeader({ children, onClose }: { children: ReactNode; onClo
       <div className="min-w-0">{children}</div>
       {onClose && (
         <button
+          type="button"
           onClick={onClose}
           aria-label="Close"
           className="-mr-1.5 -mt-0.5 shrink-0 rounded-[6px] p-1.5 text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"

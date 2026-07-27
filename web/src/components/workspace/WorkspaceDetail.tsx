@@ -479,6 +479,7 @@ export function WorkspaceDetail({ workspaceId }: Props) {
         <div className="flex gap-1" role="tablist" aria-label="Workspace sections">
           {tabs.map((t) => (
             <button
+              type="button"
               key={t.id}
               role="tab"
               aria-selected={tab === t.id}
@@ -514,6 +515,7 @@ export function WorkspaceDetail({ workspaceId }: Props) {
           </DialogHeader>
           <div className="space-y-3 mt-2 max-h-96 overflow-auto">
             {importRows.map((row, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: rows are ephemeral form state
               <div key={i} className="flex items-center gap-2">
                 <Input
                   placeholder="module.eks.aws_eks_cluster.this[0]"
@@ -537,6 +539,7 @@ export function WorkspaceDetail({ workspaceId }: Props) {
                 />
                 {importRows.length > 1 && (
                   <button
+                    type="button"
                     onClick={() => setImportRows(importRows.filter((_, j) => j !== i))}
                     className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors cursor-pointer shrink-0"
                   >
@@ -678,7 +681,7 @@ export function WorkspaceDetail({ workspaceId }: Props) {
       )}
 
       {tab === 'variables' && (
-        <VariablesPanel workspaceId={workspaceId} role={workspace.effective_role} />
+        <VariablesPanel workspaceId={workspaceId} accessRole={workspace.effective_role} />
       )}
       {tab === 'state' && (
         <StateExplorer workspaceId={workspaceId} role={workspace.effective_role} />
@@ -694,6 +697,7 @@ export function WorkspaceDetail({ workspaceId }: Props) {
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold">Clone Workspace</h2>
               <button
+                type="button"
                 onClick={() => setShowCloneDialog(false)}
                 className="text-muted-foreground hover:text-foreground"
               >
@@ -713,7 +717,6 @@ export function WorkspaceDetail({ workspaceId }: Props) {
                   placeholder="New workspace name"
                   className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
                   maxLength={128}
-                  autoFocus
                 />
               </div>
               <div>

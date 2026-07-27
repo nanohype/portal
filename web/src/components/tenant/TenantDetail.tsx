@@ -242,6 +242,7 @@ function AccessPanel({ tenantId }: { tenantId: string }) {
               <span className="font-medium flex-1">{teamName(a.team_id)}</span>
               <span className="text-muted-foreground/70">{formatRelativeTime(a.granted_at)}</span>
               <button
+                type="button"
                 onClick={async () => {
                   if (
                     await confirm({

@@ -57,6 +57,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
             </span>
           </Link>
           <button
+            type="button"
             onClick={toggle}
             aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
             title={theme === 'dark' ? 'Light theme' : 'Dark theme'}
@@ -69,6 +70,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
         {/* Search trigger */}
         <div className="p-3">
           <button
+            type="button"
             onClick={() => setPaletteOpen(true)}
             className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-[6px] text-[12px] text-dim border border-input-border bg-input/40 hover:text-foreground hover:bg-hover transition-colors cursor-pointer"
           >
@@ -118,6 +120,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
         {user && (
           <div ref={menuRef} className="relative shrink-0 border-t border-border p-3">
             <button
+              type="button"
               onClick={() => setShowUserMenu(!showUserMenu)}
               className="w-full flex items-center gap-2 p-1 rounded-[6px] hover:bg-hover transition-colors cursor-pointer"
             >
@@ -141,6 +144,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
             {showUserMenu && (
               <div className="absolute bottom-full left-3 right-3 mb-1 rounded-[8px] border border-border bg-card/80 backdrop-blur-xl shadow-xl shadow-black/30 py-1 animate-fade-in">
                 <button
+                  type="button"
                   onClick={() => {
                     setShowUserMenu(false);
                     logout();
@@ -157,7 +161,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 overflow-auto" role="main">
+      <main className="flex-1 overflow-auto">
         <div className="max-w-6xl mx-auto min-h-full flex flex-col">{children}</div>
       </main>
 

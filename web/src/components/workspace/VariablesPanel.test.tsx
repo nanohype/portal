@@ -53,7 +53,7 @@ beforeEach(() => {
 describe('VariablesPanel discovery', () => {
   it('shows a viewer the names it found, with no values and no way to add them', async () => {
     mockApi(REDACTED_ROWS);
-    renderWithClient(<VariablesPanel workspaceId="ws-1" role="viewer" />);
+    renderWithClient(<VariablesPanel workspaceId="ws-1" accessRole="viewer" />);
 
     await userEvent.click(await screen.findByRole('button', { name: /discover/i }));
 
@@ -68,7 +68,7 @@ describe('VariablesPanel discovery', () => {
 
   it('gives an admin the values and the controls that act on them', async () => {
     mockApi(VALUED_ROWS);
-    renderWithClient(<VariablesPanel workspaceId="ws-1" role="admin" />);
+    renderWithClient(<VariablesPanel workspaceId="ws-1" accessRole="admin" />);
 
     await userEvent.click(await screen.findByRole('button', { name: /discover/i }));
 
@@ -85,7 +85,7 @@ describe('VariablesPanel discovery', () => {
 // form is the only place that can warn, so it has to.
 describe('VariablesPanel terragrunt-override warning', () => {
   async function openFormAfterDiscover(user: ReturnType<typeof userEvent.setup>) {
-    renderWithClient(<VariablesPanel workspaceId="ws-1" role="admin" />);
+    renderWithClient(<VariablesPanel workspaceId="ws-1" accessRole="admin" />);
     await user.click(await screen.findByRole('button', { name: /discover/i }));
     await screen.findByText('cluster_name');
     await user.click(screen.getByRole('button', { name: /add variable/i }));
@@ -131,7 +131,7 @@ describe('VariablesPanel terragrunt-override warning', () => {
   it('says nothing before discovery has run', async () => {
     mockApi(VALUED_ROWS);
     const user = userEvent.setup();
-    renderWithClient(<VariablesPanel workspaceId="ws-1" role="admin" />);
+    renderWithClient(<VariablesPanel workspaceId="ws-1" accessRole="admin" />);
 
     await user.click(await screen.findByRole('button', { name: /add variable/i }));
     await user.type(screen.getByPlaceholderText(/variable key/i), 'cluster_name');

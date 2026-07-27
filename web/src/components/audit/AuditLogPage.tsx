@@ -62,6 +62,7 @@ export function AuditLogPage() {
             {(logs as AuditLog[]).map((log) => (
               <div key={log.id}>
                 <button
+                  type="button"
                   onClick={() => setExpandedId(expandedId === log.id ? null : log.id)}
                   className="w-full flex items-center gap-3 px-4 py-3 hover:bg-accent/50 transition-colors text-left cursor-pointer"
                 >
@@ -128,6 +129,7 @@ export function AuditLogPage() {
           {/* Pagination */}
           <div className="flex items-center justify-between mt-4">
             <button
+              type="button"
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={page === 1}
               className="text-sm text-muted-foreground hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
@@ -136,6 +138,7 @@ export function AuditLogPage() {
             </button>
             <span className="text-sm text-muted-foreground">Page {page}</span>
             <button
+              type="button"
               onClick={() => setPage((p) => p + 1)}
               disabled={(logs?.length ?? 0) < 50}
               className="text-sm text-muted-foreground hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"

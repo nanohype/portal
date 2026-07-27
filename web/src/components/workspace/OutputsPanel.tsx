@@ -104,6 +104,7 @@ export function OutputsPanel({ workspaceId }: Props) {
                   <div className="flex items-center gap-3 min-w-0">
                     {complex ? (
                       <button
+                        type="button"
                         onClick={() => toggleExpand(output.name)}
                         className="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0"
                       >
@@ -134,6 +135,7 @@ export function OutputsPanel({ workspaceId }: Props) {
                     )}
                     {!output.sensitive && (
                       <button
+                        type="button"
                         onClick={() => copyToClipboard(output.value)}
                         className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
                         title="Copy value"

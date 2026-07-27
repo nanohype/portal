@@ -58,6 +58,7 @@ function DiffRow({ diff }: { diff: ResourceDiff }) {
     return (
       <div className={cn('rounded-lg border overflow-hidden', style.border)}>
         <button
+          type="button"
           onClick={() => setExpanded(!expanded)}
           className={cn(
             'w-full px-4 py-2 flex items-center gap-2 text-sm font-medium font-mono text-left cursor-pointer',
@@ -93,6 +94,7 @@ function DiffRow({ diff }: { diff: ResourceDiff }) {
   return (
     <div className={cn('rounded-lg border overflow-hidden', style.border)}>
       <button
+        type="button"
         onClick={() => setExpanded(!expanded)}
         className={cn(
           'w-full px-4 py-2 flex items-center gap-2 text-sm font-medium font-mono text-left cursor-pointer',
@@ -185,8 +187,8 @@ export function StateDiffViewer({ diff }: Props) {
         )}
       </div>
 
-      {diff.diffs.map((d, i) => (
-        <DiffRow key={`${d.module}.${d.type}.${d.name}-${i}`} diff={d} />
+      {diff.diffs.map((d) => (
+        <DiffRow key={`${d.module}.${d.type}.${d.name}`} diff={d} />
       ))}
     </div>
   );

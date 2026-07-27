@@ -166,6 +166,7 @@ export function TeamsPage() {
         <div className="rounded-lg border border-border divide-y divide-border">
           {(teams as Team[]).map((team) => (
             <button
+              type="button"
               key={team.id}
               onClick={() => setSelectedTeam(team)}
               className="w-full flex items-center justify-between px-4 py-3 hover:bg-accent/50 transition-colors text-left cursor-pointer"
@@ -430,6 +431,7 @@ function TeamDetail({
                   {canManageTeams && (
                     <>
                       <button
+                        type="button"
                         onClick={() => startEdit(m)}
                         className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
                         aria-label={`Edit ${m.user_name || m.email}`}
@@ -437,6 +439,7 @@ function TeamDetail({
                         <Pencil className="w-3.5 h-3.5" />
                       </button>
                       <button
+                        type="button"
                         onClick={() => removeMemberMutation.mutate(m.user_id)}
                         disabled={removeMemberMutation.isPending}
                         className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors cursor-pointer"

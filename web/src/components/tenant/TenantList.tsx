@@ -54,7 +54,9 @@ export function TenantList() {
 
   // Group tenants by cluster so the list reads cluster-first
   const grouped = tenants.reduce<Record<string, Tenant[]>>((acc, t) => {
-    (acc[t.cluster_id] ??= []).push(t);
+    const bucket = acc[t.cluster_id] ?? [];
+    bucket.push(t);
+    acc[t.cluster_id] = bucket;
     return acc;
   }, {});
 
