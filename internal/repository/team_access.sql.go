@@ -72,6 +72,22 @@ func (q *Queries) RevokeAllTenantTeamAccess(ctx context.Context, arg RevokeAllTe
 	return err
 }
 
+// RevokeAllTenantTeamAccessByNames clears grants for many tenant names in one
+// statement. Used by the watcher reconcile when pruning inventory rows so
+// out-of-band CR deletion does not leave grants that the next create of the
+// same name would inherit.
+func (q *Queries) RevokeAllTenantTeamAccessByNames(ctx context.Context, orgID, clusterID string, names []string) error {
+	if len(names) == 0 {
+		return nil
+	}
+	_, err := q.db.Exec(ctx,
+		`DELETE FROM tenant_team_access
+		WHERE org_id = $1 AND cluster_id = $2 AND tenant_name = ANY($3::TEXT[])`,
+		orgID, clusterID, names,
+	)
+	return err
+}
+
 type ListTenantTeamAccessParams struct {
 	OrgID      string `json:"org_id"`
 	ClusterID  string `json:"cluster_id"`

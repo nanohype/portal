@@ -65,7 +65,9 @@ func (s *TeamAccessService) RevokeTenant(ctx context.Context, orgID, clusterID, 
 }
 
 // RevokeAllForTenant clears all access rows for a tenant. Called when the
-// tenant is deleted via portal so stale access rows don't accumulate.
+// tenant is deleted via portal so stale access rows don't accumulate. The
+// watcher reconcile path uses RevokeAllTenantTeamAccessByNames for the same
+// reason when a CR disappears out of band.
 func (s *TeamAccessService) RevokeAllForTenant(ctx context.Context, orgID, clusterID, tenantName string) error {
 	return s.queries.RevokeAllTenantTeamAccess(ctx, repository.RevokeAllTenantTeamAccessParams{
 		OrgID:      orgID,

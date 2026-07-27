@@ -82,6 +82,12 @@ func (s *TenantService) Get(ctx context.Context, id, orgID string) (repository.T
 // DB row whose name no longer appears in the observed set. K8s is the source
 // of truth; portal's row state converges to it on each watch tick.
 //
+// When inventory rows are pruned, matching tenant_team_access rows are
+// revoked in the same transaction. Grants are keyed by (cluster_id,
+// tenant_name) with no FK to tenants — without this, an out-of-band CR
+// removal leaves grants that the next create of that name inherits.
+// (Portal's own Delete path already calls RevokeAllForTenant.)
+//
 // Returns the number of upserts + deletes performed so the watcher can log
 // useful telemetry.
 func (s *TenantService) Reconcile(ctx context.Context, orgID, clusterID string, observed []TenantSnapshot) (upserts int, deletes int, err error) {
@@ -131,6 +137,11 @@ func (s *TenantService) Reconcile(ctx context.Context, orgID, clusterID string, 
 		}
 	}
 	if len(toDelete) > 0 {
+		// Grants first (no FK from grants to tenants): clear the name so a
+		// later create cannot inherit access. Then drop inventory rows.
+		if err := qtx.RevokeAllTenantTeamAccessByNames(ctx, orgID, clusterID, toDelete); err != nil {
+			return upserts, 0, fmt.Errorf("revoke grants for stale tenants: %w", err)
+		}
 		if err := qtx.DeleteTenantsByClusterAndNames(ctx, repository.DeleteTenantsByClusterAndNamesParams{
 			ClusterID: clusterID, OrgID: orgID, Names: toDelete,
 		}); err != nil {
@@ -340,6 +351,14 @@ func (s *TenantService) EnqueueCreate(ctx context.Context, in CreateTenantInput)
 	}
 	if err := s.assertTenantNameFree(ctx, in.OrgID, in.ClusterID, in.Name); err != nil {
 		return repository.TenantOperation{}, err
+	}
+	// Name is free in inventory, but grants may still hang off it if the CR was
+	// removed out-of-band and reconcile has not ticked yet. Clear them so the
+	// new create starts without inheriting another team's access.
+	if err := s.queries.RevokeAllTenantTeamAccess(ctx, repository.RevokeAllTenantTeamAccessParams{
+		OrgID: in.OrgID, ClusterID: in.ClusterID, TenantName: in.Name,
+	}); err != nil {
+		return repository.TenantOperation{}, fmt.Errorf("clear orphan grants for %s/%s: %w", in.ClusterID, in.Name, err)
 	}
 	values := in.Values
 	if values == nil {

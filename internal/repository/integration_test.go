@@ -394,6 +394,44 @@ func TestBatchUpsertTenants(t *testing.T) {
 	}
 }
 
+// TestRevokeAllTenantTeamAccessByNames covers the watcher-reconcile grant
+// prune: deleting inventory for gone CRs must also clear grants so the next
+// create of that name does not inherit access.
+func TestRevokeAllTenantTeamAccessByNames(t *testing.T) {
+	requireDB(t)
+	ctx := context.Background()
+	orgID, userID := seedOrg(t, ctx, "grantprune")
+	acctID := id()
+	exec(t, ctx, `INSERT INTO accounts (id,org_id,name,aws_account_id,assume_role_arn,default_region,created_by) VALUES ($1,$2,'acc','111111111111','arn:aws:iam::111111111111:role/x','us-west-2',$3)`, acctID, orgID, userID)
+	clID := id()
+	exec(t, ctx, `INSERT INTO clusters (id,org_id,account_id,name,api_endpoint,ca_bundle_encrypted,sa_token_encrypted,region,created_by) VALUES ($1,$2,$3,'cl-grant','https://x','x','x','us-west-2',$4)`, clID, orgID, acctID, userID)
+	teamID := id()
+	exec(t, ctx, `INSERT INTO teams (id,org_id,name,slug) VALUES ($1,$2,'team-a','team-a')`, teamID, orgID)
+
+	// Grants for two names; prune only one.
+	for _, name := range []string{"gone", "stays"} {
+		exec(t, ctx, `INSERT INTO tenant_team_access (id,org_id,cluster_id,tenant_name,team_id,granted_by) VALUES ($1,$2,$3,$4,$5,$6)`,
+			id(), orgID, clID, name, teamID, userID)
+	}
+
+	if err := testQueries.RevokeAllTenantTeamAccessByNames(ctx, orgID, clID, []string{"gone"}); err != nil {
+		t.Fatalf("revoke by names: %v", err)
+	}
+
+	var n int
+	if err := testPool.QueryRow(ctx, `SELECT COUNT(*) FROM tenant_team_access WHERE cluster_id=$1 AND tenant_name='gone'`, clID).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("gone grants: count=%d err=%v", n, err)
+	}
+	if err := testPool.QueryRow(ctx, `SELECT COUNT(*) FROM tenant_team_access WHERE cluster_id=$1 AND tenant_name='stays'`, clID).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("stays grants: count=%d err=%v", n, err)
+	}
+
+	// Empty name list is a no-op.
+	if err := testQueries.RevokeAllTenantTeamAccessByNames(ctx, orgID, clID, nil); err != nil {
+		t.Fatalf("empty names: %v", err)
+	}
+}
+
 // TestGetTenantByClusterAndNameAndPendingCreate covers the two lookups the
 // create-path existence gate uses: inventory by (cluster, name), and a pending
 // create op for the same key.
