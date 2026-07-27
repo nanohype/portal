@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/nanohype/portal/internal/auth"
+	"github.com/nanohype/portal/internal/clusterspec"
 	"github.com/nanohype/portal/internal/handler/respond"
 	"github.com/nanohype/portal/internal/repository"
 	"github.com/nanohype/portal/internal/service"
@@ -180,8 +181,12 @@ func (h *ClusterHandler) Create(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	if len(req.Name) > 128 {
-		respond.Error(w, http.StatusBadRequest, "name must be at most 128 characters")
+	// Same RFC-1123 rule as the vend path and tenant names. Without it,
+	// sanitizePathSegment (spaces → hyphens) is many-to-one: "prod eks" and
+	// "prod-eks" both satisfy UNIQUE(name) as distinct strings but both map to
+	// tenants/prod-eks/ — the constraint is exact-match, the path is normalized.
+	if !clusterspec.ValidName(req.Name) {
+		respond.Error(w, http.StatusBadRequest, "name must be a valid Kubernetes name (lowercase alphanumeric + hyphen, 1-63 chars)")
 		return
 	}
 	if len(req.Description) > 4096 {

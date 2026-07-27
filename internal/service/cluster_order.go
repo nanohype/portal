@@ -91,9 +91,12 @@ func (s *ClusterOrderService) assertNameAvailable(ctx context.Context, name stri
 
 // EnqueueDeprovision records intent to tear a cluster down (remove its file →
 // ArgoCD prunes → Crossplane tofu destroy). name+environment locate the manifest;
-// team is recorded for the audit trail.
+// team is the Workspace/CR namespace and must match the team the cluster was
+// vended under — a wrong team makes reconcileDeprovision Get the XR in the
+// wrong namespace, read NotFound as "teardown complete", and flip the op
+// terminal on the first tick while destroy never started.
 func (s *ClusterOrderService) EnqueueDeprovision(ctx context.Context, orgID, name, environment, team, createdBy string) (repository.ClusterOperation, error) {
-	if err := s.assertDeprovisionable(ctx, orgID, name, environment); err != nil {
+	if err := s.assertDeprovisionable(ctx, orgID, name, environment, team); err != nil {
 		return repository.ClusterOperation{}, err
 	}
 	return s.enqueue(ctx, orgID, "deprovision", createdBy, clusterspec.Input{
@@ -102,16 +105,32 @@ func (s *ClusterOrderService) EnqueueDeprovision(ctx context.Context, orgID, nam
 }
 
 // assertDeprovisionable rejects a teardown of something portal has no record
-// of vending. Teardown is removal: the worker deletes clusters/<environment>/
-// <name>.yaml and lets ArgoCD prune. Given the wrong pair it deletes nothing,
-// and "nothing to delete" and "deleted it" leave the same clean tree — which is
-// how a typo used to read as a completed teardown.
+// of vending, or a teardown that names the wrong team. Teardown is removal:
+// the worker deletes clusters/<environment>/<name>.yaml and lets ArgoCD prune.
+// Given the wrong name/environment pair it deletes nothing, and "nothing to
+// delete" and "deleted it" leave the same clean tree — which is how a typo
+// used to read as a completed teardown. Given the wrong team, the git remove
+// may still work (path has no team segment) but the watch-back Gets the XR in
+// the wrong namespace and treats NotFound as success.
 //
-// A registered cluster is the usual record. A provision that committed its
-// manifest but never registered is the other one: the manifest is what teardown
-// removes, and it exists from the moment that op reaches 'committed', so a vend
-// that failed on the way to a portal row is still deprovisionable.
-func (s *ClusterOrderService) assertDeprovisionable(ctx context.Context, orgID, name, environment string) error {
+// A committed/active provision is the authoritative record (and carries the
+// team). A registered cluster without ops is the other path (hand registration
+// / ArgoCD sync) — team cannot be checked there because Cluster rows do not
+// store it; those teardowns still require the name+environment match.
+func (s *ClusterOrderService) assertDeprovisionable(ctx context.Context, orgID, name, environment, team string) error {
+	ops, err := s.queries.ListClusterOperations(ctx, repository.ListClusterOperationsParams{
+		OrgID: orgID, Name: name, Environment: environment,
+	})
+	if err != nil {
+		return fmt.Errorf("list operations: %w", err)
+	}
+	if provision, ok := latestCommittedProvision(ops); ok {
+		if err := assertProvisionTeam(name, environment, provision.Team, team); err != nil {
+			return err
+		}
+		return nil
+	}
+
 	cluster, err := s.queries.GetClusterByName(ctx, repository.GetClusterByNameParams{OrgID: orgID, Name: name})
 	switch {
 	case err == nil && cluster.Environment == environment:
@@ -119,19 +138,32 @@ func (s *ClusterOrderService) assertDeprovisionable(ctx context.Context, orgID, 
 	case err != nil && !errors.Is(err, pgx.ErrNoRows):
 		return fmt.Errorf("look up cluster: %w", err)
 	}
-
-	ops, err := s.queries.ListClusterOperations(ctx, repository.ListClusterOperationsParams{
-		OrgID: orgID, Name: name, Environment: environment,
-	})
-	if err != nil {
-		return fmt.Errorf("list operations: %w", err)
-	}
-	if hasCommittedProvision(ops) {
-		return nil
-	}
 	return apperr.Conflict(fmt.Sprintf(
 		"no cluster %q on record in environment %s; there is no manifest to remove, so this would report a teardown that never happened",
 		name, environment))
+}
+
+// latestCommittedProvision returns the newest provision op that put a manifest
+// in the clusters repo. ListClusterOperations is newest-first.
+func latestCommittedProvision(ops []repository.ClusterOperation) (repository.ClusterOperation, bool) {
+	for _, op := range ops {
+		if op.Operation == "provision" && (op.Status == "committed" || op.Status == "active") {
+			return op, true
+		}
+	}
+	return repository.ClusterOperation{}, false
+}
+
+// assertProvisionTeam rejects a deprovision/unwedge whose ?team= does not match
+// the team the committed provision recorded. Empty provision team skips the
+// check (legacy rows); non-empty must match exactly.
+func assertProvisionTeam(name, environment, provisionTeam, requestedTeam string) error {
+	if provisionTeam == "" || provisionTeam == requestedTeam {
+		return nil
+	}
+	return apperr.Conflict(fmt.Sprintf(
+		"cluster %q in environment %s was vended under team %q, not %q; a wrong team would make the teardown report complete while destroy never started",
+		name, environment, provisionTeam, requestedTeam))
 }
 
 // hasCommittedProvision reports whether any of these operations put a manifest
@@ -139,12 +171,8 @@ func (s *ClusterOrderService) assertDeprovisionable(ctx context.Context, orgID, 
 // the vend also finished. 'pending' has not written anything yet, and 'failed'
 // and 'deprovisioned' are both states in which no manifest is left to remove.
 func hasCommittedProvision(ops []repository.ClusterOperation) bool {
-	for _, op := range ops {
-		if op.Operation == "provision" && (op.Status == "committed" || op.Status == "active") {
-			return true
-		}
-	}
-	return false
+	_, ok := latestCommittedProvision(ops)
+	return ok
 }
 
 // EnqueueUnwedge records intent to break-glass tear down a wedged spoke and
@@ -156,6 +184,10 @@ func hasCommittedProvision(ops []repository.ClusterOperation) bool {
 func (s *ClusterOrderService) EnqueueUnwedge(ctx context.Context, orgID, name, environment, team, createdBy string) (repository.ClusterOperation, error) {
 	if s.riverClient == nil {
 		return repository.ClusterOperation{}, fmt.Errorf("river client not configured")
+	}
+	// Same team gate as deprovision: unwedge Gets the Workspace in op.Team.
+	if err := s.assertDeprovisionable(ctx, orgID, name, environment, team); err != nil {
+		return repository.ClusterOperation{}, err
 	}
 
 	spec, err := s.provisionSpec(ctx, orgID, name, environment)

@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -132,6 +133,41 @@ func TestHasCommittedProvision(t *testing.T) {
 				t.Errorf("hasCommittedProvision() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestAssertProvisionTeam covers the team gate T11 left open: deprovision with
+// the wrong ?team= would Get the XR in the wrong namespace and treat NotFound
+// as teardown complete.
+func TestAssertProvisionTeam(t *testing.T) {
+	if err := assertProvisionTeam("apex", "production", "platform", "platform"); err != nil {
+		t.Fatalf("matching team must pass: %v", err)
+	}
+	if err := assertProvisionTeam("apex", "production", "", "platform"); err != nil {
+		t.Fatalf("empty provision team (legacy) must pass: %v", err)
+	}
+	err := assertProvisionTeam("apex", "production", "platform", "other-team")
+	if apperr.KindOf(err) != apperr.KindConflict {
+		t.Fatalf("wrong team must be KindConflict, got %v (kind %v)", err, apperr.KindOf(err))
+	}
+	if !strings.Contains(err.Error(), "platform") || !strings.Contains(err.Error(), "other-team") {
+		t.Errorf("error should name both teams: %v", err)
+	}
+}
+
+// TestLatestCommittedProvision picks the newest committed/active provision.
+func TestLatestCommittedProvision(t *testing.T) {
+	ops := []repository.ClusterOperation{
+		{ID: "d", Operation: "deprovision", Status: "committed"},
+		{ID: "p2", Operation: "provision", Status: "active", Team: "platform"},
+		{ID: "p1", Operation: "provision", Status: "committed", Team: "old"},
+	}
+	got, ok := latestCommittedProvision(ops)
+	if !ok || got.ID != "p2" || got.Team != "platform" {
+		t.Fatalf("got %+v ok=%v, want p2/platform", got, ok)
+	}
+	if _, ok := latestCommittedProvision(nil); ok {
+		t.Fatal("empty list must miss")
 	}
 }
 
