@@ -189,7 +189,11 @@ func (w *ClusterApplyJobWorker) Work(ctx context.Context, job *river.Job[Cluster
 
 func (w *ClusterApplyJobWorker) fail(ctx context.Context, opID, orgID string, logger *slog.Logger, err error) error {
 	logger.Warn("cluster apply failed", "error", err)
-	if updateErr := w.completeOp(ctx, opID, orgID, "failed", "", err.Error()); updateErr != nil {
+	// Job ctx may already be cancelled (SIGTERM / River timeout). Write status
+	// on a detached context so the op does not sit at pending forever.
+	writeCtx, cancel := durableContext(ctx)
+	defer cancel()
+	if updateErr := w.completeOp(writeCtx, opID, orgID, "failed", "", err.Error()); updateErr != nil {
 		logger.Error("record failure on operation row", "error", updateErr)
 	}
 	// Return nil so River doesn't retry — the failure is on the row, and the user

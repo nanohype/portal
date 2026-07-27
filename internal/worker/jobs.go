@@ -446,19 +446,24 @@ func (w *RunJobWorker) Work(ctx context.Context, job *river.Job[RunJobArgs]) err
 	// Auto-apply: enqueue apply job immediately instead of unlocking
 	if finalStatus == "queued" && w.riverClient != nil && w.db != nil {
 		tx, txErr := w.db.Begin(ctx)
-		if txErr == nil {
+		if txErr != nil {
+			logger.Error("auto-apply: begin tx", "error", txErr)
+		} else {
 			_, insErr := w.riverClient.InsertTx(ctx, tx, RunJobArgs{
 				RunID:       args.RunID,
 				WorkspaceID: args.WorkspaceID,
 				OrgID:       args.OrgID,
 				Operation:   "apply",
 			}, nil)
-			if insErr == nil {
-				tx.Commit(ctx)
+			if insErr != nil {
+				_ = tx.Rollback(ctx)
+				logger.Error("auto-apply: insert job", "error", insErr)
+			} else if commitErr := tx.Commit(ctx); commitErr != nil {
+				logger.Error("auto-apply: commit", "error", commitErr)
+			} else {
 				logger.Info("auto-apply enqueued", "run_id", args.RunID)
 				return nil
 			}
-			tx.Rollback(ctx)
 		}
 	}
 
@@ -479,14 +484,18 @@ func (w *RunJobWorker) Work(ctx context.Context, job *river.Job[RunJobArgs]) err
 func (w *RunJobWorker) failRun(ctx context.Context, args RunJobArgs, logger *slog.Logger, runErr error, logOutput string) error {
 	logger.Error("run failed", "error", runErr)
 
+	// Job ctx may already be cancelled; status + slot release still need to land.
+	writeCtx, cancel := durableContext(ctx)
+	defer cancel()
+
 	// Don't overwrite cancelled status
-	if !w.isRunCancelled(ctx, args.RunID, args.OrgID) {
+	if !w.isRunCancelled(writeCtx, args.RunID, args.OrgID) {
 		errMsg := runErr.Error()
 		var planOutput *string
 		if logOutput != "" {
 			planOutput = &logOutput
 		}
-		if _, dbErr := w.queries.UpdateRunFinished(ctx, repository.UpdateRunFinishedParams{
+		if _, dbErr := w.queries.UpdateRunFinished(writeCtx, repository.UpdateRunFinishedParams{
 			ID: args.RunID, Status: "errored", ErrorMessage: &errMsg, PlanOutput: planOutput,
 		}); dbErr != nil {
 			// Return the DB error so River retries — the run would be stuck otherwise
@@ -500,11 +509,11 @@ func (w *RunJobWorker) failRun(ctx context.Context, args RunJobArgs, logger *slo
 	w.streamer.Close(args.RunID)
 
 	// Unlock workspace
-	if err := w.queries.ReleaseWorkspaceRun(ctx, args.WorkspaceID, args.OrgID, args.RunID); err != nil {
+	if err := w.queries.ReleaseWorkspaceRun(writeCtx, args.WorkspaceID, args.OrgID, args.RunID); err != nil {
 		logger.Error("failed to release workspace run slot after failure", "error", err)
 	}
 
-	w.enqueueNextPendingRun(ctx, args.WorkspaceID, logger)
+	w.enqueueNextPendingRun(writeCtx, args.WorkspaceID, logger)
 	return nil
 }
 

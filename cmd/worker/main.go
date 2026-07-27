@@ -281,12 +281,15 @@ func main() {
 		}
 
 		chartCache := tofuhelm.NewCache(eksAgentPlatformRepo.Workdir())
-		renderFn := func(chartName, releaseName, namespace string, values map[string]interface{}) (string, error) {
+		// Chart pull rides the job ctx (not Background) so a silent remote cannot
+		// outlive the job deadline while the tenants-repo mutex is held — which
+		// would block every subsequent tenant apply.
+		renderFn := func(ctx context.Context, chartName, releaseName, namespace string, values map[string]interface{}) (string, error) {
 			// Pull fresh chart on every render so chart-author edits land
 			// without a portal restart. Cheap (~few hundred ms when nothing
 			// changed); the chartCache.Reset call discards in-memory parses
 			// so the next Load re-reads.
-			if err := eksAgentPlatformRepo.CloneOrPull(context.Background(), cfg.EksAgentPlatformChartsRepoRef); err != nil {
+			if err := eksAgentPlatformRepo.CloneOrPull(ctx, cfg.EksAgentPlatformChartsRepoRef); err != nil {
 				return "", err
 			}
 			chartCache.Reset()
@@ -539,19 +542,28 @@ func main() {
 		restCfg, err := rest.InClusterConfig()
 		if err != nil {
 			logger.Warn("argocd sync enabled but worker is not running in-cluster; skipping", "error", err)
-		} else if argocdClient, err := kubernetes.NewForConfig(restCfg); err != nil {
-			logger.Warn("argocd sync: failed to build in-cluster client; skipping", "error", err)
 		} else {
-			syncSvc := service.NewArgoCDSyncService(clusterSvc, argocdClient, cfg.ArgoCDNamespace,
-				cfg.ArgoCDSyncOrgID, cfg.ArgoCDSyncAccountID, cfg.ArgoCDSyncCreatedBy)
-			go runLoop(ctx, "argocd-sync", cfg.ArgoCDSyncInterval, logger, func() {
-				created, updated, skipped, err := syncSvc.Sync(context.Background())
-				if err != nil {
-					logger.Warn("argocd sync", "error", err)
-					return
-				}
-				logger.Info("argocd sync tick", "created", created, "updated", updated, "skipped", skipped)
-			})
+			// Same transport backstop as the hub dynamic client: a hung apiserver
+			// must not wedge the sync loop for the process lifetime while /healthz
+			// stays green.
+			restCfg.Timeout = 30 * time.Second
+			argocdClient, err := kubernetes.NewForConfig(restCfg)
+			if err != nil {
+				logger.Warn("argocd sync: failed to build in-cluster client; skipping", "error", err)
+			} else {
+				syncSvc := service.NewArgoCDSyncService(clusterSvc, argocdClient, cfg.ArgoCDNamespace,
+					cfg.ArgoCDSyncOrgID, cfg.ArgoCDSyncAccountID, cfg.ArgoCDSyncCreatedBy)
+				go runLoop(ctx, "argocd-sync", cfg.ArgoCDSyncInterval, logger, func() {
+					// Tick inherits the process signal ctx (not Background) so
+					// shutdown cancels an in-flight List of Secrets.
+					created, updated, skipped, err := syncSvc.Sync(ctx)
+					if err != nil {
+						logger.Warn("argocd sync", "error", err)
+						return
+					}
+					logger.Info("argocd sync tick", "created", created, "updated", updated, "skipped", skipped)
+				})
+			}
 		}
 	}
 

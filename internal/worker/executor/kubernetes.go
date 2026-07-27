@@ -14,6 +14,7 @@ import (
 	"github.com/nanohype/portal/internal/conv"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/watch"
@@ -182,20 +183,22 @@ func (e *KubernetesExecutor) Execute(ctx context.Context, params ExecuteParams) 
 		}
 	}
 
-	_, err := e.client.CoreV1().ConfigMaps(e.namespace).Create(ctx, cm, metav1.CreateOptions{})
-	if err != nil {
+	if err := e.createConfigMap(ctx, cm); err != nil {
 		return nil, fmt.Errorf("failed to create configmap: %w", err)
 	}
-	defer e.client.CoreV1().ConfigMaps(e.namespace).Delete(ctx, podName, metav1.DeleteOptions{})
+	// Cleanup must survive job-ctx cancellation (SIGTERM mid-apply): otherwise
+	// the pod keeps tofu-applying unobserved and a retry hits AlreadyExists on
+	// the deterministic ConfigMap name.
+	defer e.deleteResource(ctx, "configmap", podName)
+	defer e.deleteResource(ctx, "pod", podName)
 
 	// Create Pod
 	pod := e.buildPod(podName, params, envVars)
 
-	_, err = e.client.CoreV1().Pods(e.namespace).Create(ctx, pod, metav1.CreateOptions{})
+	_, err := e.client.CoreV1().Pods(e.namespace).Create(ctx, pod, metav1.CreateOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create pod: %w", err)
 	}
-	defer e.client.CoreV1().Pods(e.namespace).Delete(ctx, podName, metav1.DeleteOptions{})
 
 	logger.Info("executor pod created", "pod", podName)
 	params.LogCallback([]byte(fmt.Sprintf("Executor pod %s created, waiting for start...\r\n", podName)))
@@ -452,6 +455,10 @@ func (e *KubernetesExecutor) buildPod(name string, params ExecuteParams, envVars
 		{Name: "work", MountPath: "/work"},
 	}
 
+	// Cap wall-clock so a stranded pod (worker killed before deferred delete)
+	// cannot tofu-apply forever. 30m covers large apply; cleanup still preferred.
+	activeDeadline := int64(30 * 60)
+
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -465,7 +472,8 @@ func (e *KubernetesExecutor) buildPod(name string, params ExecuteParams, envVars
 			},
 		},
 		Spec: corev1.PodSpec{
-			RestartPolicy: corev1.RestartPolicyNever,
+			RestartPolicy:         corev1.RestartPolicyNever,
+			ActiveDeadlineSeconds: &activeDeadline,
 			Containers: []corev1.Container{
 				{
 					Name:         "tofu",
@@ -489,6 +497,42 @@ func (e *KubernetesExecutor) buildPod(name string, params ExecuteParams, envVars
 			AutomountServiceAccountToken:  boolPtr(false),
 			TerminationGracePeriodSeconds: int64Ptr(30),
 		},
+	}
+}
+
+// createConfigMap creates the run ConfigMap, replacing a leftover from a prior
+// cancelled run of the same deterministic name (AlreadyExists).
+func (e *KubernetesExecutor) createConfigMap(ctx context.Context, cm *corev1.ConfigMap) error {
+	_, err := e.client.CoreV1().ConfigMaps(e.namespace).Create(ctx, cm, metav1.CreateOptions{})
+	if err == nil {
+		return nil
+	}
+	if !apierrors.IsAlreadyExists(err) {
+		return err
+	}
+	// Detached delete: the leftover may be from a cancelled job whose cleanup
+	// deferred with a cancelled ctx and never ran.
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+	defer cancel()
+	_ = e.client.CoreV1().ConfigMaps(e.namespace).Delete(cleanupCtx, cm.Name, metav1.DeleteOptions{})
+	_, err = e.client.CoreV1().ConfigMaps(e.namespace).Create(ctx, cm, metav1.CreateOptions{})
+	return err
+}
+
+// deleteResource removes a pod or ConfigMap using a context that survives the
+// job deadline so SIGTERM mid-Execute still cleans up.
+func (e *KubernetesExecutor) deleteResource(ctx context.Context, kind, name string) {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+	defer cancel()
+	var err error
+	switch kind {
+	case "pod":
+		err = e.client.CoreV1().Pods(e.namespace).Delete(cleanupCtx, name, metav1.DeleteOptions{})
+	case "configmap":
+		err = e.client.CoreV1().ConfigMaps(e.namespace).Delete(cleanupCtx, name, metav1.DeleteOptions{})
+	}
+	if err != nil && !apierrors.IsNotFound(err) {
+		slog.Warn("executor cleanup failed", "kind", kind, "name", name, "error", err)
 	}
 }
 

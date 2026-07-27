@@ -44,7 +44,9 @@ type TenantOperationCompleter func(ctx context.Context, id, orgID, status, sha, 
 
 // ChartRenderer abstracts the helm render call. The caller's adapter loads
 // the named chart from the cache and renders against the supplied values.
-type ChartRenderer func(chartName, releaseName, namespace string, values map[string]interface{}) (string, error)
+// ctx is the job context so a chart pull cannot outlive the job deadline
+// while holding the tenants-repo lock.
+type ChartRenderer func(ctx context.Context, chartName, releaseName, namespace string, values map[string]interface{}) (string, error)
 
 type TenantApplyJobWorker struct {
 	river.WorkerDefaults[TenantApplyJobArgs]
@@ -145,7 +147,7 @@ func (w *TenantApplyJobWorker) Work(ctx context.Context, job *river.Job[TenantAp
 				return w.fail(ctx, op.ID, op.OrgID, logger, fmt.Errorf("unmarshal values: %w", err))
 			}
 		}
-		manifest, err := w.render("tenant", op.TenantName, op.TenantName, values)
+		manifest, err := w.render(ctx, "tenant", op.TenantName, op.TenantName, values)
 		if err != nil {
 			return w.fail(ctx, op.ID, op.OrgID, logger, fmt.Errorf("render chart: %w", err))
 		}
@@ -199,7 +201,11 @@ func (w *TenantApplyJobWorker) Work(ctx context.Context, job *river.Job[TenantAp
 
 func (w *TenantApplyJobWorker) fail(ctx context.Context, opID, orgID string, logger *slog.Logger, err error) error {
 	logger.Warn("tenant apply failed", "error", err)
-	if updateErr := w.completeOp(ctx, opID, orgID, "failed", "", err.Error()); updateErr != nil {
+	// Job ctx may already be cancelled (SIGTERM / River timeout). Write status
+	// on a detached context so the op does not sit at pending forever.
+	writeCtx, cancel := durableContext(ctx)
+	defer cancel()
+	if updateErr := w.completeOp(writeCtx, opID, orgID, "failed", "", err.Error()); updateErr != nil {
 		logger.Error("record failure on operation row", "error", updateErr)
 	}
 	// Return nil so River doesn't retry — the failure is already in the

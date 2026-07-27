@@ -220,7 +220,9 @@ func (w *ClusterUnwedgeJobWorker) phase(ctx context.Context, op repository.Clust
 
 func (w *ClusterUnwedgeJobWorker) fail(ctx context.Context, op repository.ClusterOperation, logger *slog.Logger, err error) error {
 	logger.Warn("cluster unwedge failed", "error", err)
-	if updateErr := w.completeOp(ctx, op.ID, op.OrgID, "failed", "", err.Error()); updateErr != nil {
+	writeCtx, cancel := durableContext(ctx)
+	defer cancel()
+	if updateErr := w.completeOp(writeCtx, op.ID, op.OrgID, "failed", "", err.Error()); updateErr != nil {
 		logger.Error("record failure on operation row", "error", updateErr)
 	}
 	// Return nil so River doesn't retry — the failure is on the row, and the

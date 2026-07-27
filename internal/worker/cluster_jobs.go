@@ -166,7 +166,9 @@ func (w *ClusterConnectionTestJobWorker) Work(ctx context.Context, job *river.Jo
 
 func (w *ClusterConnectionTestJobWorker) fail(ctx context.Context, cluster repository.Cluster, logger *slog.Logger, err error) error {
 	logger.Warn("connection test failed", "error", err)
-	if updateErr := w.updateState(ctx, cluster.ID, cluster.OrgID, "failed", err.Error(), "", 0); updateErr != nil {
+	writeCtx, cancel := durableContext(ctx)
+	defer cancel()
+	if updateErr := w.updateState(writeCtx, cluster.ID, cluster.OrgID, "failed", err.Error(), "", 0); updateErr != nil {
 		logger.Error("set status to failed", "error", updateErr)
 	}
 	// Returning nil prevents River from retrying — we've already recorded the
