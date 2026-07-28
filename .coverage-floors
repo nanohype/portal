@@ -51,7 +51,7 @@ package internal/metrics            0     # prometheus collector registration
 package internal/repository         10    # hand-written pgx; needs TEST_DATABASE_URL
 package internal/secrets            88
 package internal/server             88
-package internal/service            33
+package internal/service            35
 package internal/storage            0     # s3/minio client construction
 package internal/tfparse            75
 package internal/tfstate            74

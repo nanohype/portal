@@ -22,14 +22,25 @@ import (
 	"github.com/nanohype/portal/internal/worker"
 )
 
+// tenantNameLookup is the pair of reads the create gate consults. It exists as
+// an interface so a test can put a name in the way of a create and watch
+// EnqueueCreate refuse — the gate's *presence on the write path*, which is a
+// different property from the gate's rules and is the one that disappears if
+// somebody deletes the call.
+type tenantNameLookup interface {
+	GetTenantByClusterAndName(ctx context.Context, orgID, clusterID, name string) (repository.Tenant, error)
+	HasPendingTenantCreate(ctx context.Context, orgID, clusterID, name string) (bool, error)
+}
+
 type TenantService struct {
 	queries     *repository.Queries
 	db          *pgxpool.Pool
 	riverClient *river.Client[pgx.Tx]
+	names       tenantNameLookup
 }
 
 func NewTenantService(queries *repository.Queries, db *pgxpool.Pool) *TenantService {
-	return &TenantService{queries: queries, db: db}
+	return &TenantService{queries: queries, db: db, names: queries}
 }
 
 func (s *TenantService) SetRiverClient(client *river.Client[pgx.Tx]) {
@@ -373,7 +384,7 @@ func (s *TenantService) EnqueueCreate(ctx context.Context, in CreateTenantInput)
 // handler maps it to 409. A failed prior create does not block retry (status
 // is not pending); a live CR still in the inventory does.
 func (s *TenantService) assertTenantNameFree(ctx context.Context, orgID, clusterID, name string) error {
-	_, err := s.queries.GetTenantByClusterAndName(ctx, orgID, clusterID, name)
+	_, err := s.names.GetTenantByClusterAndName(ctx, orgID, clusterID, name)
 	exists := false
 	switch {
 	case err == nil:
@@ -381,7 +392,7 @@ func (s *TenantService) assertTenantNameFree(ctx context.Context, orgID, cluster
 	case !errors.Is(err, pgx.ErrNoRows):
 		return fmt.Errorf("lookup tenant %s/%s: %w", clusterID, name, err)
 	}
-	pending, err := s.queries.HasPendingTenantCreate(ctx, orgID, clusterID, name)
+	pending, err := s.names.HasPendingTenantCreate(ctx, orgID, clusterID, name)
 	if err != nil {
 		return fmt.Errorf("lookup pending create %s/%s: %w", clusterID, name, err)
 	}

@@ -22,14 +22,23 @@ import (
 // ClusterOrderService is the vend order desk: it records provision/deprovision
 // intents as cluster_operations rows and schedules the worker that commits the
 // Cluster CR to the clusters GitOps repo. It mirrors TenantService's write path.
+// clusterRecordLookup is what the teardown gate reads. Interfaced for the same
+// reason as tenantNameLookup: so a test can assert the gate runs from
+// EnqueueDeprovision, not merely that its rules are right in isolation.
+type clusterRecordLookup interface {
+	ListClusterOperations(ctx context.Context, arg repository.ListClusterOperationsParams) ([]repository.ClusterOperation, error)
+	GetClusterByName(ctx context.Context, arg repository.GetClusterByNameParams) (repository.Cluster, error)
+}
+
 type ClusterOrderService struct {
 	queries     *repository.Queries
 	db          *pgxpool.Pool
 	riverClient *river.Client[pgx.Tx]
+	records     clusterRecordLookup
 }
 
 func NewClusterOrderService(queries *repository.Queries, db *pgxpool.Pool) *ClusterOrderService {
-	return &ClusterOrderService{queries: queries, db: db}
+	return &ClusterOrderService{queries: queries, db: db, records: queries}
 }
 
 func (s *ClusterOrderService) SetRiverClient(client *river.Client[pgx.Tx]) {
@@ -118,7 +127,7 @@ func (s *ClusterOrderService) EnqueueDeprovision(ctx context.Context, orgID, nam
 // / ArgoCD sync) — team cannot be checked there because Cluster rows do not
 // store it; those teardowns still require the name+environment match.
 func (s *ClusterOrderService) assertDeprovisionable(ctx context.Context, orgID, name, environment, team string) error {
-	ops, err := s.queries.ListClusterOperations(ctx, repository.ListClusterOperationsParams{
+	ops, err := s.records.ListClusterOperations(ctx, repository.ListClusterOperationsParams{
 		OrgID: orgID, Name: name, Environment: environment,
 	})
 	if err != nil {
@@ -131,7 +140,7 @@ func (s *ClusterOrderService) assertDeprovisionable(ctx context.Context, orgID, 
 		return nil
 	}
 
-	cluster, err := s.queries.GetClusterByName(ctx, repository.GetClusterByNameParams{OrgID: orgID, Name: name})
+	cluster, err := s.records.GetClusterByName(ctx, repository.GetClusterByNameParams{OrgID: orgID, Name: name})
 	switch {
 	case err == nil && cluster.Environment == environment:
 		return nil
@@ -223,7 +232,7 @@ func (s *ClusterOrderService) EnqueueUnwedge(ctx context.Context, orgID, name, e
 // provisionSpec recovers the most recent provision op's spec for a cluster — the
 // source of the workload account + region the unwedge teardown assumes into.
 func (s *ClusterOrderService) provisionSpec(ctx context.Context, orgID, name, environment string) (clusterspec.Input, error) {
-	ops, err := s.queries.ListClusterOperations(ctx, repository.ListClusterOperationsParams{
+	ops, err := s.records.ListClusterOperations(ctx, repository.ListClusterOperationsParams{
 		OrgID: orgID, Name: name, Environment: environment,
 	})
 	if err != nil {
