@@ -2,7 +2,6 @@ package worker
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -19,6 +18,7 @@ import (
 	"github.com/nanohype/portal/internal/repository"
 	"github.com/nanohype/portal/internal/secrets"
 	"github.com/nanohype/portal/internal/storage"
+	"github.com/nanohype/portal/internal/varmerge"
 	"github.com/nanohype/portal/internal/worker/executor"
 )
 
@@ -699,38 +699,13 @@ func mergeVariables(orgVars, pipelineVars, workspaceVars []executor.Variable) []
 func mergeVar(merged map[string]executor.Variable, v executor.Variable) {
 	key := v.Key + "|" + v.Category
 	existing, exists := merged[key]
-	if exists && v.Category == "terraform" && isTagsKey(v.Key) {
+	if exists && v.Category == "terraform" && varmerge.IsTagsKey(v.Key) {
 		// Deep merge JSON maps for tag variables
-		if m := deepMergeJSON(existing.Value, v.Value); m != "" {
+		if m := varmerge.DeepMergeJSON(existing.Value, v.Value); m != "" {
 			v.Value = m
 		}
 	}
 	merged[key] = v
-}
-
-// isTagsKey returns true for variables that should be deep-merged as maps.
-func isTagsKey(key string) bool {
-	return key == "tags" || key == "default_tags" || key == "extra_tags" ||
-		strings.HasSuffix(key, "_tags")
-}
-
-// deepMergeJSON merges two JSON object strings. Keys in b override keys in a.
-func deepMergeJSON(a, b string) string {
-	var mapA, mapB map[string]interface{}
-	if json.Unmarshal([]byte(a), &mapA) != nil {
-		return ""
-	}
-	if json.Unmarshal([]byte(b), &mapB) != nil {
-		return ""
-	}
-	for k, v := range mapB {
-		mapA[k] = v
-	}
-	out, err := json.Marshal(mapA)
-	if err != nil {
-		return ""
-	}
-	return string(out)
 }
 
 func (w *RunJobWorker) enqueueNextPendingRun(ctx context.Context, workspaceID string, logger *slog.Logger) {

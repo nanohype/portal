@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -17,6 +16,7 @@ import (
 	"github.com/nanohype/portal/internal/repository"
 	"github.com/nanohype/portal/internal/secrets"
 	"github.com/nanohype/portal/internal/service"
+	"github.com/nanohype/portal/internal/varmerge"
 )
 
 type VariableHandler struct {
@@ -618,19 +618,26 @@ func (h *VariableHandler) Effective(w http.ResponseWriter, r *http.Request) {
 
 	merged := make(map[string]EffectiveVariableResponse) // key: "key|category"
 
+	// Every layer is required. A read that fails is not an empty layer: dropping
+	// it returns a smaller effective set than the run will actually use, with a
+	// 200 and nothing to say a layer is missing — and this view is what an
+	// operator reads before approving a production apply.
+
 	// Layer 1: org variables (lowest precedence)
 	orgVars, err := h.queries.ListOrgVariables(r.Context(), userCtx.OrgID)
-	if err == nil {
-		for _, v := range orgVars {
-			val := v.Value
-			if v.Sensitive {
-				val = "***"
-			}
-			merged[v.Key+"|"+v.Category] = EffectiveVariableResponse{
-				Key: v.Key, Value: val, Sensitive: v.Sensitive,
-				Category: v.Category, Description: v.Description,
-				Source: "org", SourceID: v.ID,
-			}
+	if err != nil {
+		respond.FromError(w, r, fmt.Errorf("list org variables: %w", err))
+		return
+	}
+	for _, v := range orgVars {
+		val := v.Value
+		if v.Sensitive {
+			val = "***"
+		}
+		merged[v.Key+"|"+v.Category] = EffectiveVariableResponse{
+			Key: v.Key, Value: val, Sensitive: v.Sensitive,
+			Category: v.Category, Description: v.Description,
+			Source: "org", SourceID: v.ID,
 		}
 	}
 
@@ -639,14 +646,16 @@ func (h *VariableHandler) Effective(w http.ResponseWriter, r *http.Request) {
 		pipelineVars, err := h.queries.ListPipelineVariables(r.Context(), repository.ListPipelineVariablesParams{
 			PipelineID: pipelineID, OrgID: userCtx.OrgID,
 		})
-		if err == nil {
-			for _, v := range pipelineVars {
-				val := v.Value
-				if v.Sensitive {
-					val = "***"
-				}
-				mergeEffectiveVar(merged, v.Key, val, v.Sensitive, v.Category, v.Description, "pipeline", v.ID)
+		if err != nil {
+			respond.FromError(w, r, fmt.Errorf("list pipeline variables: %w", err))
+			return
+		}
+		for _, v := range pipelineVars {
+			val := v.Value
+			if v.Sensitive {
+				val = "***"
 			}
+			mergeEffectiveVar(merged, v.Key, val, v.Sensitive, v.Category, v.Description, "pipeline", v.ID)
 		}
 	}
 
@@ -654,14 +663,16 @@ func (h *VariableHandler) Effective(w http.ResponseWriter, r *http.Request) {
 	wsVars, err := h.queries.ListWorkspaceVariables(r.Context(), repository.ListWorkspaceVariablesParams{
 		WorkspaceID: workspaceID, OrgID: userCtx.OrgID,
 	})
-	if err == nil {
-		for _, v := range wsVars {
-			val := v.Value
-			if v.Sensitive {
-				val = "***"
-			}
-			mergeEffectiveVar(merged, v.Key, val, v.Sensitive, v.Category, v.Description, "workspace", v.ID)
+	if err != nil {
+		respond.FromError(w, r, fmt.Errorf("list workspace variables: %w", err))
+		return
+	}
+	for _, v := range wsVars {
+		val := v.Value
+		if v.Sensitive {
+			val = "***"
 		}
+		mergeEffectiveVar(merged, v.Key, val, v.Sensitive, v.Category, v.Description, "workspace", v.ID)
 	}
 
 	result := make([]EffectiveVariableResponse, 0, len(merged))
@@ -679,34 +690,11 @@ func mergeEffectiveVar(merged map[string]EffectiveVariableResponse, key, val str
 		Category: category, Description: description,
 		Source: source, SourceID: sourceID,
 	}
-	if existing, ok := merged[mapKey]; ok && category == "terraform" && isEffectiveTagsKey(key) && !sensitive {
-		if m := deepMergeJSONStrings(existing.Value, val); m != "" {
+	if existing, ok := merged[mapKey]; ok && category == "terraform" && varmerge.IsTagsKey(key) && !sensitive {
+		if m := varmerge.DeepMergeJSON(existing.Value, val); m != "" {
 			ev.Value = m
 			ev.Description = fmt.Sprintf("Merged from %s + %s", existing.Source, source)
 		}
 	}
 	merged[mapKey] = ev
-}
-
-func isEffectiveTagsKey(key string) bool {
-	return key == "tags" || key == "default_tags" || key == "extra_tags" ||
-		strings.HasSuffix(key, "_tags")
-}
-
-func deepMergeJSONStrings(a, b string) string {
-	var mapA, mapB map[string]interface{}
-	if json.Unmarshal([]byte(a), &mapA) != nil {
-		return ""
-	}
-	if json.Unmarshal([]byte(b), &mapB) != nil {
-		return ""
-	}
-	for k, v := range mapB {
-		mapA[k] = v
-	}
-	out, err := json.Marshal(mapA)
-	if err != nil {
-		return ""
-	}
-	return string(out)
 }

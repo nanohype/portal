@@ -33,6 +33,11 @@ file    internal/service/audit.go        100   # the audit ledger
 # concrete pool.
 file    internal/service/approval.go     100
 file    internal/vcs/github.go           100   # webhook signature verification
+# The variable-precedence rule has one implementation and two consumers — the
+# worker, which computes what a run executes with, and the API's effective view,
+# which is what an operator reads before approving a production apply. A branch
+# it never took is a disagreement between those two waiting to happen.
+file    internal/varmerge/varmerge.go    100
 
 # ── packages ──────────────────────────────────────────────────────────────────
 package internal/apperr             0     # error taxonomy — declarations, no logic
@@ -42,7 +47,14 @@ package internal/clusterspec        92
 package internal/config             88
 package internal/conv               100
 package internal/git                18
-package internal/handler            8     # transport-only; the logic under it is floored above
+package internal/handler            9     # see the note below
+# internal/handler is mostly transport — parse, call a service, map to a DTO —
+# and those files are floored through the services under them. The variables
+# family is the exception: variables.go, org_variables.go and pipeline_variables.go
+# have no service beneath them and read the repository directly, so the
+# precedence + redaction rules for the values a run executes with live at this
+# floor. Closing that means a VariableService, not more handler tests. The merge
+# rule itself no longer lives here — it is internal/varmerge, floored at 100.
 package internal/handler/respond    0     # three response helpers exercised through handlers
 package internal/helm               53
 package internal/k8s                80
@@ -56,8 +68,9 @@ package internal/storage            0     # s3/minio client construction
 package internal/tfparse            75
 package internal/tfstate            74
 package internal/tracing            0     # otel wiring
+package internal/varmerge           91
 package internal/vcs                100
-package internal/worker             21
+package internal/worker             22
 package internal/worker/executor    15
 package cmd/migrate                 0     # main() wrappers
 package cmd/seeddemo                0
