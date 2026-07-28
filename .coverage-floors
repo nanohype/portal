@@ -23,20 +23,15 @@ file    internal/auth/workspace_role.go  100   # per-workspace role resolution
 file    internal/secrets/encrypt.go      100   # variable secret envelope
 file    internal/service/audit.go        100   # the audit ledger
 
-# approval.go is the one file on this list not yet at 100, and the gap is not
-# untested logic — every decision path, status guard and transition is covered.
-# What is left is the `if err != nil { return fmt.Errorf(...) }` wrap around each
-# pgx call *inside* the approval transaction. Reaching those means making one
-# statement fail while the others succeed on a connection already holding row
-# locks, which the service cannot express: it takes a concrete *repository.Queries
-# and *pgxpool.Pool, so there is nothing to inject a failure through.
-#
-# Closing it is a seam change to the approval write path — the narrow-interface
-# treatment internal/auth already uses for WorkspaceRoleResolver — and that is a
-# design change to the most safety-critical transaction in the product, not a
-# side effect of installing this gate. Floored at the measured value so it
-# ratchets, and raised to 100 when the seam lands.
-file    internal/service/approval.go     82
+# The approval decision releases or kills a gated apply, and every statement in
+# its transaction can fail with a different consequence — a run transitioned but
+# not audited, an approval recorded but never enqueued, a decision committed
+# without its compliance record. The transaction and the post-commit slot
+# hand-off are both behind narrow interfaces (approvalTx / runHandoff in
+# approval_store.go), the same treatment auth.WorkspaceRoleResolver uses, so each
+# of those failures is provoked directly instead of being unreachable behind a
+# concrete pool.
+file    internal/service/approval.go     100
 file    internal/vcs/github.go           100   # webhook signature verification
 
 # ── packages ──────────────────────────────────────────────────────────────────
@@ -56,7 +51,7 @@ package internal/metrics            0     # prometheus collector registration
 package internal/repository         10    # hand-written pgx; needs TEST_DATABASE_URL
 package internal/secrets            88
 package internal/server             88
-package internal/service            30
+package internal/service            33
 package internal/storage            0     # s3/minio client construction
 package internal/tfparse            75
 package internal/tfstate            74

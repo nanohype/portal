@@ -26,10 +26,21 @@ type ApprovalService struct {
 	db          *pgxpool.Pool
 	auditSvc    *AuditService
 	riverClient *river.Client[pgx.Tx]
+
+	// store opens the decision transaction. Production wires pgApprovalStore
+	// over the fields above; tests substitute a fake so each statement inside
+	// the transaction can be made to fail on its own.
+	store approvalStore
+	// handoff is the post-commit slot release, seamed for the same reason.
+	handoff runHandoff
 }
 
 func NewApprovalService(queries *repository.Queries, db *pgxpool.Pool, auditSvc *AuditService) *ApprovalService {
-	return &ApprovalService{queries: queries, db: db, auditSvc: auditSvc}
+	s := &ApprovalService{queries: queries, db: db, auditSvc: auditSvc}
+	riverOf := func() *river.Client[pgx.Tx] { return s.riverClient }
+	s.store = &pgApprovalStore{queries: queries, db: db, river: riverOf}
+	s.handoff = &pgRunHandoff{queries: queries, db: db, river: riverOf}
+	return s
 }
 
 func (s *ApprovalService) SetRiverClient(client *river.Client[pgx.Tx]) {
@@ -84,12 +95,11 @@ func (s *ApprovalService) List(ctx context.Context, runID, workspaceID, orgID st
 // a different design: it needs the direct-apply path to go too, and it locks
 // out an org with one admin, so it is not something to bolt on here.
 func (s *ApprovalService) Create(ctx context.Context, runID, workspaceID, orgID, userID, status, comment, ipAddress, userAgent string) (repository.Approval, error) {
-	tx, err := s.db.Begin(ctx)
+	qtx, err := s.store.BeginApproval(ctx)
 	if err != nil {
 		return repository.Approval{}, fmt.Errorf("begin approval tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
-	qtx := s.queries.WithTx(tx)
+	defer func() { _ = qtx.Rollback(ctx) }()
 
 	// Lock the run row to serialize concurrent approvals. Keyed on the
 	// workspace the caller was authorized against, so an approval can only
@@ -157,13 +167,13 @@ func (s *ApprovalService) Create(ctx context.Context, runID, workspaceID, orgID,
 		if _, err := qtx.MarkRunApproved(ctx, runID, runStatus); err != nil {
 			return repository.Approval{}, fmt.Errorf("transition approved run to %s: %w", runStatus, err)
 		}
-		if queued && s.riverClient != nil {
-			if _, err := s.riverClient.InsertTx(ctx, tx, worker.RunJobArgs{
+		if queued {
+			if err := qtx.EnqueueApply(ctx, worker.RunJobArgs{
 				RunID:       runID,
 				WorkspaceID: run.WorkspaceID,
 				OrgID:       run.OrgID,
 				Operation:   "apply",
-			}, nil); err != nil {
+			}); err != nil {
 				return repository.Approval{}, fmt.Errorf("enqueue apply job: %w", err)
 			}
 		}
@@ -194,18 +204,13 @@ func (s *ApprovalService) Create(ctx context.Context, runID, workspaceID, orgID,
 		return repository.Approval{}, fmt.Errorf("write approval audit: %w", err)
 	}
 
-	if err := tx.Commit(ctx); err != nil {
+	if err := qtx.Commit(ctx); err != nil {
 		return repository.Approval{}, fmt.Errorf("commit approval tx: %w", err)
 	}
 
 	// Post-commit: a rejected run is finished — free its slot and hand off.
 	if status == "rejected" {
-		if err := s.queries.ReleaseWorkspaceRun(ctx, run.WorkspaceID, run.OrgID, runID); err != nil {
-			slog.Error("failed to release workspace run slot after rejection", "error", err, "workspace_id", run.WorkspaceID, "run_id", runID)
-		}
-		if s.riverClient != nil {
-			worker.ClaimAndEnqueueNextRun(ctx, s.queries, s.db, s.riverClient, run.WorkspaceID, slog.Default())
-		}
+		s.handoff.ReleaseAndHandOff(ctx, run.WorkspaceID, run.OrgID, runID)
 	}
 
 	return approval, nil

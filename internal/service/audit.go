@@ -45,18 +45,25 @@ func (s *AuditService) Log(ctx context.Context, entry AuditEntry) {
 	}
 }
 
-// LogTx writes an audit row using a transaction-bound queries handle (from
-// Queries.WithTx) and returns the error so the caller can abort the surrounding
-// transaction. The audit row then commits or rolls back atomically with the
-// mutation it records — the durability guarantee compliance-relevant decisions
-// need.
-func (s *AuditService) LogTx(ctx context.Context, q *repository.Queries, entry AuditEntry) error {
+// AuditWriter is the single query the audit path needs. Narrowing to it lets a
+// caller inside a transaction hand over its own tx-scoped handle without the
+// audit service knowing what kind of handle that is — which is what makes the
+// error path of a transactional mutation reachable from a test.
+type AuditWriter interface {
+	CreateAuditLog(ctx context.Context, arg repository.CreateAuditLogParams) (repository.AuditLog, error)
+}
+
+// LogTx writes an audit row using a transaction-bound queries handle and
+// returns the error so the caller can abort the surrounding transaction. The
+// audit row then commits or rolls back atomically with the mutation it records
+// — the durability guarantee compliance-relevant decisions need.
+func (s *AuditService) LogTx(ctx context.Context, q AuditWriter, entry AuditEntry) error {
 	return s.logWith(ctx, q, entry)
 }
 
 // logWith is the shared insert path. q may be the service's pooled queries
 // (best-effort Log) or a tx-bound handle (transactional LogTx).
-func (s *AuditService) logWith(ctx context.Context, q *repository.Queries, entry AuditEntry) error {
+func (s *AuditService) logWith(ctx context.Context, q AuditWriter, entry AuditEntry) error {
 	beforeData, err := marshalOrNull(entry.Before)
 	if err != nil {
 		slog.Warn("failed to marshal audit before_data", "error", err)
