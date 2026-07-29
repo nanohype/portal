@@ -1,0 +1,444 @@
+# The Cluster API. Under Crossplane v2 the namespaced composite resource IS the
+# API — users apply a `Cluster` in their team namespace; there is no separate claim.
+# Spec fields track the landing-zone fleet/aws/cluster-stack entrypoint inputs (which
+# wrap components/aws/{network,cluster}); status fields track its outputs.
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: clusters.fleet.nanohype.dev
+spec:
+  scope: Namespaced
+  group: fleet.nanohype.dev
+  names:
+    kind: Cluster
+    plural: clusters
+  defaultCompositionRef:
+    name: cluster-aws
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                # --- placement: which spoke account/region to vend into -------
+                account:
+                  type: string
+                  description: Workload AWS account id (records + tags). Cross-account targeting is via spec.vendRoleArn (the order desk sets the fleet-vend role ARN); empty = same-account.
+                region:
+                  type: string
+                  description: >-
+                    AWS region the cluster is vended into. Any region is valid —
+                    the tofu state backend is decoupled from it: state always lives
+                    in the single hub-account bucket (nanohype-eks-fleet-tfstate,
+                    us-west-2), never in a per-region bucket that would have to track
+                    this value. So a vend into us-east-1 builds the cluster there but
+                    stores its state in us-west-2.
+                environment:
+                  type: string
+                  default: development
+                  description: Environment tier (development | staging | production) — prefixes resource names + tags.
+                team:
+                  type: string
+                  description: Owning team (tagging + ownership).
+                vendRoleArn:
+                  type: string
+                  default: ""
+                  description: >-
+                    Cross-account role the entrypoint's provider assumes to provision
+                    into a workload account. Empty = provision with the hub's own
+                    credentials (same-account — e.g. the local kind-hub validation).
+                clusterPermissionsBoundaryArn:
+                  type: string
+                  default: ""
+                  description: >-
+                    Permissions-boundary ARN cluster-stack mints the cluster's IAM
+                    roles with — the boundary of whichever fleet role runs the vend,
+                    published to SSM by landing-zone: fleet-vend's
+                    /eks-fleet/<env>/fleet-vend/vend_permissions_boundary_arn for
+                    cross-account (set alongside vendRoleArn), fleet-hub's
+                    /eks-fleet/<env>/fleet-hub/hub_permissions_boundary_arn for a
+                    same-account hub vend. Enforcement lives in IAM, not here: the
+                    fleet roles' CreateRole/AttachRolePolicy gate only allows role
+                    writes carrying their exact boundary, so a weaker or missing
+                    value can't mint a weaker role — the vend just fails. Empty =
+                    ungated (e.g. the local kind hub on user credentials).
+                operatorPermissionsBoundaryArn:
+                  type: string
+                  default: ""
+                  description: >-
+                    Permissions-boundary ARN the bootstrap Workspace mints the
+                    agent-platform operator role with. Same value + SSM source as
+                    clusterPermissionsBoundaryArn (one fleet role runs both
+                    Workspaces, and its IAM gate covers both); a separate field
+                    because it feeds the cluster-bootstrap entrypoint's
+                    operator_permissions_boundary_arn var. Empty = ungated.
+                bootstrapAccessRoleArn:
+                  type: string
+                  default: ""
+                  description: >-
+                    For cross-account vends, the hub's Crossplane role ARN — granted
+                    cluster-admin via an EKS access entry so the bootstrap Workspace's
+                    ambient get-token can reach this cluster's API (get-token can't
+                    present the fleet-vend external_id). Empty = same-account, where
+                    the creator (the hub) is already admin.
+                portalAccessRoleArn:
+                  type: string
+                  default: ""
+                  description: >-
+                    The portal worker's per-account spoke role ARN — granted a read
+                    EKS access entry so portal reaches this cluster's API (mint
+                    tokens, watch tenants) with the same role it uses for
+                    eks:DescribeCluster. Empty = portal not wired for this cluster.
+                dataKmsKeyArn:
+                  type: string
+                  default: ""
+                  description: >-
+                    The spoke's secrets-component data CMK ARN. The bootstrap
+                    Workspace's agent-iam module encrypts the model-artifacts +
+                    eval-reports buckets at rest with it (SSE-KMS). A spoke
+                    prerequisite referenced by ARN — like vendRoleArn and the
+                    permissions boundaries — not something the vend creates:
+                    cluster-stack provisions only network + cluster (no secrets
+                    module), so the order desk supplies the key the spoke's baseline
+                    already published to SSM (/platform/<env>/secrets/kms-key-arn).
+                    Empty = ungated local/hub validation, where no real
+                    artifacts bucket is minted.
+                ttlDays:
+                  type: integer
+                  default: 0
+                  minimum: 0
+                  description: >-
+                    Days-to-live for an ephemeral spoke. 0 (default) = persistent:
+                    tagged Lifecycle=persistent and never auto-reaped. >0 tags the
+                    spoke Lifecycle=ephemeral + Expiry=<vend date + ttlDays> and the
+                    hub reaper deletes this Cluster (a clean Crossplane teardown)
+                    ttlDays after creation.
+                # --- cluster (landing-zone components/aws/cluster) ------------
+                clusterName:
+                  type: string
+                  maxLength: 12
+                  pattern: '^[a-z0-9]([a-z0-9-]{0,10}[a-z0-9])?$'
+                  description: >-
+                    Cluster base name; the module prefixes it with environment to form the
+                    EKS cluster name <environment>-<clusterName>. Required and unique per
+                    (account, region, environment) — there is no default, because a shared
+                    default collides the moment a second cluster is vended into one account
+                    and environment. Must not equal the environment token. Capped at 12
+                    characters so the derived <environment>-<clusterName> keeps the tightest
+                    cluster-scoped S3 name (agent-iam's account+region-qualified
+                    model-artifacts bucket) within S3's 63-char limit in us-west-2.
+                clusterVersion:
+                  type: string
+                  default: "1.36"
+                  description: Kubernetes version.
+                endpointPublicAccess:
+                  type: boolean
+                  default: false
+                  description: >-
+                    Expose the EKS API on a public endpoint. Clusters vend private
+                    by default; public access is explicit opt-in and must carry a
+                    non-empty endpointPublicAccessCidrs allowlist (a CEL rule on
+                    spec rejects public-with-empty at admission).
+                endpointPublicAccessCidrs:
+                  type: array
+                  items: {type: string}
+                  default: []
+                  description: >-
+                    CIDRs allowed to reach the public API endpoint. Required
+                    (non-empty) when endpointPublicAccess is true; irrelevant while
+                    the endpoint is private.
+                systemNodes:
+                  type: object
+                  # Default the whole object (like network): a default on a nested
+                  # field alone doesn't apply when systemNodes is omitted, which would
+                  # leave the patched vars empty and fail tofu's number coercion.
+                  default: {instanceTypes: ["m7g.xlarge", "m6g.xlarge"], minSize: 2, maxSize: 6, desiredSize: 2, diskSize: 100}
+                  description: System node group (Bottlerocket / Graviton arm64).
+                  properties:
+                    instanceTypes:
+                      type: array
+                      items: {type: string}
+                      default: ["m7g.xlarge", "m6g.xlarge"]
+                    minSize: {type: integer, default: 2}
+                    maxSize: {type: integer, default: 6}
+                    desiredSize: {type: integer, default: 2}
+                    diskSize: {type: integer, default: 100}
+                # --- network (landing-zone components/aws/network) -----------
+                network:
+                  type: object
+                  # Default the whole object: a default on a nested field alone doesn't
+                  # apply when `network` is omitted, which would leave `mode` unset and the
+                  # create sub-object empty, passing an empty vpc_cidr to tofu (same
+                  # whole-object-default reason as systemNodes above).
+                  default: {mode: create, create: {vpcCidr: "10.0.0.0/16", maxAzs: 3, natGateways: 1}}
+                  description: >-
+                    The VPC the cluster lands in. mode: create (default) provisions a
+                    self-owned VPC first; mode: adopt participates in a VPC provisioned
+                    elsewhere (a same-account shared VPC, or one shared cross-account via
+                    AWS RAM), referencing it by ID. Populate the sub-object matching mode.
+                  properties:
+                    mode:
+                      type: string
+                      enum: [create, adopt]
+                      default: create
+                      description: >-
+                        create — the stack owns a disposable VPC (subnets, endpoints,
+                        egress, and the ELB role tags). adopt — the stack participates in
+                        a VPC it does not own; the owner runs the VPC and the subnet
+                        tagging, and the cluster references it by adopt.* IDs.
+                    create:
+                      type: object
+                      # Whole-object default (like network / systemNodes): a default on a
+                      # nested field alone doesn't apply when create is omitted, which
+                      # would pass an empty vpc_cidr to tofu.
+                      default: {vpcCidr: "10.0.0.0/16", maxAzs: 3, natGateways: 1}
+                      description: Create-mode inputs — used when mode is create.
+                      properties:
+                        vpcCidr:
+                          type: string
+                          default: "10.0.0.0/16"
+                          description: CIDR for the VPC (literal allocation). Mutually exclusive with ipamPoolId.
+                        ipamPoolId:
+                          type: string
+                          default: ""
+                          description: >-
+                            IPAM pool the VPC CIDR is drawn from. Empty (default) = literal
+                            allocation from vpcCidr. Cross-account this is the org IPAM env
+                            sub-pool shared in over RAM.
+                        ipamNetmaskLength:
+                          type: integer
+                          default: 0
+                          description: >-
+                            Netmask length of the CIDR to allocate from ipamPoolId (16-20;
+                            subnets are carved 8 bits smaller than the VPC block, so a base
+                            longer than /20 would drop below AWS's /28 minimum). 0 (default)
+                            = literal allocation.
+                        transitGatewayId:
+                          type: string
+                          default: ""
+                          description: >-
+                            Transit gateway the VPC attaches to. Empty (default) = local NAT
+                            egress only. Requires an IPAM-allocated CIDR (set ipamPoolId), so
+                            attached prefixes stay non-overlapping.
+                        centralizedEgress:
+                          type: boolean
+                          default: false
+                          description: >-
+                            Route private egress through the transit gateway instead of a
+                            local NAT gateway (zero NAT gateways). Requires transitGatewayId.
+                        maxAzs:
+                          type: integer
+                          default: 3
+                        natGateways:
+                          type: integer
+                          default: 1
+                    adopt:
+                      type: object
+                      # Whole-object default so an adopt spec that omits the object still
+                      # coerces cleanly; the CEL rules below require vpcId + subnetIds.private
+                      # to be non-empty whenever mode is adopt.
+                      default: {vpcId: "", subnetIds: {private: [], public: []}}
+                      description: Adopt-mode inputs — used when mode is adopt.
+                      properties:
+                        vpcId:
+                          type: string
+                          default: ""
+                          description: VPC ID to adopt. Required (non-empty) when mode is adopt.
+                        subnetIds:
+                          type: object
+                          default: {private: [], public: []}
+                          description: Subnet IDs in the adopted VPC.
+                          properties:
+                            private:
+                              type: array
+                              items: {type: string}
+                              default: []
+                              description: Private subnet IDs (required, non-empty, when mode is adopt).
+                            public:
+                              type: array
+                              items: {type: string}
+                              default: []
+                              description: Public subnet IDs (empty is valid for a private-only cluster).
+                  x-kubernetes-validations:
+                    # adopt mode must reference a concrete VPC + at least one private
+                    # subnet — mirrors landing-zone network's adopt_vpc_id /
+                    # adopt_private_subnet_ids preconditions, enforced here at admission
+                    # instead of at tofu plan (~20 min into the vend).
+                    - rule: >-
+                        self.mode != 'adopt' ||
+                        (has(self.adopt) && self.adopt.vpcId != '' &&
+                        has(self.adopt.subnetIds) && has(self.adopt.subnetIds.private) &&
+                        self.adopt.subnetIds.private.size() > 0)
+                      message: "network.mode: adopt requires network.adopt.vpcId and a non-empty network.adopt.subnetIds.private"
+                    # centralized egress needs a transit gateway to route the default
+                    # route to — mirrors landing-zone network's centralized_egress
+                    # precondition.
+                    - rule: >-
+                        !has(self.create) || !has(self.create.centralizedEgress) ||
+                        !self.create.centralizedEgress ||
+                        (has(self.create.transitGatewayId) && self.create.transitGatewayId != '')
+                      message: "network.create.centralizedEgress requires network.create.transitGatewayId"
+                    # a VPC CIDR comes from exactly one source: an IPAM pool OR a literal
+                    # vpcCidr, never both — mirrors landing-zone network's ipam_pool_id /
+                    # vpc_cidr mutual-exclusion precondition.
+                    - rule: >-
+                        !has(self.create) || !has(self.create.ipamPoolId) ||
+                        self.create.ipamPoolId == '' ||
+                        !has(self.create.vpcCidr) || self.create.vpcCidr == '10.0.0.0/16'
+                      message: >-
+                        network.create.ipamPoolId and a non-default network.create.vpcCidr
+                        are mutually exclusive — with an IPAM pool the CIDR is drawn from
+                        the pool, so leave vpcCidr at its default
+                # --- bootstrap (the second, post-Ready Workspace) ------------
+                observabilityTier:
+                  type: string
+                  enum: [floor, full]
+                  default: floor
+                  description: >-
+                    Which observability substrate this cluster runs. floor is
+                    CloudWatch alone: the amazon-cloudwatch-observability addon
+                    publishes Container Insights metrics, and the cluster's
+                    OpenTelemetry gateway exports application metrics as CloudWatch
+                    EMF and logs to CloudWatch Logs. full adds the in-cluster LGTM
+                    stack (Loki, Tempo, kube-state-metrics, grafana-operator) and
+                    Amazon Managed Prometheus / Grafana, which also requires the
+                    managed-monitoring substrate to exist for this cluster.
+                    Published as the observability/tier cluster-Secret label the
+                    eks-gitops generators select on. Both tiers run the same
+                    OpenTelemetry node agent and a gateway on the same
+                    telemetry.monitoring.svc endpoint, so a tenant workload is
+                    identical either way and only the destinations differ.
+                    Defaults to floor — a vended cluster is born light, and opting
+                    up is a deliberate act with a substrate prerequisite.
+                enableAgentPlatform:
+                  type: boolean
+                  default: true
+                  description: >-
+                    Install the eks-agent-platform operator via GitOps: when true,
+                    the bootstrap labels the in-cluster ArgoCD Secret so eks-gitops
+                    reconciles the operator from the per-cluster OIDC/role
+                    annotations. False installs the operator out of band (e.g. the
+                    e2e harness, to avoid GitOps racing a locally-built image).
+                    Either way the cluster is still bootstrapped (Cilium + ArgoCD +
+                    the addon catalog): this flag only toggles the operator's GitOps
+                    label on the in-cluster ArgoCD Secret — not whether the bootstrap
+                    Workspace runs (it always renders once the cluster is Ready).
+                tenantsRepoUrl:
+                  type: string
+                  default: ""
+                  description: >-
+                    SSH URL of the private tenants GitOps repo. When set, the
+                    bootstrap registers a read-only deploy key + ArgoCD repo
+                    credential so ArgoCD can pull portal-committed tenant manifests.
+                gitopsRepoUrl:
+                  type: string
+                  default: "https://github.com/nanohype/eks-gitops.git"
+                  description: >-
+                    Git URL of the addon-catalog GitOps repo the spoke's app-of-apps
+                    points at — this org's eks-gitops (or a fork of it). Defaults to
+                    the org catalog; override only to vend against a fork. Required
+                    non-empty and validated as a git URL by the substrate, so it is
+                    always sent (unlike tenantsRepoUrl, which is optional).
+                gitopsRepoBranch:
+                  type: string
+                  default: "main"
+                  description: >-
+                    Branch of the addon-catalog GitOps repo the spoke tracks.
+                    Defaults to main.
+                # --- the substrate the Workspace runs ------------------------
+                moduleSource:
+                  type: string
+                  # Pinned to a landing-zone commit, not ?ref=main: provider-opentofu
+                  # caches a module by its ref and never re-pulls on retry, so a moving
+                  # ref makes a vend non-reproducible (and silently stale on a substrate
+                  # bump). Keep in lockstep with the same default in
+                  # compositions/cluster-aws.yaml; bump both to roll the substrate
+                  # forward (the SHA is a landing-zone main commit).
+                  default: "git::https://github.com/nanohype/landing-zone.git?ref=1b5714dd25b9d12d53aafafaee4c2cc851fa178e"
+                  description: >-
+                    Git source for the landing-zone repo the Workspace fetches; tofu runs
+                    in the fleet/aws/cluster-stack subdir (set by the composition's
+                    entrypoint), which needs the whole repo present. See docs/architecture.md.
+              required:
+                - account
+                - region
+                - team
+                - clusterName
+              x-kubernetes-validations:
+                # The EKS cluster name is <environment>-<clusterName>; if the two are
+                # equal the name doubles (development-development-*). Reject at admission
+                # — this is the collision guard the whole cluster-naming scheme depends on.
+                - rule: self.clusterName != self.environment
+                  message: "clusterName must not equal environment (the cluster name would double, e.g. development-development)"
+                # Public endpoint access is explicit opt-in and must carry its own
+                # allowlist: an empty CIDR list reaches the cluster module as
+                # ["0.0.0.0/0"], so reject public-with-empty at admission.
+                - rule: >-
+                    !has(self.endpointPublicAccess) || !self.endpointPublicAccess ||
+                    (has(self.endpointPublicAccessCidrs) && self.endpointPublicAccessCidrs.size() > 0)
+                  message: "endpointPublicAccess: true requires a non-empty endpointPublicAccessCidrs allowlist"
+                # A cross-account vend runs as the workload account's fleet-vend
+                # role, whose IAM gate rejects any role write that doesn't carry
+                # its permissions boundary — a vend ordered without the boundary
+                # ARNs 403s ~20 minutes into the apply. Reject it at admission.
+                - rule: >-
+                    !has(self.vendRoleArn) || self.vendRoleArn == "" ||
+                    (has(self.clusterPermissionsBoundaryArn) && self.clusterPermissionsBoundaryArn != "" &&
+                    has(self.operatorPermissionsBoundaryArn) && self.operatorPermissionsBoundaryArn != "")
+                  message: >-
+                    vendRoleArn requires clusterPermissionsBoundaryArn +
+                    operatorPermissionsBoundaryArn (the fleet-vend boundary, SSM
+                    /eks-fleet/<env>/fleet-vend/vend_permissions_boundary_arn)
+            status:
+              type: object
+              properties:
+                clusterName: {type: string}
+                clusterEndpoint: {type: string, description: EKS API endpoint.}
+                certificateAuthorityData: {type: string, description: Base64 cluster CA.}
+                clusterSecurityGroupId: {type: string}
+                oidcProviderArn: {type: string, description: IAM OIDC provider ARN (for tenant IRSA).}
+                oidcIssuer: {type: string, description: OIDC issuer URL (no scheme).}
+                karpenterIamRoleArn: {type: string}
+                vpcId: {type: string}
+                privateSubnetIds:
+                  type: array
+                  items: {type: string}
+                  description: >-
+                    Private subnet IDs of the cluster's VPC (cluster-stack's
+                    private_subnet_ids output). cluster-bootstrap republishes them in
+                    adopt mode (Secret annotation + ConfigMap CSV) so a participant that
+                    can't discover subnets by owner tag still schedules nodes and places
+                    internal load balancers correctly.
+                publicSubnetIds:
+                  type: array
+                  items: {type: string}
+                  description: >-
+                    Public subnet IDs of the cluster's VPC (cluster-stack's
+                    public_subnet_ids output). cluster-bootstrap republishes them in adopt
+                    mode so scheme-aware injection places internet-facing load balancers
+                    on public subnets.
+                subnetAzIds:
+                  type: array
+                  items: {type: string}
+                  description: >-
+                    AWS AZ IDs (e.g. usw2-az1) of the cluster's private subnets, in
+                    privateSubnetIds order (cluster-stack's private_subnet_az_ids output).
+                    AZ IDs, not AZ names — a name like us-west-2a maps to a different
+                    physical zone per account, so it isn't meaningful across the account
+                    boundary an adopted/shared subnet crosses; the AZ ID is the stable
+                    cross-account identifier.
+      additionalPrinterColumns:
+        - name: REGION
+          type: string
+          jsonPath: .spec.region
+        - name: ACCOUNT
+          type: string
+          jsonPath: .spec.account
+        - name: ENDPOINT
+          type: string
+          jsonPath: .status.clusterEndpoint

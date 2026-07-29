@@ -377,11 +377,12 @@ func main() {
 			CompleteOp: func(ctx context.Context, id, orgID, status, sha, errMsg string) error {
 				return clusterOrderSvc.CompleteOperation(ctx, id, orgID, status, sha, errMsg)
 			},
-			ClustersRepo: clustersRepo,
-			RepoMu:       &sync.Mutex{},
-			ClustersRef:  cfg.ClustersRepoRef,
-			Author:       tofugit.Author{Name: cfg.GitAuthorName, Email: cfg.GitAuthorEmail},
-			HubRoleArn:   cfg.FleetHubRoleArn,
+			ClustersRepo:   clustersRepo,
+			RepoMu:         &sync.Mutex{},
+			ClustersRef:    cfg.ClustersRepoRef,
+			Author:         tofugit.Author{Name: cfg.GitAuthorName, Email: cfg.GitAuthorEmail},
+			HubRoleArn:     cfg.FleetHubRoleArn,
+			TenantsRepoURL: cfg.TenantsRepoURL,
 		})
 		river.AddWorker(workers, clusterApplyWorker)
 		logger.Info("cluster vend path enabled", "clusters_repo", cfg.ClustersRepoURL)

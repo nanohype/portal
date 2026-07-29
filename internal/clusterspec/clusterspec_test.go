@@ -47,10 +47,17 @@ func TestRender_FullSpec(t *testing.T) {
 		Name: "analytics", Account: "222222222222", Region: "us-east-1", Team: "platform",
 		Environment: "production", ClusterVersion: "1.34",
 		SystemNodes:               &SystemNodes{InstanceTypes: []string{"m7g.2xlarge"}, MinSize: intp(3), MaxSize: intp(9), DesiredSize: intp(3), DiskSize: intp(200)},
-		Network:                   &Network{VpcCidr: "10.4.0.0/16", MaxAzs: intp(3), NatGateways: intp(3)},
+		Network:                   &Network{Mode: "create", Create: &NetworkCreate{VpcCidr: "10.4.0.0/16", MaxAzs: intp(3), NatGateways: intp(3)}},
 		EndpointPublicAccess:      &yes,
 		EndpointPublicAccessCidrs: []string{"203.0.113.0/24"},
-		VendRoleArn:               "arn:aws:iam::222222222222:role/production-eks-fleet-vend",
+		ObservabilityTier:         "full",
+		// A cross-account vend carries the fleet-vend boundary on both roles it
+		// mints; the XRD refuses one that does not.
+		VendRoleArn:                    "arn:aws:iam::222222222222:role/production-eks-fleet-vend",
+		ClusterPermissionsBoundaryArn:  "arn:aws:iam::222222222222:policy/vend-boundary",
+		OperatorPermissionsBoundaryArn: "arn:aws:iam::222222222222:policy/vend-boundary",
+		PortalAccessRoleArn:            "arn:aws:iam::222222222222:role/production-portal-spoke",
+		TenantsRepoURL:                 "git@github.com:nanohype/tenants.git",
 	}
 	out, err := in.Render()
 	if err != nil {
@@ -63,8 +70,18 @@ func TestRender_FullSpec(t *testing.T) {
 	if cr.Spec.SystemNodes == nil || len(cr.Spec.SystemNodes.InstanceTypes) != 1 || *cr.Spec.SystemNodes.MaxSize != 9 {
 		t.Errorf("systemNodes wrong: %+v", cr.Spec.SystemNodes)
 	}
-	if cr.Spec.Network == nil || cr.Spec.Network.VpcCidr != "10.4.0.0/16" || *cr.Spec.Network.NatGateways != 3 {
-		t.Errorf("network wrong: %+v", cr.Spec.Network)
+	// Nesting, not just presence. This assertion used to read the CIDR off a
+	// flat cr.Spec.Network and passed while the rendered field sat at a depth
+	// the XRD does not define — see xrd_contract_test.go, which checks the shape
+	// against the schema rather than against portal's own struct.
+	if cr.Spec.Network == nil || cr.Spec.Network.Mode != "create" || cr.Spec.Network.Create == nil {
+		t.Fatalf("network wrong: %+v", cr.Spec.Network)
+	}
+	if cr.Spec.Network.Create.VpcCidr != "10.4.0.0/16" || *cr.Spec.Network.Create.NatGateways != 3 {
+		t.Errorf("network.create wrong: %+v", cr.Spec.Network.Create)
+	}
+	if cr.Spec.Network.Adopt != nil {
+		t.Errorf("create-mode order rendered an adopt block: %+v", cr.Spec.Network.Adopt)
 	}
 	if cr.Spec.EndpointPublicAccess == nil || !*cr.Spec.EndpointPublicAccess {
 		t.Errorf("endpointPublicAccess not rendered")
@@ -76,7 +93,7 @@ func TestRender_FullSpec(t *testing.T) {
 		t.Errorf("clusterName = %q, want analytics", cr.Spec.ClusterName)
 	}
 	// camelCase field names in the YAML (not snake_case).
-	for _, want := range []string{"clusterName:", "clusterVersion:", "systemNodes:", "instanceTypes:", "vpcCidr:", "natGateways:", "endpointPublicAccess:"} {
+	for _, want := range []string{"clusterName:", "clusterVersion:", "systemNodes:", "instanceTypes:", "vpcCidr:", "natGateways:", "endpointPublicAccess:", "observabilityTier:", "tenantsRepoUrl:", "portalAccessRoleArn:"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("rendered YAML missing camelCase field %q:\n%s", want, out)
 		}
@@ -109,7 +126,9 @@ func TestWithCrossAccountBootstrap(t *testing.T) {
 func TestRender_BootstrapAccessRoleArn(t *testing.T) {
 	in := Input{
 		Name: "prod-eks", Account: "222222222222", Region: "us-west-2", Team: "platform",
-		VendRoleArn: "arn:aws:iam::222222222222:role/production-eks-fleet-vend",
+		VendRoleArn:                    "arn:aws:iam::222222222222:role/production-eks-fleet-vend",
+		ClusterPermissionsBoundaryArn:  "arn:aws:iam::222222222222:policy/vend-boundary",
+		OperatorPermissionsBoundaryArn: "arn:aws:iam::222222222222:policy/vend-boundary",
 	}.WithCrossAccountBootstrap("arn:aws:iam::111111111111:role/eks-fleet-crossplane")
 	out, err := in.Render()
 	if err != nil {

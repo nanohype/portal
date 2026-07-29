@@ -1,0 +1,25 @@
+name: Cluster XRD freshness
+# Asks whether the pinned eks-fleet Cluster XRD is behind upstream.
+#
+# Deliberately not part of CI. Pull-request CI verifies that the vendored copy
+# and its pin agree with each other and with upstream AT THAT PIN — a verdict
+# about the commit under test. Whether the pin is also the newest thing
+# eks-fleet has is a different question with a different answer every day, and
+# answering it in CI would turn a required check red because someone pushed to
+# another repository.
+#
+# A red run here means: re-vendor, read the schema diff, and ship whatever
+# render change it implies.
+on:
+  schedule:
+    - cron: "0 14 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  freshness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Is the pin behind upstream?
+        run: scripts/xrd.sh freshness

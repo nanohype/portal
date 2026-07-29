@@ -45,15 +45,16 @@ type ClusterOperationCompleter func(ctx context.Context, id, orgID, status, sha,
 
 type ClusterApplyJobWorker struct {
 	river.WorkerDefaults[ClusterApplyJobArgs]
-	loadOp       ClusterOperationLoader
-	completeOp   ClusterOperationCompleter
-	clustersRepo *git.Repo
-	repoMu       *sync.Mutex
-	clustersRef  string
-	author       git.Author
-	hubRoleArn   string
-	riverClient  *river.Client[pgx.Tx]
-	db           *pgxpool.Pool
+	loadOp         ClusterOperationLoader
+	completeOp     ClusterOperationCompleter
+	clustersRepo   *git.Repo
+	repoMu         *sync.Mutex
+	clustersRef    string
+	author         git.Author
+	hubRoleArn     string
+	tenantsRepoURL string
+	riverClient    *river.Client[pgx.Tx]
+	db             *pgxpool.Pool
 }
 
 // ClusterApplyDeps bundles the shared infrastructure the worker needs. RepoMu
@@ -68,6 +69,10 @@ type ClusterApplyDeps struct {
 	ClustersRef  string // branch in clusters repo (typically "main")
 	Author       git.Author
 	HubRoleArn   string // eks-fleet-crossplane role ARN; stamped onto cross-account vends
+	// TenantsRepoURL is the tenants GitOps repo portal commits tenant manifests
+	// to — the same GITOPS_TENANTS_REPO_URL the tenant-apply worker pushes to.
+	// Stamped onto every vend so the cluster's ArgoCD can pull them back.
+	TenantsRepoURL string
 }
 
 func NewClusterApplyJobWorker(d ClusterApplyDeps) *ClusterApplyJobWorker {
@@ -76,13 +81,14 @@ func NewClusterApplyJobWorker(d ClusterApplyDeps) *ClusterApplyJobWorker {
 		ref = "main"
 	}
 	return &ClusterApplyJobWorker{
-		loadOp:       d.LoadOp,
-		completeOp:   d.CompleteOp,
-		clustersRepo: d.ClustersRepo,
-		repoMu:       d.RepoMu,
-		clustersRef:  ref,
-		author:       d.Author,
-		hubRoleArn:   d.HubRoleArn,
+		loadOp:         d.LoadOp,
+		completeOp:     d.CompleteOp,
+		clustersRepo:   d.ClustersRepo,
+		repoMu:         d.RepoMu,
+		clustersRef:    ref,
+		author:         d.Author,
+		hubRoleArn:     d.HubRoleArn,
+		tenantsRepoURL: d.TenantsRepoURL,
 	}
 }
 
@@ -93,6 +99,36 @@ func (w *ClusterApplyJobWorker) SetRiverClient(client *river.Client[pgx.Tx], db 
 
 func (w *ClusterApplyJobWorker) Timeout(*river.Job[ClusterApplyJobArgs]) time.Duration {
 	return 3 * time.Minute
+}
+
+// provisionManifest turns an ordered spec into the Cluster CR that gets
+// committed. It is a method rather than three lines inside Work so the stamps
+// can be tested: neither one changes anything the order desk can see, and both
+// produce a cluster that comes up healthy and is quietly missing a capability —
+// which is not a failure any test of Work's happy path would notice.
+//
+// Deleting the call from Work is a compile error rather than a silent
+// regression, which is the other half of that.
+func (w *ClusterApplyJobWorker) provisionManifest(specJSON []byte) (string, error) {
+	var input clusterspec.Input
+	if len(specJSON) > 0 {
+		if err := json.Unmarshal(specJSON, &input); err != nil {
+			return "", fmt.Errorf("unmarshal spec: %w", err)
+		}
+	}
+	// cross-account vends need the hub role trusted on the spoke (see
+	// clusterspec.WithCrossAccountBootstrap); same-account is a no-op.
+	input = input.WithCrossAccountBootstrap(w.hubRoleArn)
+	// The tenants repo is portal's own, so it is stamped here rather than
+	// ordered. The spoke-role half is stamped at enqueue, where the ordering
+	// account's row is already in hand.
+	input = input.WithPortalWiring("", w.tenantsRepoURL)
+
+	manifest, err := input.Render()
+	if err != nil {
+		return "", fmt.Errorf("render Cluster CR: %w", err)
+	}
+	return manifest, nil
 }
 
 func (w *ClusterApplyJobWorker) Work(ctx context.Context, job *river.Job[ClusterApplyJobArgs]) error {
@@ -123,18 +159,9 @@ func (w *ClusterApplyJobWorker) Work(ctx context.Context, job *river.Job[Cluster
 	var commitMsg string
 	switch op.Operation {
 	case "provision":
-		var input clusterspec.Input
-		if len(op.SpecJSON) > 0 {
-			if err := json.Unmarshal(op.SpecJSON, &input); err != nil {
-				return w.fail(ctx, op.ID, op.OrgID, logger, fmt.Errorf("unmarshal spec: %w", err))
-			}
-		}
-		// cross-account vends need the hub role trusted on the spoke (see
-		// clusterspec.WithCrossAccountBootstrap); same-account is a no-op.
-		input = input.WithCrossAccountBootstrap(w.hubRoleArn)
-		manifest, err := input.Render()
+		manifest, err := w.provisionManifest(op.SpecJSON)
 		if err != nil {
-			return w.fail(ctx, op.ID, op.OrgID, logger, fmt.Errorf("render Cluster CR: %w", err))
+			return w.fail(ctx, op.ID, op.OrgID, logger, err)
 		}
 		if err := w.clustersRepo.WriteFile(relPath, []byte(manifest)); err != nil {
 			return w.fail(ctx, op.ID, op.OrgID, logger, fmt.Errorf("write manifest: %w", err))

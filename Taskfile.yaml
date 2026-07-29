@@ -229,6 +229,28 @@ tasks:
       - go vet ./...
       - cd web && npx tsc -b
 
+  # === Cluster XRD contract ===
+  #
+  # portal renders an eks-fleet Cluster CR against a schema another repo owns.
+  # The vendored copy under internal/clusterspec/testdata/ is what the render is
+  # tested against; these keep it honest. See the README there.
+
+  xrd:check:
+    desc: Verify the vendored Cluster XRD matches eks-fleet at the pinned ref
+    cmds:
+      - scripts/xrd.sh check
+
+  xrd:sync:
+    desc: "Re-vendor the Cluster XRD, optionally moving the pin (usage: task xrd:sync -- <sha>)"
+    cmds:
+      - scripts/xrd.sh sync {{.CLI_ARGS}}
+      - go test ./internal/clusterspec/
+
+  xrd:freshness:
+    desc: Report whether the pinned Cluster XRD is behind upstream (not a PR gate)
+    cmds:
+      - scripts/xrd.sh freshness
+
   test:
     desc: Run tests
     cmds:

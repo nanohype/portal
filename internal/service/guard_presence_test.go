@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/nanohype/portal/internal/apperr"
+	"github.com/nanohype/portal/internal/clusterspec"
 	"github.com/nanohype/portal/internal/repository"
 )
 
@@ -118,11 +119,16 @@ func TestEnqueueCreate_ValidatesBeforeTouchingTheDatabase(t *testing.T) {
 }
 
 type stubClusterRecords struct {
-	ops     []repository.ClusterOperation
-	cluster repository.Cluster
-	found   bool
-	listErr error
-	calls   int
+	ops        []repository.ClusterOperation
+	cluster    repository.Cluster
+	found      bool
+	listErr    error
+	calls      int
+	nameTaken  bool
+	inFlight   bool
+	account    repository.Account
+	accountErr error
+	acctCalls  int
 }
 
 func (s *stubClusterRecords) ListClusterOperations(_ context.Context, _ repository.ListClusterOperationsParams) ([]repository.ClusterOperation, error) {
@@ -140,10 +146,122 @@ func (s *stubClusterRecords) GetClusterByName(_ context.Context, _ repository.Ge
 	return s.cluster, nil
 }
 
+func (s *stubClusterRecords) ClusterNameTaken(_ context.Context, _ string) (bool, string, error) {
+	return s.nameTaken, "production", nil
+}
+
+func (s *stubClusterRecords) ProvisionInFlight(_ context.Context, _ string) (bool, string, error) {
+	return s.inFlight, "production", nil
+}
+
+func (s *stubClusterRecords) GetAccountByAWSID(_ context.Context, _ repository.GetAccountByAWSIDParams) (repository.Account, error) {
+	s.acctCalls++
+	if s.accountErr != nil {
+		return repository.Account{}, s.accountErr
+	}
+	return s.account, nil
+}
+
 func deprovision(records clusterRecordLookup, name, environment, team string) error {
 	svc := &ClusterOrderService{records: records}
 	_, err := svc.EnqueueDeprovision(context.Background(), "org_1", name, environment, team, "user_1")
 	return err
+}
+
+func provision(records clusterRecordLookup, in clusterspec.Input) error {
+	svc := &ClusterOrderService{records: records}
+	_, err := svc.EnqueueProvision(context.Background(), "org_1", "user_1", in)
+	return err
+}
+
+func vendOrder() clusterspec.Input {
+	return clusterspec.Input{
+		Name: "analytics", Account: "222222222222", Region: "us-east-1", Team: "platform",
+	}
+}
+
+// The vend's own gates. Same reasoning as the teardown ones above: each rule is
+// unit-tested elsewhere, and none of those tests notices when the call is gone
+// from EnqueueProvision.
+
+func TestEnqueueProvision_RefusesANameAlreadyVended(t *testing.T) {
+	err := provision(&stubClusterRecords{nameTaken: true}, vendOrder())
+
+	if apperr.KindOf(err) != apperr.KindConflict {
+		t.Fatalf("kind = %v, want Conflict — the name gate is not on the provision path", apperr.KindOf(err))
+	}
+}
+
+func TestEnqueueProvision_RefusesANameAlreadyBeingVended(t *testing.T) {
+	// The in-flight window is the dangerous one: no clusters row exists yet, so
+	// only this gate stands between a second order and a manifest rewritten
+	// under a build in progress.
+	err := provision(&stubClusterRecords{inFlight: true}, vendOrder())
+
+	if apperr.KindOf(err) != apperr.KindConflict {
+		t.Fatalf("kind = %v, want Conflict for an in-flight provision", apperr.KindOf(err))
+	}
+}
+
+func TestEnqueueProvision_StampsTheOrderingAccountsSpokeRole(t *testing.T) {
+	// Without the stamp cluster-stack grants portal no EKS access entry, and
+	// portal cannot authenticate to the kube API of a cluster it vended itself —
+	// no token minting, no tenant watch. Nothing about that failure surfaces at
+	// order time, so the presence of the call is what has to be pinned.
+	//
+	// The service's pool stays nil: reaching the DB write means the stamp
+	// already ran, so the panic recovered below is the success signal.
+	records := &stubClusterRecords{
+		account: repository.Account{AssumeRoleARN: "arn:aws:iam::222222222222:role/production-portal-spoke"},
+	}
+	func() {
+		defer func() { _ = recover() }()
+		_ = provision(records, vendOrder())
+	}()
+
+	if records.acctCalls == 0 {
+		t.Error("EnqueueProvision never resolved the ordering account, so the vend carries no portalAccessRoleArn")
+	}
+}
+
+func TestEnqueueProvision_RefusesAnUnregisteredAWSAccount(t *testing.T) {
+	// The watch-back resolves the same row to register the finished cluster, so
+	// this vend could not complete anyway — it would just fail half an hour and
+	// one billing cluster later.
+	err := provision(&stubClusterRecords{accountErr: pgx.ErrNoRows}, vendOrder())
+
+	if apperr.KindOf(err) != apperr.KindValidation {
+		t.Fatalf("kind = %v, want Validation for an unregistered AWS account", apperr.KindOf(err))
+	}
+}
+
+func TestEnqueueProvision_SurfacesAnAccountLookupFailure(t *testing.T) {
+	err := provision(&stubClusterRecords{accountErr: errors.New("connection refused")}, vendOrder())
+
+	if err == nil {
+		t.Fatal("a failed account lookup was treated as a vend with no spoke role")
+	}
+	if apperr.KindOf(err) == apperr.KindValidation {
+		t.Errorf("a lookup failure should not read as a bad order: %v", err)
+	}
+}
+
+func TestEnqueueProvision_ValidatesBeforeTouchingTheDatabase(t *testing.T) {
+	// A cross-account vend with no permissions boundaries renders a CR the
+	// Cluster XRD rejects at admission — after portal has committed it and
+	// reported the operation committed. Caught here, it is a 400 on the form.
+	in := vendOrder()
+	in.VendRoleArn = "arn:aws:iam::222222222222:role/production-eks-fleet-vend"
+
+	records := &stubClusterRecords{}
+	err := provision(records, in)
+
+	if err == nil {
+		t.Fatal("a vend role with no permissions boundary was accepted")
+	}
+	if records.calls != 0 || records.acctCalls != 0 {
+		t.Error("validation ran after the record lookups rather than before them")
+	}
 }
 
 func TestEnqueueDeprovision_RefusesAClusterPortalNeverVended(t *testing.T) {

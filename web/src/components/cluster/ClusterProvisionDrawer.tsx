@@ -52,6 +52,10 @@ export function ClusterProvisionDrawer({
   // allowlist. The form mirrors both so a bad order can't be placed.
   const [publicAccess, setPublicAccess] = useState(false);
   const [publicCidrs, setPublicCidrs] = useState('');
+  // Born light: floor is the XRD default, and full has a substrate prerequisite
+  // (managed monitoring must already exist for this cluster), so opting up is a
+  // deliberate act rather than the path of least resistance.
+  const [observabilityTier, setObservabilityTier] = useState<'floor' | 'full'>('floor');
   // Set on a successful order → the drawer switches to the live timeline view.
   const [orderedId, setOrderedId] = useState<string | null>(null);
 
@@ -66,6 +70,7 @@ export function ClusterProvisionDrawer({
     setClusterVersion('');
     setPublicAccess(false);
     setPublicCidrs('');
+    setObservabilityTier('floor');
     setOrderedId(null);
   };
 
@@ -90,6 +95,7 @@ export function ClusterProvisionDrawer({
           cluster_version: clusterVersion.trim() || undefined,
           endpoint_public_access: publicAccess,
           endpoint_public_access_cidrs: publicAccess ? parseCidrList(publicCidrs) : undefined,
+          observability_tier: observabilityTier,
         },
       });
       if (error) throw error;
@@ -282,6 +288,22 @@ export function ClusterProvisionDrawer({
                 placeholder="Defaults to the fleet default (e.g. 1.36)"
                 className="font-mono"
               />
+            </Field>
+
+            <Field label="Observability" htmlFor={`${uid}-observability-tier`}>
+              <Select
+                id={`${uid}-observability-tier`}
+                value={observabilityTier}
+                onChange={(e) => setObservabilityTier(e.target.value as 'floor' | 'full')}
+              >
+                <option value="floor">floor — CloudWatch</option>
+                <option value="full">full — CloudWatch + LGTM + managed Prometheus/Grafana</option>
+              </Select>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                Tenant workloads are identical either way — both tiers run the same OpenTelemetry
+                agent and gateway, and only the destinations differ. full needs the
+                managed-monitoring substrate to already exist for this cluster.
+              </p>
             </Field>
 
             <div className="space-y-2">

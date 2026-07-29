@@ -22,12 +22,17 @@ import (
 // ClusterOrderService is the vend order desk: it records provision/deprovision
 // intents as cluster_operations rows and schedules the worker that commits the
 // Cluster CR to the clusters GitOps repo. It mirrors TenantService's write path.
-// clusterRecordLookup is what the teardown gate reads. Interfaced for the same
-// reason as tenantNameLookup: so a test can assert the gate runs from
-// EnqueueDeprovision, not merely that its rules are right in isolation.
+// clusterRecordLookup is every row the order desk reads before it writes:
+// the teardown gate's records, the name gates', and the ordering account whose
+// spoke role the vend is stamped with. Interfaced for the same reason as
+// tenantNameLookup: so a test can assert each of those runs from its entry
+// point, not merely that its rules are right in isolation.
 type clusterRecordLookup interface {
 	ListClusterOperations(ctx context.Context, arg repository.ListClusterOperationsParams) ([]repository.ClusterOperation, error)
 	GetClusterByName(ctx context.Context, arg repository.GetClusterByNameParams) (repository.Cluster, error)
+	GetAccountByAWSID(ctx context.Context, arg repository.GetAccountByAWSIDParams) (repository.Account, error)
+	ClusterNameTaken(ctx context.Context, name string) (bool, string, error)
+	ProvisionInFlight(ctx context.Context, name string) (bool, string, error)
 }
 
 type ClusterOrderService struct {
@@ -55,7 +60,35 @@ func (s *ClusterOrderService) EnqueueProvision(ctx context.Context, orgID, creat
 	if err := s.assertNameAvailable(ctx, input.Name); err != nil {
 		return repository.ClusterOperation{}, err
 	}
+	input, err := s.withSpokeRole(ctx, orgID, input)
+	if err != nil {
+		return repository.ClusterOperation{}, err
+	}
 	return s.enqueue(ctx, orgID, "provision", createdBy, input)
+}
+
+// withSpokeRole stamps the ordering account's portal-spoke role onto the input
+// so cluster-stack grants portal a read EKS access entry on the cluster it is
+// about to build. Without it portal reaches the control plane but not the kube
+// API, and the tenant watcher never sees a cluster portal vended itself.
+//
+// The account row must exist: the watch-back resolves the same row to register
+// the finished cluster, so an unregistered AWS account is a vend that cannot
+// complete. Asking here makes that answer free rather than half an hour and a
+// billing cluster later — the same trade assertNameAvailable makes.
+func (s *ClusterOrderService) withSpokeRole(ctx context.Context, orgID string, in clusterspec.Input) (clusterspec.Input, error) {
+	acct, err := s.records.GetAccountByAWSID(ctx, repository.GetAccountByAWSIDParams{
+		OrgID: orgID, AWSAccountID: in.Account,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return in, apperr.Validation(fmt.Sprintf(
+				"no portal account registered for AWS account %s; add it under Fleet → Accounts before vending into it (portal needs its spoke role to reach the cluster it builds)",
+				in.Account))
+		}
+		return in, fmt.Errorf("resolve ordering account: %w", err)
+	}
+	return in.WithPortalWiring(acct.AssumeRoleARN, ""), nil
 }
 
 // assertNameAvailable rejects a provision whose cluster name is already vended.
@@ -76,7 +109,7 @@ func (s *ClusterOrderService) EnqueueProvision(ctx context.Context, orgID, creat
 // in place — same name, same path — while ArgoCD is mid-build. So an in-flight
 // provision holds the name too.
 func (s *ClusterOrderService) assertNameAvailable(ctx context.Context, name string) error {
-	taken, environment, err := s.queries.ClusterNameTaken(ctx, name)
+	taken, environment, err := s.records.ClusterNameTaken(ctx, name)
 	if err != nil {
 		return fmt.Errorf("check cluster name: %w", err)
 	}
@@ -86,7 +119,7 @@ func (s *ClusterOrderService) assertNameAvailable(ctx context.Context, name stri
 			name, environment))
 	}
 
-	building, environment, err := s.queries.ProvisionInFlight(ctx, name)
+	building, environment, err := s.records.ProvisionInFlight(ctx, name)
 	if err != nil {
 		return fmt.Errorf("check in-flight provisions: %w", err)
 	}

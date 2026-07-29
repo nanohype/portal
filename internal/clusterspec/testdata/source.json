@@ -1,0 +1,14 @@
+{
+  "_README": "Where cluster-xrd.yaml comes from. It is a byte-identical copy of the eks-fleet Cluster XRD at `upstream.ref` — never hand-edit it. `sha256` is verified by xrd_contract_test.go before the schema is parsed, and `task xrd:check` re-verifies the digest and matches the bytes against upstream at that same ref. `task xrd:sync -- <sha>` moves the pin and rewrites the digest together. See README.md in this directory.",
+  "upstream": {
+    "repository": "nanohype/eks-fleet",
+    "path": "apis/cluster/definition.yaml",
+    "ref": "953a068b353029553d7644a216073ba578f2062d"
+  },
+  "files": [
+    {
+      "file": "cluster-xrd.yaml",
+      "sha256": "85989300ab65e820c05d00bad67ce2f4f95f5082d5c1d4789a5f45fa833eb281"
+    }
+  ]
+}

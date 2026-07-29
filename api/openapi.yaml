@@ -2499,6 +2499,45 @@ components:
             CIDR allowlist scoping who can reach the public endpoint (e.g.
             203.0.113.0/24). Required (non-empty) when endpoint_public_access
             is true; each entry must parse as a CIDR.
+        observability_tier:
+          type: string
+          enum: [floor, full]
+          description: >
+            floor (the default) is CloudWatch alone; full adds the in-cluster
+            LGTM stack and Amazon Managed Prometheus/Grafana, and requires the
+            managed-monitoring substrate to exist for this cluster. Tenant
+            workloads are identical either way — only the destinations differ.
+        ttl_days:
+          type: integer
+          minimum: 0
+          description: >
+            Days-to-live for an ephemeral cluster. 0 (the default) is
+            persistent; above 0 the hub reaper tears the cluster down that many
+            days after creation.
+        vend_role_arn:
+          type: string
+          description: >
+            The fleet-vend role for a cross-account vend. Setting it requires
+            both permissions-boundary ARNs below — the vend mints IAM in the
+            workload account, and the Cluster XRD refuses one that does not cap
+            what it can mint.
+        cluster_permissions_boundary_arn:
+          type: string
+          description: >
+            Boundary the cluster's IAM roles are minted with. Published to SSM
+            by landing-zone at
+            /eks-fleet/<environment>/fleet-vend/vend_permissions_boundary_arn.
+        operator_permissions_boundary_arn:
+          type: string
+          description: >
+            Boundary the agent-platform operator role is minted with. Same value
+            and SSM source as cluster_permissions_boundary_arn.
+        data_kms_key_arn:
+          type: string
+          description: >
+            The spoke's data CMK, used to encrypt the model-artifacts and
+            eval-reports buckets at rest. A prerequisite referenced by ARN — the
+            vend does not create it.
       required: [name, account, region, team]
 
     ClusterOrderSystemNodes:
@@ -2514,10 +2553,78 @@ components:
 
     ClusterOrderNetwork:
       type: object
+      description: >
+        The VPC the cluster lands in, discriminated on mode. Populate only the
+        sub-object matching the mode — sending the other side is rejected rather
+        than ignored, because an accepted-and-dropped adopt block reads as "the
+        order took effect" while the stack builds a fresh VPC.
       properties:
-        vpc_cidr: { type: string }
+        mode:
+          type: string
+          enum: [create, adopt]
+          description: >
+            create (the default) provisions a VPC the stack owns and disposes
+            of with the cluster. adopt participates in a VPC provisioned
+            elsewhere — a same-account shared VPC, or one shared cross-account
+            over AWS RAM — which the owner runs and tags.
+        create: { $ref: "#/components/schemas/ClusterOrderNetworkCreate" }
+        adopt: { $ref: "#/components/schemas/ClusterOrderNetworkAdopt" }
+
+    ClusterOrderNetworkCreate:
+      type: object
+      description: Create-mode levers. Used when mode is create.
+      properties:
+        vpc_cidr:
+          type: string
+          description: >
+            Literal CIDR for the VPC (default 10.0.0.0/16). Mutually exclusive
+            with ipam_pool_id.
+        ipam_pool_id:
+          type: string
+          description: >
+            IPAM pool the CIDR is drawn from instead of vpc_cidr. Cross-account
+            this is the org IPAM environment sub-pool shared in over RAM.
+        ipam_netmask_length:
+          type: integer
+          description: >
+            Netmask length to allocate from ipam_pool_id (16-20). Subnets are
+            carved 8 bits smaller than the VPC block, so a base longer than /20
+            would put them below the /28 AWS minimum. 0 means literal
+            allocation.
+        transit_gateway_id:
+          type: string
+          description: >
+            Transit gateway the VPC attaches to. Requires an IPAM-allocated
+            CIDR so attached prefixes stay non-overlapping.
+        centralized_egress:
+          type: boolean
+          description: >
+            Route private egress through the transit gateway instead of a local
+            NAT gateway (zero NAT gateways). Requires transit_gateway_id.
         max_azs: { type: integer }
         nat_gateways: { type: integer }
+
+    ClusterOrderNetworkAdopt:
+      type: object
+      description: >
+        Adopt-mode references. Used when mode is adopt; the owner of the VPC
+        runs it and its subnet tagging.
+      properties:
+        vpc_id:
+          type: string
+          description: VPC to adopt. Required when mode is adopt.
+        subnet_ids:
+          type: object
+          properties:
+            private:
+              type: array
+              items: { type: string }
+              description: >
+                Private subnets. Required and non-empty when mode is adopt —
+                nodes land there.
+            public:
+              type: array
+              items: { type: string }
 
     ClusterOperationKind:
       type: string

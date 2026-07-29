@@ -43,7 +43,7 @@ file    internal/varmerge/varmerge.go    100
 package internal/apperr             0     # error taxonomy — declarations, no logic
 package internal/auth               85
 package internal/aws                33
-package internal/clusterspec        92
+package internal/clusterspec        98    # renders a CR another repo owns the schema for; see internal/clusterspec/testdata/README.md
 package internal/config             88
 package internal/conv               100
 package internal/git                18
@@ -63,14 +63,14 @@ package internal/metrics            0     # prometheus collector registration
 package internal/repository         10    # hand-written pgx; needs TEST_DATABASE_URL
 package internal/secrets            88
 package internal/server             88
-package internal/service            35
+package internal/service            36
 package internal/storage            0     # s3/minio client construction
 package internal/tfparse            75
 package internal/tfstate            74
 package internal/tracing            0     # otel wiring
 package internal/varmerge           91
 package internal/vcs                100
-package internal/worker             22
+package internal/worker             23
 package internal/worker/executor    15
 package cmd/migrate                 0     # main() wrappers
 package cmd/seeddemo                0

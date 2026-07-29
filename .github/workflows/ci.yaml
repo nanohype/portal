@@ -33,6 +33,15 @@ jobs:
         run: test -z "$(gofmt -l .)" || { echo "unformatted Go files:"; gofmt -l .; exit 1; }
       - run: go build ./...
       - run: go vet ./...
+      # portal renders an eks-fleet Cluster CR against a schema eks-fleet owns.
+      # The vendored copy is what the render is tested against, so a copy that
+      # has been edited — or a pin that no longer describes the bytes beside it —
+      # would make the contract test agree with itself and nothing else. Reads
+      # upstream at the PINNED ref, never at its head, so this verdict stays a
+      # function of the commit under test. (xrd:freshness asks the other
+      # question, on a schedule.)
+      - name: Cluster XRD pin fidelity
+        run: scripts/xrd.sh check
       # Fail the build on a known CVE in a Go dependency or the stdlib — the
       # supply-chain gate that catches what Dependabot would only flag later.
       # Pinned scanner version; CVE data is still fetched live from vuln.go.dev.
