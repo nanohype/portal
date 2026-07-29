@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 
 	"sigs.k8s.io/yaml"
@@ -309,6 +310,114 @@ func TestEveryXRDFieldIsAccountedFor(t *testing.T) {
 	for field := range unexpressedXRDFields {
 		if _, ok := props[field]; !ok {
 			t.Errorf("unexpressedXRDFields names spec.%s, which the XRD no longer has — drop the entry", field)
+		}
+	}
+}
+
+// celRule is one x-kubernetes-validations entry in the vendored schema and the
+// portal code that mirrors it.
+type celRule struct {
+	path, rule, mirror string
+}
+
+// mirroredCELRules is the tripwire under Validate.
+//
+// The schema is vendored for its *structure* — properties, required, enums —
+// and the contract tests above compare the render against it. Its *rules* are a
+// different thing: portal hand-copies each one so a bad order is a 400 on the
+// form rather than an admission failure that lands after the manifest is
+// committed and the operation reported committed. Hand-copies drift, and this
+// pair would drift the same silent way the render did.
+//
+// This does not prove a mirror is correct — nothing here evaluates CEL. It
+// proves the rule set has not moved underneath the mirrors. A tightened,
+// removed or added rule fails on the re-vendor, which is the moment someone is
+// already reading the schema diff and can decide what it means.
+var mirroredCELRules = []celRule{
+	{
+		path:   "spec",
+		rule:   `self.clusterName != self.environment`,
+		mirror: "Validate: name must not equal environment (the cluster name would double)",
+	},
+	{
+		path:   "spec",
+		rule:   `!has(self.endpointPublicAccess) || !self.endpointPublicAccess || (has(self.endpointPublicAccessCidrs) && self.endpointPublicAccessCidrs.size() > 0)`,
+		mirror: "Validate: a public endpoint requires a CIDR allowlist",
+	},
+	{
+		path:   "spec",
+		rule:   `!has(self.vendRoleArn) || self.vendRoleArn == "" || (has(self.clusterPermissionsBoundaryArn) && self.clusterPermissionsBoundaryArn != "" && has(self.operatorPermissionsBoundaryArn) && self.operatorPermissionsBoundaryArn != "")`,
+		mirror: "Validate: a cross-account vend requires both permissions boundaries",
+	},
+	{
+		path:   "spec.network",
+		rule:   `self.mode != 'adopt' || (has(self.adopt) && self.adopt.vpcId != '' && has(self.adopt.subnetIds) && has(self.adopt.subnetIds.private) && self.adopt.subnetIds.private.size() > 0)`,
+		mirror: "Network.validate: adopt requires a VPC and non-empty private subnets",
+	},
+	{
+		path:   "spec.network",
+		rule:   `!has(self.create) || !has(self.create.centralizedEgress) || !self.create.centralizedEgress || (has(self.create.transitGatewayId) && self.create.transitGatewayId != '')`,
+		mirror: "Network.validate: centralized egress requires a transit gateway",
+	},
+	{
+		path:   "spec.network",
+		rule:   `!has(self.create) || !has(self.create.ipamPoolId) || self.create.ipamPoolId == '' || !has(self.create.vpcCidr) || self.create.vpcCidr == '10.0.0.0/16'`,
+		mirror: "Network.validate: an IPAM pool and a chosen CIDR are mutually exclusive",
+	},
+}
+
+// collectCELRules walks the schema and returns every validation rule by path,
+// with whitespace normalized — YAML block folding is a formatting choice, and a
+// re-wrapped rule is not a changed one.
+func collectCELRules(schema map[string]any, path string, into map[string]bool) {
+	rules, _ := schema["x-kubernetes-validations"].([]any)
+	for _, entry := range rules {
+		e, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		rule, _ := e["rule"].(string)
+		into[celKey(path, rule)] = true
+	}
+	if props, ok := schema["properties"].(map[string]any); ok {
+		for _, key := range sortedKeys(props) {
+			if sub, ok := props[key].(map[string]any); ok {
+				collectCELRules(sub, path+"."+key, into)
+			}
+		}
+	}
+	if items, ok := schema["items"].(map[string]any); ok {
+		collectCELRules(items, path+"[]", into)
+	}
+}
+
+func celKey(path, rule string) string {
+	return path + ": " + strings.Join(strings.Fields(rule), " ")
+}
+
+func TestEveryXRDValidationRuleHasAMirror(t *testing.T) {
+	found := map[string]bool{}
+	collectCELRules(specSchema(t), "spec", found)
+
+	// A collector that walked nothing would make both loops below pass
+	// vacuously, which is the one way this tripwire could fail open.
+	if len(found) < len(mirroredCELRules) {
+		t.Fatalf("found %d validation rules in the vendored XRD but %d are recorded — the collector stopped walking", len(found), len(mirroredCELRules))
+	}
+
+	recorded := map[string]celRule{}
+	for _, r := range mirroredCELRules {
+		recorded[celKey(r.path, r.rule)] = r
+	}
+
+	for key := range found {
+		if _, ok := recorded[key]; !ok {
+			t.Errorf("the Cluster XRD enforces a rule portal does not mirror:\n  %s\nEither mirror it in Validate — a rule broken at admission surfaces after the manifest is committed and the operation reported committed — or record it here with a note saying why portal does not.", key)
+		}
+	}
+	for key, r := range recorded {
+		if !found[key] {
+			t.Errorf("portal mirrors a rule the Cluster XRD no longer states as recorded:\n  %s\nmirrored by %s\nThe schema was re-vendored and this rule changed or went away; re-read it and update the mirror.", key, r.mirror)
 		}
 	}
 }
