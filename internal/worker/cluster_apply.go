@@ -190,7 +190,7 @@ func (w *ClusterApplyJobWorker) Work(ctx context.Context, job *river.Job[Cluster
 		return w.fail(ctx, op.ID, op.OrgID, logger, fmt.Errorf("unknown operation kind: %s", op.Operation))
 	}
 
-	sha, err := w.clustersRepo.Commit(commitMsg, w.author)
+	sha, err := w.clustersRepo.Commit(withAttribution(commitMsg, op.CreatedByName, op.CreatedByEmail), w.author)
 	if err != nil {
 		return w.fail(ctx, op.ID, op.OrgID, logger, fmt.Errorf("commit: %w", err))
 	}

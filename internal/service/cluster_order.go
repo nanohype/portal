@@ -241,15 +241,21 @@ func (s *ClusterOrderService) EnqueueUnwedge(ctx context.Context, orgID, name, e
 		return repository.ClusterOperation{}, fmt.Errorf("marshal spec: %w", err)
 	}
 
+	// Resolved now, while the account certainly exists, rather than when the
+	// commit is composed — see resolveOperationAuthor.
+	authorName, authorEmail := resolveOperationAuthor(ctx, s.queries, createdBy)
+
 	op, err := s.queries.CreateClusterOperation(ctx, repository.CreateClusterOperationParams{
-		ID:          ulid.Make().String(),
-		OrgID:       orgID,
-		Name:        name,
-		Environment: spec.EffectiveEnvironment(),
-		Team:        team,
-		Operation:   "unwedge",
-		SpecJSON:    raw,
-		CreatedBy:   createdBy,
+		ID:             ulid.Make().String(),
+		OrgID:          orgID,
+		Name:           name,
+		Environment:    spec.EffectiveEnvironment(),
+		Team:           team,
+		Operation:      "unwedge",
+		SpecJSON:       raw,
+		CreatedBy:      createdBy,
+		CreatedByName:  authorName,
+		CreatedByEmail: authorEmail,
 	})
 	if err != nil {
 		return repository.ClusterOperation{}, fmt.Errorf("create operation: %w", err)
@@ -303,15 +309,21 @@ func (s *ClusterOrderService) enqueue(ctx context.Context, orgID, kind, createdB
 	if err != nil {
 		return repository.ClusterOperation{}, fmt.Errorf("marshal spec: %w", err)
 	}
+	// Resolved now, while the account certainly exists, rather than when the
+	// commit is composed — see resolveOperationAuthor.
+	authorName, authorEmail := resolveOperationAuthor(ctx, s.queries, createdBy)
+
 	op, err := s.queries.CreateClusterOperation(ctx, repository.CreateClusterOperationParams{
-		ID:          ulid.Make().String(),
-		OrgID:       orgID,
-		Name:        input.Name,
-		Environment: input.EffectiveEnvironment(),
-		Team:        input.Team,
-		Operation:   kind,
-		SpecJSON:    raw,
-		CreatedBy:   createdBy,
+		ID:             ulid.Make().String(),
+		OrgID:          orgID,
+		Name:           input.Name,
+		Environment:    input.EffectiveEnvironment(),
+		Team:           input.Team,
+		Operation:      kind,
+		SpecJSON:       raw,
+		CreatedBy:      createdBy,
+		CreatedByName:  authorName,
+		CreatedByEmail: authorEmail,
 	})
 	if err != nil {
 		return repository.ClusterOperation{}, fmt.Errorf("create operation: %w", err)

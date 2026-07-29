@@ -285,8 +285,14 @@ type TenantOperation struct {
 	ValuesJSON   json.RawMessage
 	TemplateID   *string
 	CreatedBy    string
-	CreatedAt    time.Time
-	CompletedAt  *time.Time
+	// CreatedByName / CreatedByEmail are the operator's identity as it was when
+	// the operation was enqueued. Nil for rows written before the columns
+	// existed, and for an enqueue whose user lookup failed — the apply worker
+	// omits the commit trailer rather than inventing an author.
+	CreatedByName  *string
+	CreatedByEmail *string
+	CreatedAt      time.Time
+	CompletedAt    *time.Time
 }
 
 // ClusterOperation is the vend order-desk log row. spec_json holds the
@@ -305,9 +311,13 @@ type ClusterOperation struct {
 	SpecJSON     json.RawMessage
 	ClusterID    *string
 	CreatedBy    string
-	CreatedAt    time.Time
-	CompletedAt  *time.Time
-	VendPhases   json.RawMessage
+	// Resolved at enqueue; see TenantOperation for why it is stored rather than
+	// looked up when the commit is composed.
+	CreatedByName  *string
+	CreatedByEmail *string
+	CreatedAt      time.Time
+	CompletedAt    *time.Time
+	VendPhases     json.RawMessage
 }
 
 type Template struct {

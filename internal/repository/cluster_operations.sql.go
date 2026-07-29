@@ -11,11 +11,11 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const clusterOperationColumns = `id, org_id, name, environment, team, operation, status, git_commit_sha, error, spec_json, cluster_id, created_by, created_at, completed_at, vend_phases`
+const clusterOperationColumns = `id, org_id, name, environment, team, operation, status, git_commit_sha, error, spec_json, cluster_id, created_by, created_by_name, created_by_email, created_at, completed_at, vend_phases`
 
 func scanClusterOperation(row interface{ Scan(...interface{}) error }) (ClusterOperation, error) {
 	var op ClusterOperation
-	err := row.Scan(&op.ID, &op.OrgID, &op.Name, &op.Environment, &op.Team, &op.Operation, &op.Status, &op.GitCommitSHA, &op.Error, &op.SpecJSON, &op.ClusterID, &op.CreatedBy, &op.CreatedAt, &op.CompletedAt, &op.VendPhases)
+	err := row.Scan(&op.ID, &op.OrgID, &op.Name, &op.Environment, &op.Team, &op.Operation, &op.Status, &op.GitCommitSHA, &op.Error, &op.SpecJSON, &op.ClusterID, &op.CreatedBy, &op.CreatedByName, &op.CreatedByEmail, &op.CreatedAt, &op.CompletedAt, &op.VendPhases)
 	return op, err
 }
 
@@ -154,14 +154,19 @@ type CreateClusterOperationParams struct {
 	Operation   string          `json:"operation"`
 	SpecJSON    json.RawMessage `json:"spec_json"`
 	CreatedBy   string          `json:"created_by"`
+	// Resolved by the caller at enqueue. Nil when the lookup failed — the
+	// operation still goes through; the commit just carries no trailer.
+	CreatedByName  *string `json:"created_by_name"`
+	CreatedByEmail *string `json:"created_by_email"`
 }
 
 func (q *Queries) CreateClusterOperation(ctx context.Context, arg CreateClusterOperationParams) (ClusterOperation, error) {
 	row := q.db.QueryRow(ctx,
-		`INSERT INTO cluster_operations (id, org_id, name, environment, team, operation, spec_json, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6::cluster_op_kind, $7, $8)
+		`INSERT INTO cluster_operations (id, org_id, name, environment, team, operation, spec_json, created_by, created_by_name, created_by_email)
+		VALUES ($1, $2, $3, $4, $5, $6::cluster_op_kind, $7, $8, $9, $10)
 		RETURNING `+clusterOperationColumns,
 		arg.ID, arg.OrgID, arg.Name, arg.Environment, arg.Team, arg.Operation, arg.SpecJSON, arg.CreatedBy,
+		arg.CreatedByName, arg.CreatedByEmail,
 	)
 	return scanClusterOperation(row)
 }

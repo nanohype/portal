@@ -444,15 +444,21 @@ func (s *TenantService) enqueue(ctx context.Context, orgID, clusterID, name, kin
 	if templateID != "" {
 		tmplPtr = &templateID
 	}
+	// Resolved now, while the account certainly exists, rather than when the
+	// commit is composed — see resolveOperationAuthor.
+	authorName, authorEmail := resolveOperationAuthor(ctx, s.queries, createdBy)
+
 	op, err := s.queries.CreateTenantOperation(ctx, repository.CreateTenantOperationParams{
-		ID:         ulid.Make().String(),
-		OrgID:      orgID,
-		ClusterID:  clusterID,
-		TenantName: name,
-		Operation:  kind,
-		ValuesJSON: raw,
-		TemplateID: tmplPtr,
-		CreatedBy:  createdBy,
+		ID:             ulid.Make().String(),
+		OrgID:          orgID,
+		ClusterID:      clusterID,
+		TenantName:     name,
+		Operation:      kind,
+		ValuesJSON:     raw,
+		TemplateID:     tmplPtr,
+		CreatedBy:      createdBy,
+		CreatedByName:  authorName,
+		CreatedByEmail: authorEmail,
 	})
 	if err != nil {
 		return repository.TenantOperation{}, fmt.Errorf("create operation: %w", err)

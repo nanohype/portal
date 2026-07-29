@@ -8,11 +8,11 @@ import (
 	"time"
 )
 
-const tenantOperationColumns = `id, org_id, cluster_id, tenant_name, operation, status, git_commit_sha, error, values_json, template_id, created_by, created_at, completed_at`
+const tenantOperationColumns = `id, org_id, cluster_id, tenant_name, operation, status, git_commit_sha, error, values_json, template_id, created_by, created_by_name, created_by_email, created_at, completed_at`
 
 func scanTenantOperation(row interface{ Scan(...interface{}) error }) (TenantOperation, error) {
 	var op TenantOperation
-	err := row.Scan(&op.ID, &op.OrgID, &op.ClusterID, &op.TenantName, &op.Operation, &op.Status, &op.GitCommitSHA, &op.Error, &op.ValuesJSON, &op.TemplateID, &op.CreatedBy, &op.CreatedAt, &op.CompletedAt)
+	err := row.Scan(&op.ID, &op.OrgID, &op.ClusterID, &op.TenantName, &op.Operation, &op.Status, &op.GitCommitSHA, &op.Error, &op.ValuesJSON, &op.TemplateID, &op.CreatedBy, &op.CreatedByName, &op.CreatedByEmail, &op.CreatedAt, &op.CompletedAt)
 	return op, err
 }
 
@@ -116,14 +116,19 @@ type CreateTenantOperationParams struct {
 	ValuesJSON json.RawMessage `json:"values_json"`
 	TemplateID *string         `json:"template_id"`
 	CreatedBy  string          `json:"created_by"`
+	// Resolved by the caller at enqueue. Nil when the lookup failed — the
+	// operation still goes through; the commit just carries no trailer.
+	CreatedByName  *string `json:"created_by_name"`
+	CreatedByEmail *string `json:"created_by_email"`
 }
 
 func (q *Queries) CreateTenantOperation(ctx context.Context, arg CreateTenantOperationParams) (TenantOperation, error) {
 	row := q.db.QueryRow(ctx,
-		`INSERT INTO tenant_operations (id, org_id, cluster_id, tenant_name, operation, values_json, template_id, created_by)
-		VALUES ($1, $2, $3, $4, $5::tenant_op_kind, $6, $7, $8)
+		`INSERT INTO tenant_operations (id, org_id, cluster_id, tenant_name, operation, values_json, template_id, created_by, created_by_name, created_by_email)
+		VALUES ($1, $2, $3, $4, $5::tenant_op_kind, $6, $7, $8, $9, $10)
 		RETURNING `+tenantOperationColumns,
 		arg.ID, arg.OrgID, arg.ClusterID, arg.TenantName, arg.Operation, arg.ValuesJSON, arg.TemplateID, arg.CreatedBy,
+		arg.CreatedByName, arg.CreatedByEmail,
 	)
 	return scanTenantOperation(row)
 }

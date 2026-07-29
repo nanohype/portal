@@ -182,7 +182,9 @@ func (w *TenantApplyJobWorker) Work(ctx context.Context, job *river.Job[TenantAp
 		return w.fail(ctx, op.ID, op.OrgID, logger, fmt.Errorf("unknown operation kind: %s", op.Operation))
 	}
 
-	sha, err := w.tenantsRepo.Commit(commitMsg, w.author)
+	// The operator's identity, resolved when the operation was enqueued, as a
+	// trailer git and every forge can read. Omitted when the row carries none.
+	sha, err := w.tenantsRepo.Commit(withAttribution(commitMsg, op.CreatedByName, op.CreatedByEmail), w.author)
 	if err != nil {
 		return w.fail(ctx, op.ID, op.OrgID, logger, fmt.Errorf("commit: %w", err))
 	}
