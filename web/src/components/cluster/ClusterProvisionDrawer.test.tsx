@@ -181,10 +181,13 @@ describe('ClusterProvisionDrawer optional blocks', () => {
   it('states the defaults a collapsed section will produce', async () => {
     renderWithClient(<ClusterProvisionDrawer open onClose={vi.fn()} accounts={[ACCOUNT]} />);
 
+    // Spelled out rather than composed from FLEET_DEFAULTS: the point is what an
+    // operator reads before opening anything, and a summary assembled from the
+    // same constants the component uses would agree with itself either way.
+    expect(screen.getByText('New VPC · 10.0.0.0/16 · 3 AZs · 1 NAT gateway')).toBeInTheDocument();
     expect(
-      screen.getByText(new RegExp(`New VPC · ${FLEET_DEFAULTS.vpcCidr.replace(/\./g, '\\.')}`)),
+      screen.getByText('m7g.xlarge, m6g.xlarge · 2–6 nodes, 2 desired · 100 GiB'),
     ).toBeInTheDocument();
-    expect(screen.getByText(/2–6 nodes, 2 desired · 100 GiB/)).toBeInTheDocument();
   });
 
   it('sends an adopt order with no create block after switching modes', async () => {
