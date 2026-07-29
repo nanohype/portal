@@ -235,6 +235,22 @@ tasks:
   # The vendored copy under internal/clusterspec/testdata/ is what the render is
   # tested against; these keep it honest. See the README there.
 
+  crd:check:
+    desc: Verify the vendored eks-agent-platform CRD schemas match upstream at the pinned ref
+    cmds:
+      - scripts/crd.sh check
+
+  crd:sync:
+    desc: "Re-vendor the tenant CRD schemas, optionally moving the pin (usage: task crd:sync -- <sha>)"
+    cmds:
+      - scripts/crd.sh sync {{.CLI_ARGS}}
+      - go test ./internal/tenantmanifest/
+
+  crd:freshness:
+    desc: Report whether the pinned CRD schemas are behind upstream (not a PR gate)
+    cmds:
+      - scripts/crd.sh freshness
+
   xrd:check:
     desc: Verify the vendored Cluster XRD matches eks-fleet at the pinned ref
     cmds:

@@ -44,6 +44,7 @@ package internal/apperr             0     # error taxonomy — declarations, no 
 package internal/auth               85
 package internal/aws                33
 package internal/clusterspec        98    # renders a CR another repo owns the schema for; see internal/clusterspec/testdata/README.md
+package internal/tenantmanifest     85    # the only pre-push check on the tenant write path; see internal/tenantmanifest/schemas/README.md
 package internal/config             88
 package internal/conv               100
 package internal/git                34

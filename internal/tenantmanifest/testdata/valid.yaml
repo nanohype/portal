@@ -1,0 +1,121 @@
+# Platform CR — declares competitive-intelligence as a tenant of the strategy
+# team on the eks-agent-platform operator. Apply once per cluster before the
+# ApplicationSet entry starts reconciling the chart.
+#
+# Three CRs declared here:
+#   - Tenant       (cluster-scoped; the strategy team the Platform belongs to)
+#   - BudgetPolicy (referenced by Platform.spec.budget — required)
+#   - Platform     (the actual tenant declaration)
+#
+# The Tenant and BudgetPolicy/Platform CRs live in different scopes: Tenant is
+# cluster-scoped, the other two are namespaced into `tenants-strategy` — the
+# strategy team's control-plane namespace, which holds the CRs and nothing else.
+# That is where the CRs are authored, not where the app runs — the operator
+# derives the workload namespace from `Platform.metadata.name`.
+#
+# What the operator reconciles from the Platform CR:
+#   - Namespace `tenants-competitive-intelligence` (Pod Security Standards
+#     baseline) — the workload namespace, named after this Platform
+#   - ResourceQuota + LimitRange
+#   - Default-deny NetworkPolicy (the chart layers app-specific rules on top)
+#   - ArgoCD AppProject scoped to this Platform
+#   - Per-Platform IAM role (`<env>-competitive-intelligence-tenant`) with the
+#     baseline policy + spec.identity.extraPolicyArns attached and Bedrock
+#     invoke clamped to spec.identity.allowedModels (bedrock-model-scoping
+#     inline policy). Trust is the EKS Pod Identity service principal; SAs
+#     bind via Pod Identity associations (`tenant-runtime` by the operator,
+#     the app SA by landing-zone)
+#
+# Pod identity: the operator creates and owns the `tenant-runtime` ServiceAccount
+# and binds it to the `<env>-competitive-intelligence-tenant` role via an EKS Pod
+# Identity association — no role-arn annotation. Both the radar's worker pod and
+# any AgentFleet pods run as it: one Platform, one privilege domain. Bedrock
+# access is the agent-iam baseline clamped to spec.identity below; the substrate
+# grant is the datastore-access policy the operator generates from spec.datastores.
+#
+# Tenant substrate is declared, not a component: spec.datastores below names the
+# pgvector store, and the generic tenant-substrate module provisions it. Its
+# endpoint wires into the chart's per-env values (`tenantInfra.*`) at deploy time.
+
+---
+apiVersion: platform.nanohype.dev/v1alpha1
+kind: Tenant
+metadata:
+  name: strategy
+  labels:
+    agents.nanohype.dev/tenant: strategy
+spec:
+  displayName: Strategy
+  # Competitive intel is a marketing/strategy function — matches
+  # Platform.spec.persona below.
+  primaryPersona: marketing
+  # Soft ceiling on the sum of every owned Platform's BudgetPolicy.monthlyUsd.
+  # competitive-intelligence is the only Platform under this Tenant today.
+  aggregateMonthlyBudgetUsd: '2500'
+  compliance:
+    soc2: true
+    hipaa: false
+---
+apiVersion: governance.nanohype.dev/v1alpha1
+kind: BudgetPolicy
+metadata:
+  name: competitive-intelligence
+  namespace: tenants-strategy
+spec:
+  platformRef:
+    name: competitive-intelligence
+  # Sized for Bedrock spend: Claude Sonnet (Converse) on every above-threshold
+  # diff + Titan embeddings on every chunk, every crawl. No per-query user
+  # fan-out — spend is bounded by crawl interval × source count. Kill-switch
+  # fires at 120% (USD 3000) when killSwitchEnabled is true.
+  monthlyUsd: '2500'
+  alertThresholdsPercent: [50, 80, 100]
+  killSwitchEnabled: true
+---
+apiVersion: platform.nanohype.dev/v1alpha1
+kind: Platform
+metadata:
+  name: competitive-intelligence
+  namespace: tenants-strategy
+spec:
+  displayName: competitive-intelligence
+  # Competitive intel is a marketing/strategy function.
+  persona: marketing
+  tenant: strategy
+  budget:
+    name: competitive-intelligence
+  identity:
+    # Bedrock model access for every pod in this Platform — the radar's
+    # worker pod and AgentFleet pods share the operator-reconciled
+    # `<env>-competitive-intelligence-tenant` role.
+    #
+    # This is not an additive allow. The operator writes a
+    # `DenyUnscopedBedrockInvoke` statement — Effect: Deny, NotResource: the
+    # expansion of this list — so a model absent here is explicitly denied and
+    # no baseline grant can rescue it. A list that disagrees with what the chart
+    # renders is not a degraded mode; it is AccessDenied on every call.
+    #
+    # So this list must cover every model id the chart sets, and
+    # `npm run platform:validate` fails when it does not. Adding a model is a
+    # deliberate widening of what this tenant may spend on.
+    allowedModels:
+      - us.anthropic.claude-sonnet-5 # BEDROCK_LLM_MODEL — diff analysis (Converse)
+      - amazon.titan-embed-text-v2:0 # BEDROCK_EMBEDDING_MODEL — chunk embeddings
+    # Escape hatch for grants outside the datastore + capability vocabularies.
+    # The pgvector store's access is generated from spec.datastores, so nothing
+    # is needed here.
+    extraPolicyArns: []
+    # No directSecretReads: every secret this Platform needs is projected into
+    # the pod by the chart's ExternalSecret (read by the External Secrets
+    # controller's own identity), so the tenant role holds no Secrets Manager
+    # grant of its own.
+  compliance:
+    soc2: true
+  isolation: namespace
+  # Stateful substrate: the durable pgvector store (Aurora Serverless v2). The
+  # tenant-substrate module provisions it and the operator generates the scoped
+  # datastore-access policy; deletionPolicy defaults to Retain, so deleting this
+  # CR orphans the database intact.
+  datastores:
+    - name: main
+      kind: relational

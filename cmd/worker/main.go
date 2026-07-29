@@ -35,6 +35,7 @@ import (
 	"github.com/nanohype/portal/internal/secrets"
 	"github.com/nanohype/portal/internal/service"
 	"github.com/nanohype/portal/internal/storage"
+	"github.com/nanohype/portal/internal/tenantmanifest"
 	"github.com/nanohype/portal/internal/tracing"
 	"github.com/nanohype/portal/internal/worker"
 	"github.com/nanohype/portal/internal/worker/executor"
@@ -300,6 +301,17 @@ func main() {
 			return tofuhelm.Render(ch, releaseName, namespace, values)
 		}
 
+		// Built once at startup, and fatal if it cannot compile its schemas: a
+		// validator that failed to load must not be the thing approving writes to
+		// a GitOps repo. Failing here is loud and immediate; failing per-apply
+		// would be a stream of confusing operation errors.
+		manifestValidator, err := tenantmanifest.New()
+		if err != nil {
+			logger.Error("cannot load the vendored tenant CRD schemas", "error", err)
+			os.Exit(1)
+		}
+		logger.Info("tenant manifest validation enabled", "crd_schemas_ref", manifestValidator.Ref()[:12])
+
 		tenantApplyWorker = worker.NewTenantApplyJobWorker(worker.TenantApplyDeps{
 			Queries: queries,
 			LoadOp: func(ctx context.Context, id, orgID string) (repository.TenantOperation, error) {
@@ -309,6 +321,7 @@ func main() {
 				return tenantSvc.CompleteOperation(ctx, id, orgID, status, sha, errMsg)
 			},
 			Render:      renderFn,
+			Manifests:   manifestValidator,
 			TenantsRepo: tenantsRepo,
 			RepoMu:      &sync.Mutex{},
 			TenantsRef:  cfg.TenantsRepoRef,

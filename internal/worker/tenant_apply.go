@@ -16,6 +16,7 @@ import (
 
 	"github.com/nanohype/portal/internal/git"
 	"github.com/nanohype/portal/internal/repository"
+	"github.com/nanohype/portal/internal/tenantmanifest"
 )
 
 // TenantApplyJobArgs is the River job that drives the tenants-repo write
@@ -54,6 +55,7 @@ type TenantApplyJobWorker struct {
 	loadOp      TenantOperationLoader
 	completeOp  TenantOperationCompleter
 	render      ChartRenderer
+	manifests   *tenantmanifest.Validator
 	tenantsRepo *git.Repo
 	repoMu      *sync.Mutex
 	tenantsRef  string
@@ -75,6 +77,11 @@ type TenantApplyDeps struct {
 	RepoMu      *sync.Mutex
 	TenantsRef  string // branch in tenants repo (typically "main")
 	Author      git.Author
+	// Manifests validates a rendered manifest before it is written. Required:
+	// a nil validator would make every apply skip the only check on this path
+	// that can prevent a bad write rather than report it, and it would do so
+	// silently.
+	Manifests *tenantmanifest.Validator
 }
 
 func NewTenantApplyJobWorker(d TenantApplyDeps) *TenantApplyJobWorker {
@@ -87,6 +94,7 @@ func NewTenantApplyJobWorker(d TenantApplyDeps) *TenantApplyJobWorker {
 		loadOp:      d.LoadOp,
 		completeOp:  d.CompleteOp,
 		render:      d.Render,
+		manifests:   d.Manifests,
 		tenantsRepo: d.TenantsRepo,
 		repoMu:      d.RepoMu,
 		tenantsRef:  ref,

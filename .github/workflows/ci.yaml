@@ -42,6 +42,14 @@ jobs:
       # question, on a schedule.)
       - name: Cluster XRD pin fidelity
         run: scripts/xrd.sh check
+      # portal validates a rendered tenant manifest against the operator's CRD
+      # schemas before it writes one, and this is the only point on that path
+      # where a check prevents the write rather than reporting it. The schemas
+      # are vendored, so the same two failures apply: a copy edited to admit a
+      # manifest the operator would reject, or a pin that no longer describes the
+      # bytes beside it. Same pinned-ref reading as above.
+      - name: Tenant CRD schema pin fidelity
+        run: scripts/crd.sh check
       # Fail the build on a known CVE in a Go dependency or the stdlib — the
       # supply-chain gate that catches what Dependabot would only flag later.
       # Pinned scanner version; CVE data is still fetched live from vuln.go.dev.

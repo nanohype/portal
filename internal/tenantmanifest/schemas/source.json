@@ -1,0 +1,23 @@
+{
+  "_README": "Where the vendored CRD schemas in this directory come from. They are byte-identical copies of the controller-gen output in nanohype/eks-agent-platform at `upstream.ref` \u2014 never hand-edit them. `sha256` is verified by crd_contract_test.go and by the validator itself before any schema is parsed, so a copy edited to admit a manifest the operator would reject aborts the run instead of being trusted. `task crd:check` re-verifies the digests and matches the bytes against upstream at that same ref; `task crd:sync -- <sha>` moves the pin and rewrites the digests together. See README.md here.",
+  "upstream": {
+    "repository": "nanohype/eks-agent-platform",
+    "path": "operators/config/crd/bases",
+    "ref": "6574bfc472c439b1a9544eb3f15d3d585d7cf70b"
+  },
+  "generator": "controller-gen v0.21.0",
+  "files": [
+    {
+      "file": "governance.nanohype.dev_budgetpolicies.yaml",
+      "sha256": "551183bc44d371656cb39766e48da8b0b9130b7565f6c0fbbf7a2c85f826b2bf"
+    },
+    {
+      "file": "platform.nanohype.dev_platforms.yaml",
+      "sha256": "606d67d9db59e87fcfe7fa23019cb33281c8f7c76c75040a864eae866054c489"
+    },
+    {
+      "file": "platform.nanohype.dev_tenants.yaml",
+      "sha256": "09314d9c472917b3b20fe64e99bcd46d323b7684932fcdedbb923ff2f539fcbc"
+    }
+  ]
+}

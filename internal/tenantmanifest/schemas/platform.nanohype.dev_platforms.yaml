@@ -1,0 +1,816 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: platforms.platform.nanohype.dev
+spec:
+  group: platform.nanohype.dev
+  names:
+    kind: Platform
+    listKind: PlatformList
+    plural: platforms
+    shortNames:
+    - plat
+    singular: platform
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.persona
+      name: Persona
+      type: string
+    - jsonPath: .spec.tenant
+      name: Tenant
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          Platform is the top-level tenancy CR. Namespaced so that BudgetPolicy,
+          ModelGateway, AgentFleet, and EvalSuite references resolve in the same
+          namespace by name. The operator provisions the tenant workload namespace
+          (tenants-<platform-name>) separately at reconcile time; the Platform CR
+          itself lives in whichever namespace the cluster admin places it (typically
+          a management namespace such as eks-agent-platform).
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              PlatformSpec defines the desired state of a Platform — a tenancy boundary
+              hosting one or more AgentFleets, with its own budget, identity, and
+              guardrails.
+            properties:
+              attribution:
+                description: |-
+                  Attribution opts the Platform into per-session human attribution. When
+                  set, the operator provisions a session role — assumable by the tenant
+                  IRSA role with the operator carried as STS SourceIdentity, scoped to the
+                  tenant baseline (Bedrock invoke) and NOT broad sts:AssumeRole — plus a
+                  ClusterRole letting the tenant ServiceAccount impersonate the named
+                  operators at the apiserver. fab's role-session entrypoint consumes both,
+                  so an agent's AWS + Kubernetes actions attribute to a named human.
+                  nil = unattributed (the default).
+                properties:
+                  operators:
+                    description: |-
+                      Operators is the set of human identities (e.g. email addresses) a
+                      session in this Platform may act as. Each value becomes both an allowed
+                      STS SourceIdentity on the session role's trust policy and a resourceNames
+                      entry on the impersonate ClusterRole, so the SAME string binds the AWS
+                      and Kubernetes audit records. Use a canonical form (a lowercased email);
+                      it must byte-match the operator's own RBAC subject name.
+                    items:
+                      type: string
+                    minItems: 1
+                    type: array
+                  sessionRoleMaxDurationSeconds:
+                    default: 3600
+                    description: |-
+                      SessionRoleMaxDurationSeconds caps the assumed session lifetime. Because
+                      the caller is the tenant IRSA role, AWS STS role chaining hard-caps a
+                      chained session at 3600s regardless of this value; larger values only
+                      matter if the caller ever changes. Defaults to 3600.
+                    format: int32
+                    maximum: 43200
+                    minimum: 900
+                    type: integer
+                required:
+                - operators
+                type: object
+              budget:
+                description: Budget references a BudgetPolicy CR in the same namespace.
+                properties:
+                  name:
+                    type: string
+                required:
+                - name
+                type: object
+              compliance:
+                description: Compliance flags drive stricter defaults across the Platform.
+                properties:
+                  hipaa:
+                    description: |-
+                      HIPAA: object-lock compliance mode, no cross-region inference, PII detect
+                      required on Guardrails.
+                    type: boolean
+                  soc2:
+                    description: 'SOC2: invocation logging required, kill-switch enabled.'
+                    type: boolean
+                type: object
+              datastores:
+                description: |-
+                  Datastores declares the tenant's stateful substrate — the databases,
+                  buckets, queues, caches, and streams it needs. Each entry is a declaration,
+                  not a hand-written component: the tenant-substrate tofu module provisions
+                  the heavy resource from this same list and the operator generates the
+                  scoped IAM policy that reaches it, so adding a tenant never means authoring
+                  a landing-zone component. Empty for a Platform with no stateful needs.
+                items:
+                  description: |-
+                    DatastoreSpec declares one stateful store the tenant needs. The kind selects
+                    an AWS implementation and, at most, the one typed config block matching that
+                    kind (stream needs none; a kind whose block is omitted takes the young/light
+                    defaults). The heavy resource is provisioned by the tenant-substrate tofu
+                    module; the operator generates the scoped IAM policy that reaches it. Nothing
+                    here grants the operator delete on the store — deletion is governed by
+                    deletionPolicy and the per-kind deletion_protection backstop, not by the
+                    reconciling principal's IAM (T1/T2).
+                  properties:
+                    cache:
+                      description: Cache config; honored only when kind=cache.
+                      properties:
+                        engine:
+                          default: valkey
+                          description: |-
+                            Engine of the cache. Valkey is the default going-forward OSS engine.
+                            Drift: reported.
+                          enum:
+                          - valkey
+                          - redis
+                          type: string
+                        nodeType:
+                          default: cache.t4g.micro
+                          description: |-
+                            NodeType sizes each node. Drift: reported — a node-type change is a
+                            disruptive resize, surfaced as a condition rather than force-applied.
+                          type: string
+                        replicas:
+                          default: 0
+                          description: |-
+                            Replicas is the number of read replicas per shard; 0 (default) is a
+                            single-node cache for a young tenant. Drift: converged.
+                          format: int32
+                          maximum: 5
+                          minimum: 0
+                          type: integer
+                      type: object
+                    deletionPolicy:
+                      default: Retain
+                      description: |-
+                        DeletionPolicy governs the underlying AWS resource when this datastore is
+                        removed from spec or the Platform is deleted (T2).
+                          Retain (default): the resource is orphaned, tagged
+                            platform.nanohype.dev/owned-by and platform.nanohype.dev/released-at,
+                            so a `kubectl delete platform` never takes the data with it.
+                          Delete: the resource is torn down with the declaration.
+                        Independent of the per-kind deletion_protection backstop, which defaults on
+                        for relational and cache — two gates, both defaulting closed.
+                      enum:
+                      - Retain
+                      - Delete
+                      type: string
+                    keyValue:
+                      description: KeyValue config; honored only when kind=keyValue.
+                      properties:
+                        billingMode:
+                          default: PAY_PER_REQUEST
+                          description: |-
+                            BillingMode. PAY_PER_REQUEST (default) suits a young tenant with unknown
+                            traffic; PROVISIONED is for steady, predictable load. Drift: converged.
+                          enum:
+                          - PAY_PER_REQUEST
+                          - PROVISIONED
+                          type: string
+                        globalSecondaryIndexes:
+                          description: GlobalSecondaryIndexes declared on the table.
+                          items:
+                            description: |-
+                              GlobalSecondaryIndex declares a DynamoDB GSI. The key schema is immutable
+                              (AWS recreates the index to change it); drift on projection is reported.
+                            properties:
+                              name:
+                                description: Name of the index.
+                                pattern: ^[a-zA-Z0-9_.-]{3,255}$
+                                type: string
+                              partitionKey:
+                                description: PartitionKey (hash key) of the index.
+                                properties:
+                                  name:
+                                    description: Name of the attribute.
+                                    pattern: ^[a-zA-Z0-9_.-]{1,255}$
+                                    type: string
+                                  type:
+                                    description: Type is the DynamoDB scalar attribute
+                                      type.
+                                    enum:
+                                    - S
+                                    - "N"
+                                    - B
+                                    type: string
+                                required:
+                                - name
+                                - type
+                                type: object
+                              projection:
+                                default: ALL
+                                description: Projection controls which attributes
+                                  are copied into the index.
+                                enum:
+                                - ALL
+                                - KEYS_ONLY
+                                - INCLUDE
+                                type: string
+                              sortKey:
+                                description: SortKey (range key) of the index.
+                                properties:
+                                  name:
+                                    description: Name of the attribute.
+                                    pattern: ^[a-zA-Z0-9_.-]{1,255}$
+                                    type: string
+                                  type:
+                                    description: Type is the DynamoDB scalar attribute
+                                      type.
+                                    enum:
+                                    - S
+                                    - "N"
+                                    - B
+                                    type: string
+                                required:
+                                - name
+                                - type
+                                type: object
+                            required:
+                            - name
+                            - partitionKey
+                            type: object
+                          type: array
+                          x-kubernetes-list-map-keys:
+                          - name
+                          x-kubernetes-list-type: map
+                        partitionKey:
+                          description: PartitionKey (hash key). Immutable after create.
+                          properties:
+                            name:
+                              description: Name of the attribute.
+                              pattern: ^[a-zA-Z0-9_.-]{1,255}$
+                              type: string
+                            type:
+                              description: Type is the DynamoDB scalar attribute type.
+                              enum:
+                              - S
+                              - "N"
+                              - B
+                              type: string
+                          required:
+                          - name
+                          - type
+                          type: object
+                        pointInTimeRecovery:
+                          default: true
+                          description: |-
+                            PointInTimeRecovery enables continuous backups. Defaults on. Drift:
+                            converged.
+                          type: boolean
+                        sortKey:
+                          description: SortKey (range key). Immutable after create.
+                          properties:
+                            name:
+                              description: Name of the attribute.
+                              pattern: ^[a-zA-Z0-9_.-]{1,255}$
+                              type: string
+                            type:
+                              description: Type is the DynamoDB scalar attribute type.
+                              enum:
+                              - S
+                              - "N"
+                              - B
+                              type: string
+                          required:
+                          - name
+                          - type
+                          type: object
+                        ttlAttribute:
+                          description: |-
+                            TTLAttribute names the item attribute holding an epoch expiry; empty
+                            disables TTL. Drift: converged.
+                          type: string
+                      required:
+                      - partitionKey
+                      type: object
+                    kind:
+                      description: |-
+                        Kind selects the AWS implementation. Immutable — changing a live
+                        datastore's kind would strand the provisioned resource.
+                      enum:
+                      - relational
+                      - keyValue
+                      - objectStore
+                      - queue
+                      - cache
+                      - stream
+                      type: string
+                      x-kubernetes-validations:
+                      - message: datastore kind is immutable; remove the datastore
+                          and declare a new one to change it
+                        rule: self == oldSelf
+                    name:
+                      description: |-
+                        Name identifies the datastore within its Platform and composes into the
+                        AWS resource names (bucket, table, queue, cluster) alongside the env,
+                        account, and platform tokens. A short RFC-1123 label; the tenant-substrate
+                        module re-proves the exact composed length at its variable boundary, where
+                        the env and account values are known.
+                      pattern: ^[a-z0-9]([a-z0-9-]{0,16}[a-z0-9])?$
+                      type: string
+                    objectStore:
+                      description: ObjectStore config; honored only when kind=objectStore.
+                      properties:
+                        lifecycleExpireDays:
+                          default: 0
+                          description: |-
+                            LifecycleExpireDays expires objects after N days; 0 (default) keeps them
+                            indefinitely. Drift: converged.
+                          format: int32
+                          minimum: 0
+                          type: integer
+                        versioning:
+                          default: true
+                          description: |-
+                            Versioning keeps prior object versions. Defaults on; set false only for a
+                            bucket of regenerable data where prior versions add cost with no recovery
+                            value. Drift: converged.
+                          type: boolean
+                      type: object
+                    queue:
+                      description: Queue config; honored only when kind=queue.
+                      properties:
+                        fifo:
+                          default: false
+                          description: FIFO makes an exactly-once, ordered queue.
+                            Immutable after create.
+                          type: boolean
+                        maxReceiveCount:
+                          default: 0
+                          description: |-
+                            MaxReceiveCount, when > 0, provisions a dead-letter queue and redrives a
+                            message to it after this many failed receives; 0 (default) means no DLQ.
+                            Drift: converged.
+                          format: int32
+                          maximum: 1000
+                          minimum: 0
+                          type: integer
+                        messageRetentionSeconds:
+                          default: 345600
+                          description: |-
+                            MessageRetentionSeconds a message is kept before it expires (default 4
+                            days). Drift: converged.
+                          format: int32
+                          maximum: 1209600
+                          minimum: 60
+                          type: integer
+                        visibilityTimeoutSeconds:
+                          default: 30
+                          description: |-
+                            VisibilityTimeoutSeconds before a received-but-unacked message is
+                            redelivered. Drift: converged.
+                          format: int32
+                          maximum: 43200
+                          minimum: 0
+                          type: integer
+                      type: object
+                    relational:
+                      description: Relational config; honored only when kind=relational.
+                      properties:
+                        backupRetentionDays:
+                          default: 7
+                          description: 'BackupRetentionDays for automated backups.
+                            Drift: converged.'
+                          format: int32
+                          maximum: 35
+                          minimum: 1
+                          type: integer
+                        deletionProtection:
+                          default: true
+                          description: |-
+                            DeletionProtection is the AWS-level backstop (T2/(c)): with it on, the
+                            cluster cannot be deleted even by an authorized principal until it is
+                            cleared. Defaults on. Drift: converged.
+                          type: boolean
+                        engineVersion:
+                          default: "16.6"
+                          description: |-
+                            EngineVersion of Aurora PostgreSQL. Drift: reported, never converged — an
+                            out-of-band engine change is not force-corrected because a downgrade is
+                            destructive; the operator raises a Drifted condition instead.
+                          type: string
+                        maxACU:
+                          default: "8"
+                          description: 'MaxACU is the Serverless v2 ceiling, in 0.5-ACU
+                            steps. Drift: converged.'
+                          pattern: ^([1-9][0-9]{0,2}(\.5)?|0\.5)$
+                          type: string
+                        minACU:
+                          default: "0.5"
+                          description: |-
+                            MinACU is the Serverless v2 floor in Aurora Capacity Units, in 0.5-ACU
+                            steps (e.g. "0.5", "1", "8"). Serialized as a string, per the Kubernetes
+                            convention for fractional values. The exact 0.5–256 range and the
+                            maxACU >= minACU relation are enforced at the tenant-substrate module's
+                            variable boundary. Drift: converged — the operator resets scaling bounds
+                            to spec.
+                          pattern: ^([1-9][0-9]{0,2}(\.5)?|0\.5)$
+                          type: string
+                      type: object
+                  required:
+                  - kind
+                  - name
+                  type: object
+                  x-kubernetes-validations:
+                  - message: a datastore's config block must match its kind (e.g.
+                      kind=relational may only set the 'relational' block); kind=stream
+                      carries no block
+                    rule: (!has(self.relational) || self.kind == 'relational') &&
+                      (!has(self.keyValue) || self.kind == 'keyValue') && (!has(self.objectStore)
+                      || self.kind == 'objectStore') && (!has(self.queue) || self.kind
+                      == 'queue') && (!has(self.cache) || self.kind == 'cache')
+                  - message: 'kind=keyValue requires the ''keyValue'' block: a DynamoDB
+                      table has no default partition key. Every other kind may omit
+                      its block to take the young/light defaults'
+                    rule: self.kind != 'keyValue' || has(self.keyValue)
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+              displayName:
+                description: DisplayName is a human-readable name for dashboards and
+                  CLI output.
+                type: string
+              identity:
+                description: |-
+                  Identity controls how the IRSA role is named + which Bedrock models are
+                  reachable.
+                properties:
+                  allowedModelFamilies:
+                    description: |-
+                      AllowedModelFamilies (e.g. ["anthropic", "amazon-nova"]) is expanded by
+                      the controller at reconcile time into the family's foundation-model ARN
+                      pattern (arn:<partition>:bedrock:*::foundation-model/<prefix>*) and, for
+                      families with cross-region inference profiles (anthropic, amazon-nova,
+                      meta, mistral), the `us.` inference-profile ARN pattern
+                      (arn:<partition>:bedrock:<region>:<account>:inference-profile/us.<prefix>*),
+                      then reconciled into the role's bedrock-model-scoping policy. Leaving
+                      both this and AllowedModels empty denies all Bedrock model invocation
+                      for the Platform's roles.
+                    items:
+                      enum:
+                      - anthropic
+                      - amazon-nova
+                      - amazon-titan
+                      - meta
+                      - mistral
+                      - cohere
+                      - stability
+                      type: string
+                    type: array
+                  allowedModels:
+                    description: |-
+                      AllowedModels is the list of Bedrock model IDs or cross-region
+                      inference-profile IDs (e.g. "anthropic.claude-sonnet-4-6",
+                      "us.anthropic.claude-sonnet-4-6-v1:0") the role may invoke. The
+                      controller expands each entry into its foundation-model ARN pattern plus
+                      the matching inference-profile ARN pattern (a `us.` profile fans out to
+                      foundation models across regions, so both are granted together) and
+                      reconciles them into the role's bedrock-model-scoping policy. Scopes
+                      tighter than a family; mutually exclusive with AllowedModelFamilies.
+                    items:
+                      type: string
+                    type: array
+                  capabilities:
+                    description: |-
+                      Capabilities are managed AWS capabilities outside the datastore vocabulary
+                      (SES send, EventBridge Scheduler). Each drives an operator-generated
+                      `capability-access` inline policy — and, for eventBridgeScheduler, a minted
+                      scheduler-invoke role — so a tenant declares what it needs rather than
+                      referencing a hand-written managed policy through extraPolicyArns.
+                    items:
+                      description: "Capability is a managed AWS capability the datastore
+                        vocabulary does not\ncover. Declaring one drives an operator-generated
+                        `capability-access` inline\npolicy on the tenant role, scoped
+                        by the same <env>-<platform> naming\nconvention the datastore
+                        policy uses — so a capability is a statement of\nneed, not
+                        a hand-written managed policy the tenant references by ARN.\n\n\tses
+                        \                 -> ses:SendEmail scoped by a ses:FromAddress
+                        condition\n\t                        to the tenant's sending
+                        domain. The verified sending\n\t                        identity
+                        itself is account-level mail infra\n\t                        (landing-zone),
+                        not provisioned here.\n\teventBridgeScheduler -> scheduler:*Schedule
+                        on the tenant's own schedules\n\t                        plus
+                        an operator-minted <cluster>-<platform>-scheduler-invoke\n\t
+                        \                       role (trusted by scheduler.amazonaws.com,
+                        allowed to\n\t                        SendMessage to the tenant's
+                        own queue datastores) that\n\t                        the
+                        tenant passes when creating a schedule."
+                      enum:
+                      - ses
+                      - eventBridgeScheduler
+                      type: string
+                    maxItems: 8
+                    type: array
+                  directSecretReads:
+                    description: |-
+                      DirectSecretReads names the application secrets this Platform's pods read
+                      directly through the pod role via the AWS SDK, each a name under the
+                      tenant's own <platform>/<env>/ prefix in Secrets Manager (e.g.
+                      "grafana/oncall-webhook-hmac"). The controller grants
+                      secretsmanager:GetSecretValue/DescribeSecret on exactly those secrets in
+                      the tenant-secrets inline policy — no prefix wildcard. Secret material
+                      projected into the pod by the chart's ExternalSecret is resolved by the
+                      External Secrets controller's own identity and needs no entry here.
+                      Leaving this empty means the tenant role holds no grant on any *application*
+                      secret. It is not the whole Secrets Manager story: a relational datastore
+                      separately grants read on the one RDS-managed master secret its own Aurora
+                      cluster owns, resolved from the ARN the tenant-substrate component publishes
+                      — never a prefix, since every Aurora master secret in the account shares one.
+                    items:
+                      maxLength: 256
+                      pattern: ^[A-Za-z0-9][A-Za-z0-9/_+=.@-]*$
+                      type: string
+                    maxItems: 16
+                    type: array
+                  extraPolicyArns:
+                    description: ExtraPolicyArns are managed IAM policies attached
+                      on top of the baseline.
+                    items:
+                      type: string
+                    type: array
+                type: object
+                x-kubernetes-validations:
+                - message: allowedModels and allowedModelFamilies are mutually exclusive
+                  rule: '!(has(self.allowedModels) && size(self.allowedModels) > 0
+                    && has(self.allowedModelFamilies) && size(self.allowedModelFamilies)
+                    > 0)'
+              isolation:
+                default: namespace
+                description: |-
+                  Isolation is the workload-isolation tier:
+                    - namespace (default): namespace RBAC + default-deny NetworkPolicy +
+                      ResourceQuota + PSS-restricted, tenant workloads on the host API server.
+                    - vcluster: the same host-side containment PLUS a per-Platform virtual
+                      cluster, so tenant code that talks to the Kubernetes API talks to its own
+                      API server, not the host's (API-server-level isolation — NOT kernel/node
+                      isolation; see docs/adr/0009-vcluster-isolation-tier.md and SECURITY.md).
+
+                  Immutable: switching tiers on a live Platform is a migration (it would strand
+                  the virtual cluster and its synced host objects), so the tier is fixed at
+                  create time. Re-declare the Platform to change it. Enforced at admission by
+                  the CEL transition rule below — an invalid tier flip fails the apply rather
+                  than silently half-reconciling.
+                enum:
+                - namespace
+                - vcluster
+                type: string
+                x-kubernetes-validations:
+                - message: isolation is immutable; re-create the Platform to change
+                    its isolation tier
+                  rule: self == oldSelf
+              persona:
+                default: generic
+                description: |-
+                  Persona drives default values for AgentFleet, ModelGateway, and
+                  dashboards. One of: sales-ops, support, finance, ops, founder, eng,
+                  marketing, legal, generic.
+                enum:
+                - sales-ops
+                - support
+                - finance
+                - ops
+                - founder
+                - eng
+                - marketing
+                - legal
+                - generic
+                type: string
+              tenant:
+                description: Tenant is the owning Tenant CR (one Tenant can own multiple
+                  Platforms).
+                type: string
+            required:
+            - budget
+            - identity
+            - persona
+            - tenant
+            type: object
+          status:
+            description: PlatformStatus captures the controller's view of the world.
+            properties:
+              conditions:
+                description: Conditions follows the standard kubernetes pattern.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              datastores:
+                description: |-
+                  Datastores reports per-datastore observed state, separate from the
+                  top-level Phase: a Platform is Ready once its namespace, quota, and
+                  identity are live, while each datastore reports its own readiness here so a
+                  still-creating Aurora cluster does not gate the tenant's Ready (T6).
+                items:
+                  description: |-
+                    DatastoreStatus reports one datastore's observed state (T3/(a)). It lives
+                    under PlatformStatus.Datastores, separate from the top-level Phase so a
+                    still-creating datastore does not hold back the tenant's Ready (T6).
+                  properties:
+                    arn:
+                      description: ARN of the provisioned resource.
+                      type: string
+                    drift:
+                      description: |-
+                        Drift lists spec fields observed to differ from AWS that the operator
+                        reports but does not converge (the destructive-to-correct fields per T3).
+                        Empty when in sync.
+                      items:
+                        type: string
+                      type: array
+                    endpoint:
+                      description: |-
+                        Endpoint is the connection address once available — Aurora/cache endpoint,
+                        SQS queue URL, S3 bucket name, or MSK bootstrap brokers.
+                      type: string
+                    kind:
+                      description: Kind echoes the declared kind.
+                      enum:
+                      - relational
+                      - keyValue
+                      - objectStore
+                      - queue
+                      - cache
+                      - stream
+                      type: string
+                    name:
+                      description: Name matches spec.datastores[].name.
+                      type: string
+                    phase:
+                      description: 'Phase: Pending, Provisioning, Ready, Drifted,
+                        Failed.'
+                      type: string
+                    secretName:
+                      description: |-
+                        SecretName is the resolved name of the credentials secret the datastore
+                        publishes — the RDS-managed master secret for relational — so the tenant
+                        chart reads one predictable place instead of hand-wiring it per app (T7).
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+              iamRoleArn:
+                description: |-
+                  IamRoleArn is the per-Platform tenant role created by the controller.
+                  Tenant pods receive its credentials through the Pod Identity association
+                  reported in status.podIdentity.
+                type: string
+              namespace:
+                description: Namespace is the tenant namespace the controller provisioned.
+                type: string
+              observedGeneration:
+                description: ObservedGeneration is the last spec.generation the controller
+                  reconciled.
+                format: int64
+                type: integer
+              phase:
+                description: 'Phase: Pending, Provisioning, Ready, Suspended, Failed.'
+                type: string
+              podIdentity:
+                description: |-
+                  PodIdentity reports the EKS Pod Identity association that binds this
+                  tenant's ServiceAccount to status.iamRoleArn. Empty until the association
+                  is reconciled (and on the suspended path, which skips AWS writes — the
+                  last observed binding is preserved rather than cleared).
+                properties:
+                  clusterName:
+                    description: |-
+                      ClusterName is the EKS cluster the association lives on. Associations are
+                      cluster-scoped resources, so this is required to look one up.
+                    type: string
+                  namespace:
+                    description: |-
+                      Namespace is the host namespace the association targets — the tenant
+                      namespace on both isolation tiers.
+                    type: string
+                  roleArn:
+                    description: |-
+                      RoleArn is the role the association vends. Always equal to
+                      status.iamRoleArn at the moment it was written; reported separately so a
+                      reader can tell a stale binding from a current one.
+                    type: string
+                  serviceAccount:
+                    description: |-
+                      ServiceAccount is the host ServiceAccount name the association targets:
+                      tenant-runtime under namespace isolation, the vcluster-translated host
+                      name under vcluster isolation.
+                    type: string
+                type: object
+              sessionRoleArn:
+                description: |-
+                  SessionRoleArn is the per-Platform attribution session role, created when
+                  spec.attribution is set. Empty when attribution is off.
+                type: string
+              suspendedAt:
+                description: |-
+                  SuspendedAt is the timestamp at which the kill-switch fired. When
+                  non-nil the operator stops reattaching the baseline IAM policy and
+                  the AgentFleetReconciler scales fleets to zero. Resets to nil only
+                  when ops clears the iam:TagRole 'platform.nanohype.dev/suspended'
+                  marker on the tenant IRSA role.
+                format: date-time
+                type: string
+              suspendedReason:
+                description: |-
+                  SuspendedReason carries the kill-switch's reason (e.g.
+                  'budget-exceeded'). Same lifecycle as SuspendedAt.
+                type: string
+            type: object
+        type: object
+        x-kubernetes-validations:
+        - message: 'platform name + datastore name must be <= 28 combined: they compose
+            into S3 bucket and table/queue names as <env>-<name>-<datastore>-<account>-<suffix>
+            against S3''s 63-char ceiling (63 - env<=11 - account 12 - 4 separators
+            - suffix<=8); the tenant-substrate module re-proves the exact env/account-aware
+            length'
+          rule: '!has(self.spec.datastores) || self.spec.datastores.all(d, size(self.metadata.name)
+            + size(d.name) <= 28)'
+    served: true
+    storage: true
+    subresources:
+      status: {}
