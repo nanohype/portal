@@ -1918,11 +1918,16 @@ export interface components {
             /** @description The spoke's data CMK, used to encrypt the model-artifacts and eval-reports buckets at rest. A prerequisite referenced by ARN — the vend does not create it. */
             data_kms_key_arn?: string;
         };
+        /** @description Sizing for the system node group, which hosts the cluster addons. Omitted fields take the eks-fleet defaults (m7g.xlarge + m6g.xlarge, min 2, max 6, desired 2, 100 GiB), and the sizes are checked as the group EKS is actually asked for: min_size 9 on its own is min 9 against the default max of 6, and is rejected with 400 rather than by the autoscaling API partway through the vend. */
         ClusterOrderSystemNodes: {
             instance_types?: string[];
+            /** @description May be 0 — a group scaled to zero is a legitimate ask. */
             min_size?: number;
+            /** @description Must be at least 1 (EKS refuses a managed node group that cannot run a node) and at least min_size. */
             max_size?: number;
+            /** @description Must fall within [min_size, max_size]. */
             desired_size?: number;
+            /** @description Root volume size in GiB. */
             disk_size?: number;
         };
         /** @description The VPC the cluster lands in, discriminated on mode. Populate only the sub-object matching the mode — sending the other side is rejected rather than ignored, because an accepted-and-dropped adopt block reads as "the order took effect" while the stack builds a fresh VPC. */

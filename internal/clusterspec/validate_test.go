@@ -248,6 +248,86 @@ func TestValidate_CreateModeWithNoCreateBlock(t *testing.T) {
 	}
 }
 
+// The sizing rule is the one check in Validate with no counterpart at admission:
+// the XRD types these as plain integers, so the rejection it prevents is an
+// autoscaling-API one that lands partway through the vend.
+func TestValidate_SystemNodeSizing(t *testing.T) {
+	n := func(i int) *int { return &i }
+
+	for _, tc := range []struct {
+		name    string
+		nodes   SystemNodes
+		wantErr string
+	}{
+		{"empty takes the fleet defaults", SystemNodes{}, ""},
+		{"a coherent group", SystemNodes{MinSize: n(3), MaxSize: n(9), DesiredSize: n(3), DiskSize: n(200)}, ""},
+		{"scaled to zero", SystemNodes{MinSize: n(0), MaxSize: n(4), DesiredSize: n(0)}, ""},
+		{"min above max", SystemNodes{MinSize: n(9), MaxSize: n(3), DesiredSize: n(3)}, "min_size"},
+		{"desired below min", SystemNodes{MinSize: n(3), MaxSize: n(9), DesiredSize: n(1)}, "desired_size"},
+		{"desired above max", SystemNodes{MinSize: n(3), MaxSize: n(9), DesiredSize: n(12)}, "desired_size"},
+		{"a negative min", SystemNodes{MinSize: n(-1)}, "min_size"},
+		{"a max of zero cannot run a node", SystemNodes{MaxSize: n(0)}, "max_size"},
+		{"a zero-byte root volume", SystemNodes{DiskSize: n(0)}, "disk_size"},
+		{"an empty instance type", SystemNodes{InstanceTypes: []string{"m7g.xlarge", "  "}}, "instance_types[1]"},
+		// The reason the comparison uses effective values. Each of these is
+		// self-consistent as sent and incoherent against the default it did not
+		// override — which is the group EKS is actually asked for.
+		{"a min that only conflicts with the default max", SystemNodes{MinSize: n(9)}, "max_size 6"},
+		{"a max below the default min", SystemNodes{MaxSize: n(1)}, "min_size 2"},
+		{"a max below the default desired", SystemNodes{MinSize: n(0), MaxSize: n(1)}, "desired_size 2"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in := validOrder()
+			nodes := tc.nodes
+			in.SystemNodes = &nodes
+
+			err := in.Validate()
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("rejected a node group EKS would accept: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("accepted a node group the autoscaling API would refuse mid-vend")
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("message %q does not mention %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// A default the caller never sent has to be named, or the error reads as
+// arithmetic on numbers that are not in the request.
+func TestValidate_SystemNodeSizingNamesTheDefaultsItUsed(t *testing.T) {
+	n := func(i int) *int { return &i }
+	in := validOrder()
+	in.SystemNodes = &SystemNodes{MinSize: n(9)}
+
+	err := in.Validate()
+	if err == nil {
+		t.Fatal("accepted min_size 9 against the default max of 6")
+	}
+	if !strings.Contains(err.Error(), "unset fields take the fleet default") {
+		t.Errorf("message does not explain where max 6 came from: %v", err)
+	}
+
+	// With every field supplied there is no default to explain.
+	in.SystemNodes = &SystemNodes{MinSize: n(9), MaxSize: n(3), DesiredSize: n(3)}
+	if err := in.Validate(); err == nil {
+		t.Fatal("accepted min 9 / max 3")
+	} else if strings.Contains(err.Error(), "unset fields") {
+		t.Errorf("message explains defaults it did not use: %v", err)
+	}
+}
+
+func TestValidate_NilSystemNodesIsAValidOrder(t *testing.T) {
+	if err := validOrder().Validate(); err != nil {
+		t.Fatalf("an order with no node group override was rejected: %v", err)
+	}
+}
+
 func TestWithPortalWiring(t *testing.T) {
 	const (
 		spoke   = "arn:aws:iam::222222222222:role/production-portal-spoke"

@@ -1,22 +1,41 @@
-import { useId, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ChevronDown, ChevronRight } from 'lucide-react';
+import { useId, useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '@/api/client';
-import { navigate } from '@/hooks/useNavigate';
 import type { Account, ClusterOperation } from '@/api/models';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Select } from '@/components/ui/select';
+import { ChipToggle } from '@/components/ui/chip-toggle';
 import {
   Drawer,
+  DrawerBody,
+  DrawerDescription,
+  DrawerFooter,
   DrawerHeader,
   DrawerTitle,
-  DrawerDescription,
-  DrawerBody,
-  DrawerFooter,
 } from '@/components/ui/drawer';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
+import { navigate } from '@/hooks/useNavigate';
+import { CIDR_RE } from '@/lib/cidr';
+import {
+  buildNetwork,
+  buildSystemNodes,
+  buildTtlDays,
+  emptyNetworkForm,
+  emptySystemNodesForm,
+  FLEET_DEFAULTS,
+  type NetworkForm,
+  networkErrors,
+  networkSummary,
+  type SystemNodesForm,
+  systemNodesErrors,
+  systemNodesSummary,
+  ttlDaysError,
+  ttlSummary,
+} from '@/lib/cluster-order';
+import { parseCommaList } from '@/lib/list';
 import { cn } from '@/lib/utils';
-import { CIDR_RE, parseCidrList } from '@/lib/cidr';
 import { VendTimeline } from './VendTimeline';
 
 const AWS_REGION_RE = /^[a-z]{2}-[a-z]+-\d$/;
@@ -56,8 +75,21 @@ export function ClusterProvisionDrawer({
   // (managed monitoring must already exist for this cluster), so opting up is a
   // deliberate act rather than the path of least resistance.
   const [observabilityTier, setObservabilityTier] = useState<'floor' | 'full'>('floor');
+  // The three blocks that carry the fleet defaults when untouched. Each is
+  // collapsed to a one-line summary of what it will actually produce, so an
+  // unopened section is a stated choice rather than an unknown. See
+  // lib/cluster-order for the builders and the refusals they mirror.
+  const [network, setNetwork] = useState<NetworkForm>(emptyNetworkForm);
+  const [systemNodes, setSystemNodes] = useState<SystemNodesForm>(emptySystemNodesForm);
+  const [ttlDays, setTtlDays] = useState('');
+  const [showNetwork, setShowNetwork] = useState(false);
+  const [showNodes, setShowNodes] = useState(false);
   // Set on a successful order → the drawer switches to the live timeline view.
   const [orderedId, setOrderedId] = useState<string | null>(null);
+
+  const patchNetwork = (patch: Partial<NetworkForm>) => setNetwork((n) => ({ ...n, ...patch }));
+  const patchNodes = (patch: Partial<SystemNodesForm>) =>
+    setSystemNodes((n) => ({ ...n, ...patch }));
 
   const selectedAccount = accounts.find((a) => a.id === accountID);
 
@@ -71,6 +103,11 @@ export function ClusterProvisionDrawer({
     setPublicAccess(false);
     setPublicCidrs('');
     setObservabilityTier('floor');
+    setNetwork(emptyNetworkForm);
+    setSystemNodes(emptySystemNodesForm);
+    setTtlDays('');
+    setShowNetwork(false);
+    setShowNodes(false);
     setOrderedId(null);
   };
 
@@ -94,8 +131,11 @@ export function ClusterProvisionDrawer({
           environment,
           cluster_version: clusterVersion.trim() || undefined,
           endpoint_public_access: publicAccess,
-          endpoint_public_access_cidrs: publicAccess ? parseCidrList(publicCidrs) : undefined,
+          endpoint_public_access_cidrs: publicAccess ? parseCommaList(publicCidrs) : undefined,
           observability_tier: observabilityTier,
+          network: buildNetwork(network),
+          system_nodes: buildSystemNodes(systemNodes),
+          ttl_days: buildTtlDays(ttlDays),
         },
       });
       if (error) throw error;
@@ -157,7 +197,7 @@ export function ClusterProvisionDrawer({
   const nameInvalid = name !== '' && !K8S_NAME_RE.test(name);
   // Opting into a public endpoint makes the CIDR allowlist required — the
   // fleet's CEL rule rejects public-without-allowlist, so gate submit here.
-  const cidrList = parseCidrList(publicCidrs);
+  const cidrList = parseCommaList(publicCidrs);
   const cidrsMissing = publicAccess && cidrList.length === 0;
   const cidrsMalformed = publicAccess && cidrList.some((c) => !CIDR_RE.test(c));
   const cidrError = cidrsMissing
@@ -165,6 +205,12 @@ export function ClusterProvisionDrawer({
     : cidrsMalformed
       ? 'Each entry must be a CIDR like 203.0.113.0/24'
       : null;
+  // Every rule in these three is also enforced by clusterspec.Validate, so an
+  // order that fails them is a 400 the operator has no path around — the point of
+  // checking here is that the field is named while they are still looking at it.
+  const netErrors = networkErrors(network);
+  const nodeErrors = systemNodesErrors(systemNodes);
+  const ttlError = ttlDaysError(ttlDays);
   const canSubmit =
     accountID !== '' &&
     name.trim() !== '' &&
@@ -173,7 +219,10 @@ export function ClusterProvisionDrawer({
     !teamInvalid &&
     AWS_REGION_RE.test(region) &&
     !cidrsMissing &&
-    !cidrsMalformed;
+    !cidrsMalformed &&
+    Object.keys(netErrors).length === 0 &&
+    Object.keys(nodeErrors).length === 0 &&
+    ttlError === undefined;
 
   const ordered = orderedId !== null;
 
@@ -201,6 +250,9 @@ export function ClusterProvisionDrawer({
               <Detail label="Region" value={region} mono />
               <Detail label="Environment" value={environment} />
               <Detail label="Team" value={team.trim()} mono />
+              <Detail label="Network" value={networkSummary(network)} />
+              <Detail label="Node group" value={systemNodesSummary(systemNodes)} />
+              <Detail label="Lifetime" value={ttlSummary(ttlDays)} />
             </dl>
             <p className="text-[12px] leading-relaxed text-muted-foreground">
               The full journey — commit → build → active — streams in{' '}
@@ -337,6 +389,280 @@ export function ClusterProvisionDrawer({
                 />
               </Field>
             )}
+
+            <Disclosure
+              label="Networking"
+              summary={networkSummary(network)}
+              open={showNetwork}
+              onToggle={() => setShowNetwork(!showNetwork)}
+            >
+              <div className="flex gap-2">
+                <ChipToggle
+                  active={network.mode === 'create'}
+                  onClick={() => patchNetwork({ mode: 'create' })}
+                >
+                  Create a VPC
+                </ChipToggle>
+                <ChipToggle
+                  active={network.mode === 'adopt'}
+                  onClick={() => patchNetwork({ mode: 'adopt' })}
+                >
+                  Adopt a VPC
+                </ChipToggle>
+              </div>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                {network.mode === 'create'
+                  ? 'The stack owns the VPC and disposes of it with the cluster.'
+                  : 'The cluster joins a VPC someone else provisioned — a shared VPC in this account, or one shared in over AWS RAM. Its owner runs the subnets and their tagging; the cluster only needs the ids.'}
+              </p>
+
+              {network.mode === 'create' ? (
+                <>
+                  <Field
+                    label="VPC CIDR"
+                    htmlFor={`${uid}-vpc-cidr`}
+                    error={netErrors.vpcCidr}
+                    hint={`Defaults to ${FLEET_DEFAULTS.vpcCidr}`}
+                  >
+                    <Input
+                      id={`${uid}-vpc-cidr`}
+                      value={network.vpcCidr}
+                      onChange={(e) => patchNetwork({ vpcCidr: e.target.value })}
+                      placeholder={FLEET_DEFAULTS.vpcCidr}
+                      className="font-mono"
+                    />
+                  </Field>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field
+                      label="IPAM Pool"
+                      htmlFor={`${uid}-ipam-pool`}
+                      error={netErrors.ipamPoolId}
+                      hint="Draws the CIDR from a pool instead"
+                    >
+                      <Input
+                        id={`${uid}-ipam-pool`}
+                        value={network.ipamPoolId}
+                        onChange={(e) => patchNetwork({ ipamPoolId: e.target.value })}
+                        placeholder="ipam-pool-0a1b2c3d"
+                        className="font-mono"
+                      />
+                    </Field>
+                    <Field
+                      label="IPAM Netmask"
+                      htmlFor={`${uid}-ipam-netmask`}
+                      error={netErrors.ipamNetmaskLength}
+                      hint="16–20"
+                    >
+                      <Input
+                        id={`${uid}-ipam-netmask`}
+                        value={network.ipamNetmaskLength}
+                        onChange={(e) => patchNetwork({ ipamNetmaskLength: e.target.value })}
+                        placeholder="18"
+                        className="font-mono"
+                      />
+                    </Field>
+                  </div>
+
+                  <Field
+                    label="Transit Gateway"
+                    htmlFor={`${uid}-tgw`}
+                    error={netErrors.transitGatewayId}
+                    hint="Attaches the VPC to a gateway"
+                  >
+                    <Input
+                      id={`${uid}-tgw`}
+                      value={network.transitGatewayId}
+                      onChange={(e) => patchNetwork({ transitGatewayId: e.target.value })}
+                      placeholder="tgw-0a1b2c3d"
+                      className="font-mono"
+                    />
+                  </Field>
+
+                  <label
+                    htmlFor={`${uid}-centralized-egress`}
+                    className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer"
+                  >
+                    <input
+                      id={`${uid}-centralized-egress`}
+                      type="checkbox"
+                      checked={network.centralizedEgress}
+                      onChange={(e) => patchNetwork({ centralizedEgress: e.target.checked })}
+                      className="accent-primary"
+                    />
+                    Centralized egress
+                  </label>
+                  <p className="text-[11px] leading-relaxed text-muted-foreground">
+                    Private egress routes through the transit gateway instead of a NAT gateway in
+                    this VPC — cheaper per cluster, and inspected wherever the gateway sends it.
+                  </p>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field
+                      label="Max AZs"
+                      htmlFor={`${uid}-max-azs`}
+                      error={netErrors.maxAzs}
+                      hint={`Defaults to ${FLEET_DEFAULTS.maxAzs}`}
+                    >
+                      <Input
+                        id={`${uid}-max-azs`}
+                        value={network.maxAzs}
+                        onChange={(e) => patchNetwork({ maxAzs: e.target.value })}
+                        placeholder={String(FLEET_DEFAULTS.maxAzs)}
+                        className="font-mono"
+                      />
+                    </Field>
+                    <Field
+                      label="NAT Gateways"
+                      htmlFor={`${uid}-nat-gateways`}
+                      error={netErrors.natGateways}
+                      hint={`Defaults to ${FLEET_DEFAULTS.natGateways}`}
+                    >
+                      <Input
+                        id={`${uid}-nat-gateways`}
+                        value={network.natGateways}
+                        onChange={(e) => patchNetwork({ natGateways: e.target.value })}
+                        placeholder={String(FLEET_DEFAULTS.natGateways)}
+                        className="font-mono"
+                      />
+                    </Field>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <Field label="VPC" htmlFor={`${uid}-vpc-id`} error={netErrors.vpcId}>
+                    <Input
+                      id={`${uid}-vpc-id`}
+                      value={network.vpcId}
+                      onChange={(e) => patchNetwork({ vpcId: e.target.value })}
+                      placeholder="vpc-0a1b2c3d"
+                      className="font-mono"
+                    />
+                  </Field>
+                  <Field
+                    label="Private Subnets"
+                    htmlFor={`${uid}-private-subnets`}
+                    error={netErrors.privateSubnets}
+                    hint="Comma-separated. Nodes land in these."
+                  >
+                    <Input
+                      id={`${uid}-private-subnets`}
+                      value={network.privateSubnets}
+                      onChange={(e) => patchNetwork({ privateSubnets: e.target.value })}
+                      placeholder="subnet-0a1b2c3d, subnet-0e4f5a6b"
+                      className="font-mono"
+                    />
+                  </Field>
+                  <Field
+                    label="Public Subnets"
+                    htmlFor={`${uid}-public-subnets`}
+                    error={netErrors.publicSubnets}
+                    hint="Optional — only needed for internet-facing load balancers."
+                  >
+                    <Input
+                      id={`${uid}-public-subnets`}
+                      value={network.publicSubnets}
+                      onChange={(e) => patchNetwork({ publicSubnets: e.target.value })}
+                      placeholder="subnet-0c7d8e9f"
+                      className="font-mono"
+                    />
+                  </Field>
+                </>
+              )}
+
+              {netErrors.group && (
+                <p className="text-[11px] leading-relaxed text-destructive">{netErrors.group}</p>
+              )}
+            </Disclosure>
+
+            <Disclosure
+              label="System node group"
+              summary={systemNodesSummary(systemNodes)}
+              open={showNodes}
+              onToggle={() => setShowNodes(!showNodes)}
+            >
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                The group that hosts the cluster addons. Tenant workloads get their own groups, so
+                this sizes the control surface rather than the capacity.
+              </p>
+              <Field
+                label="Instance Types"
+                htmlFor={`${uid}-instance-types`}
+                hint="Comma-separated, in preference order."
+              >
+                <Input
+                  id={`${uid}-instance-types`}
+                  value={systemNodes.instanceTypes}
+                  onChange={(e) => patchNodes({ instanceTypes: e.target.value })}
+                  placeholder={FLEET_DEFAULTS.instanceTypes.join(', ')}
+                  className="font-mono"
+                />
+              </Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Min Size" htmlFor={`${uid}-min-size`} error={nodeErrors.minSize}>
+                  <Input
+                    id={`${uid}-min-size`}
+                    value={systemNodes.minSize}
+                    onChange={(e) => patchNodes({ minSize: e.target.value })}
+                    placeholder={String(FLEET_DEFAULTS.minSize)}
+                    className="font-mono"
+                  />
+                </Field>
+                <Field label="Max Size" htmlFor={`${uid}-max-size`} error={nodeErrors.maxSize}>
+                  <Input
+                    id={`${uid}-max-size`}
+                    value={systemNodes.maxSize}
+                    onChange={(e) => patchNodes({ maxSize: e.target.value })}
+                    placeholder={String(FLEET_DEFAULTS.maxSize)}
+                    className="font-mono"
+                  />
+                </Field>
+                <Field
+                  label="Desired Size"
+                  htmlFor={`${uid}-desired-size`}
+                  error={nodeErrors.desiredSize}
+                >
+                  <Input
+                    id={`${uid}-desired-size`}
+                    value={systemNodes.desiredSize}
+                    onChange={(e) => patchNodes({ desiredSize: e.target.value })}
+                    placeholder={String(FLEET_DEFAULTS.desiredSize)}
+                    className="font-mono"
+                  />
+                </Field>
+                <Field
+                  label="Disk Size (GiB)"
+                  htmlFor={`${uid}-disk-size`}
+                  error={nodeErrors.diskSize}
+                >
+                  <Input
+                    id={`${uid}-disk-size`}
+                    value={systemNodes.diskSize}
+                    onChange={(e) => patchNodes({ diskSize: e.target.value })}
+                    placeholder={String(FLEET_DEFAULTS.diskSize)}
+                    className="font-mono"
+                  />
+                </Field>
+              </div>
+              {nodeErrors.group && (
+                <p className="text-[11px] leading-relaxed text-destructive">{nodeErrors.group}</p>
+              )}
+            </Disclosure>
+
+            <Field label="Lifetime (days)" htmlFor={`${uid}-ttl-days`} error={ttlError}>
+              <Input
+                id={`${uid}-ttl-days`}
+                value={ttlDays}
+                onChange={(e) => setTtlDays(e.target.value)}
+                placeholder="Blank — the cluster stays"
+                className="font-mono"
+              />
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                Above 0 tags the cluster ephemeral, and the hub reaper deletes it that many days
+                after creation — the cluster and everything running on it, without asking again.{' '}
+                <span className="text-foreground">{ttlSummary(ttlDays)}</span>.
+              </p>
+            </Field>
           </div>
         )}
       </DrawerBody>
@@ -380,11 +706,13 @@ function Field({
   label,
   htmlFor,
   error,
+  hint,
   children,
 }: {
   label: string;
   htmlFor: string;
   error?: string | null;
+  hint?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -393,7 +721,49 @@ function Field({
         {label}
       </label>
       {children}
-      {error && <p className="text-[11px] text-destructive mt-1">{error}</p>}
+      {error ? (
+        <p className="text-[11px] text-destructive mt-1">{error}</p>
+      ) : (
+        hint && <p className="text-[11px] text-muted-foreground/70 mt-1">{hint}</p>
+      )}
+    </div>
+  );
+}
+
+// A section that carries the fleet defaults when nobody opens it. The summary is
+// what those defaults come to, shown collapsed and expanded both: collapsed it is
+// the whole story, expanded it reads back the effective values as the fields
+// change, including the ones still blank.
+function Disclosure({
+  label,
+  summary,
+  open,
+  onToggle,
+  children,
+}: {
+  label: string;
+  summary: string;
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex w-full items-baseline gap-1.5 text-left text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+      >
+        {open ? (
+          <ChevronDown className="w-3 h-3 shrink-0 translate-y-0.5" />
+        ) : (
+          <ChevronRight className="w-3 h-3 shrink-0 translate-y-0.5" />
+        )}
+        <span className="font-medium shrink-0">{label}</span>
+        <span className="text-[11px] text-muted-foreground/60">{summary}</span>
+      </button>
+      {open && <div className="mt-3 space-y-3">{children}</div>}
     </div>
   );
 }

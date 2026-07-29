@@ -67,6 +67,10 @@ export type CreateClusterRequest = schemas['CreateClusterRequest'];
 export type UpdateClusterRequest = schemas['UpdateClusterRequest'];
 
 export type ClusterOrderInput = schemas['ClusterOrderInput'];
+export type ClusterOrderNetwork = schemas['ClusterOrderNetwork'];
+export type ClusterOrderNetworkCreate = schemas['ClusterOrderNetworkCreate'];
+export type ClusterOrderNetworkAdopt = schemas['ClusterOrderNetworkAdopt'];
+export type ClusterOrderSystemNodes = schemas['ClusterOrderSystemNodes'];
 export type ClusterOperation = schemas['ClusterOperation'];
 export type ClusterOperationKind = schemas['ClusterOperationKind'];
 export type ClusterOperationStatus = schemas['ClusterOperationStatus'];

@@ -422,6 +422,63 @@ func TestEveryXRDValidationRuleHasAMirror(t *testing.T) {
 	}
 }
 
+// schemaDefault returns the default declared at a dotted path under spec.
+func schemaDefault(t *testing.T, spec map[string]any, path string) any {
+	t.Helper()
+	node := spec
+	parts := strings.Split(path, ".")
+	for i, part := range parts {
+		props, _ := node["properties"].(map[string]any)
+		next, ok := props[part].(map[string]any)
+		if !ok {
+			t.Fatalf("vendored XRD has no spec.%s (walk stopped at spec.%s)", path, strings.Join(parts[:i+1], "."))
+		}
+		node = next
+	}
+	def, ok := node["default"]
+	if !ok {
+		t.Fatalf("spec.%s declares no default in the vendored XRD, but portal carries one for it", path)
+	}
+	return def
+}
+
+// TestPortalDefaultsMatchTheVendoredXRD covers the third way portal and the
+// schema can disagree. The pruning check catches a field at the wrong place and
+// the CEL tripwire catches a moved rule; neither notices a default portal
+// duplicated and eks-fleet later changed.
+//
+// A stale copy is silent in both directions. portal renders clusterVersion
+// unconditionally, so a fleet that moved to a newer default would still get
+// portal's older one on every order nobody thought to override. And the sizing
+// and IPAM rules reason about the unset case using these numbers, so a stale one
+// makes portal reject an order the cluster would have accepted — or accept one it
+// won't.
+func TestPortalDefaultsMatchTheVendoredXRD(t *testing.T) {
+	spec := specSchema(t)
+
+	for _, tc := range []struct {
+		path string
+		want any
+	}{
+		{"environment", defaultEnvironment},
+		{"clusterVersion", defaultClusterVersion},
+		{"network.create.vpcCidr", defaultVpcCidr},
+		{"systemNodes.minSize", defaultSystemMinSize},
+		{"systemNodes.maxSize", defaultSystemMaxSize},
+		{"systemNodes.desiredSize", defaultSystemDesiredSize},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			// Compared as text: YAML numbers arrive as float64 through the JSON
+			// round-trip, and float64(2) against int 2 is a type mismatch rather
+			// than a disagreement.
+			if got := fmt.Sprint(schemaDefault(t, spec, tc.path)); got != fmt.Sprint(tc.want) {
+				t.Errorf("the Cluster XRD defaults spec.%s to %s; portal carries %v. The schema was re-vendored and this default moved — update portal's constant and re-read what depends on it.",
+					tc.path, got, tc.want)
+			}
+		})
+	}
+}
+
 func containsString(haystack []any, needle string) bool {
 	for _, h := range haystack {
 		if s, ok := h.(string); ok && s == needle {

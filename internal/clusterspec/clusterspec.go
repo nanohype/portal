@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net/netip"
 	"regexp"
+	"strings"
 
 	"sigs.k8s.io/yaml"
 )
@@ -26,6 +27,16 @@ const (
 	// exclusion rule is written against it: leaving the CIDR at the default is
 	// how you say "I did not pick one".
 	defaultVpcCidr = "10.0.0.0/16"
+	// The XRD's systemNodes defaults. The sizing rule needs them because it
+	// checks the *effective* node group: an order setting min_size 9 and leaving
+	// max_size alone asks EKS for min 9 / max 6, and 6 is where it fails.
+	//
+	// TestPortalDefaultsMatchTheVendoredXRD reads every constant here back out of
+	// the vendored schema, so a default moved upstream fails on the re-vendor
+	// instead of leaving portal quietly reasoning about last year's numbers.
+	defaultSystemMinSize     = 2
+	defaultSystemMaxSize     = 6
+	defaultSystemDesiredSize = 2
 )
 
 // k8sName is the RFC 1123 label/subdomain shape Kubernetes requires for the
@@ -195,7 +206,85 @@ func (in Input) Validate() error {
 	if in.TTLDays != nil && *in.TTLDays < 0 {
 		return fmt.Errorf("ttl_days must be >= 0 (0 means persistent)")
 	}
+	if err := in.SystemNodes.validate(); err != nil {
+		return err
+	}
 	return in.Network.validate()
+}
+
+// validate checks the system node group is one EKS will accept. Unlike its
+// neighbours this mirrors no CEL rule — the XRD types these as plain integers and
+// leaves the constraint to the service. It is the same trade the rest of Validate
+// makes: a managed node group whose desired size sits outside [min, max] is
+// refused by the autoscaling API partway through the vend, after portal has
+// committed the manifest and reported the operation committed, where the order
+// desk has stopped looking.
+//
+// Unset fields are checked at their XRD default, because the default is what EKS
+// is actually asked for. Checking only the fields present would pass min_size 9
+// on its own and fail against the default max of 6.
+func (s *SystemNodes) validate() error {
+	if s == nil {
+		return nil
+	}
+	// max_size and disk_size floor at 1: EKS refuses a managed node group that
+	// cannot run a node, and a 0 GiB root volume is not a volume. min_size and
+	// desired_size may be 0 — a group scaled to zero is a legitimate ask.
+	for _, f := range []struct {
+		name  string
+		value *int
+		floor int
+	}{
+		{"min_size", s.MinSize, 0},
+		{"max_size", s.MaxSize, 1},
+		{"desired_size", s.DesiredSize, 0},
+		{"disk_size", s.DiskSize, 1},
+	} {
+		if f.value != nil && *f.value < f.floor {
+			return fmt.Errorf("system_nodes.%s %d must be >= %d", f.name, *f.value, f.floor)
+		}
+	}
+	lo := intOr(s.MinSize, defaultSystemMinSize)
+	hi := intOr(s.MaxSize, defaultSystemMaxSize)
+	want := intOr(s.DesiredSize, defaultSystemDesiredSize)
+	if lo > hi {
+		return fmt.Errorf("system_nodes.min_size %d exceeds max_size %d%s", lo, hi, defaultsNote(s))
+	}
+	if want < lo || want > hi {
+		return fmt.Errorf("system_nodes.desired_size %d must be between min_size %d and max_size %d%s", want, lo, hi, defaultsNote(s))
+	}
+	for i, t := range s.InstanceTypes {
+		if strings.TrimSpace(t) == "" {
+			return fmt.Errorf("system_nodes.instance_types[%d] is empty", i)
+		}
+	}
+	return nil
+}
+
+// defaultsNote names the fleet defaults when the failing comparison involved one,
+// so the error explains a number the caller never sent.
+func defaultsNote(s *SystemNodes) string {
+	var unset []string
+	if s.MinSize == nil {
+		unset = append(unset, fmt.Sprintf("min %d", defaultSystemMinSize))
+	}
+	if s.MaxSize == nil {
+		unset = append(unset, fmt.Sprintf("max %d", defaultSystemMaxSize))
+	}
+	if s.DesiredSize == nil {
+		unset = append(unset, fmt.Sprintf("desired %d", defaultSystemDesiredSize))
+	}
+	if len(unset) == 0 {
+		return ""
+	}
+	return " (unset fields take the fleet default: " + strings.Join(unset, ", ") + ")"
+}
+
+func intOr(p *int, def int) int {
+	if p == nil {
+		return def
+	}
+	return *p
 }
 
 // validate mirrors the Cluster XRD's network CEL rules. A nil Network is valid —

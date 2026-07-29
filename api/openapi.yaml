@@ -2615,14 +2615,35 @@ components:
 
     ClusterOrderSystemNodes:
       type: object
+      description: >
+        Sizing for the system node group, which hosts the cluster addons. Omitted
+        fields take the eks-fleet defaults (m7g.xlarge + m6g.xlarge, min 2, max 6,
+        desired 2, 100 GiB), and the sizes are checked as the group EKS is
+        actually asked for: min_size 9 on its own is min 9 against the default max
+        of 6, and is rejected with 400 rather than by the autoscaling API partway
+        through the vend.
       properties:
         instance_types:
           type: array
           items: { type: string }
-        min_size: { type: integer }
-        max_size: { type: integer }
-        desired_size: { type: integer }
-        disk_size: { type: integer }
+        min_size:
+          type: integer
+          minimum: 0
+          description: May be 0 — a group scaled to zero is a legitimate ask.
+        max_size:
+          type: integer
+          minimum: 1
+          description: >
+            Must be at least 1 (EKS refuses a managed node group that cannot run
+            a node) and at least min_size.
+        desired_size:
+          type: integer
+          minimum: 0
+          description: Must fall within [min_size, max_size].
+        disk_size:
+          type: integer
+          minimum: 1
+          description: Root volume size in GiB.
 
     ClusterOrderNetwork:
       type: object
