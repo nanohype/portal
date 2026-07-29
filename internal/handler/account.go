@@ -34,6 +34,15 @@ type CreateAccountRequest struct {
 	AssumeRoleARN string `json:"assume_role_arn"`
 	ExternalID    string `json:"external_id"`
 	DefaultRegion string `json:"default_region"`
+	// Substrate prerequisites landing-zone publishes to SSM for this account, and
+	// the vend does not create. Optional: an account that only vends
+	// same-account needs none of them, and empty means ungated. A cross-account
+	// vend needs the role and both boundaries together — the order is refused
+	// otherwise, so registering one without the others buys nothing.
+	VendRoleARN                    string `json:"vend_role_arn"`
+	DataKmsKeyARN                  string `json:"data_kms_key_arn"`
+	ClusterPermissionsBoundaryARN  string `json:"cluster_permissions_boundary_arn"`
+	OperatorPermissionsBoundaryARN string `json:"operator_permissions_boundary_arn"`
 }
 
 type UpdateAccountRequest struct {
@@ -42,6 +51,14 @@ type UpdateAccountRequest struct {
 	AssumeRoleARN string `json:"assume_role_arn"`
 	ExternalID    string `json:"external_id"`
 	DefaultRegion string `json:"default_region"`
+	// Pointers, unlike the fields above: those treat empty as "leave alone",
+	// and these have to be clearable. An account that stops vending
+	// cross-account must be able to drop its role, and "" is how you say so.
+	// Omitting the key leaves the stored value untouched.
+	VendRoleARN                    *string `json:"vend_role_arn"`
+	DataKmsKeyARN                  *string `json:"data_kms_key_arn"`
+	ClusterPermissionsBoundaryARN  *string `json:"cluster_permissions_boundary_arn"`
+	OperatorPermissionsBoundaryARN *string `json:"operator_permissions_boundary_arn"`
 }
 
 // AccountResponse projects repository.Account for API + audit consumption.
@@ -59,6 +76,23 @@ type AccountResponse struct {
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
 	ExternalIDSet bool      `json:"external_id_set"`
+	// Echoed back so the accounts page can show what a vend into this account
+	// will be gated by. These are ARNs of resources the account already has, not
+	// secrets — unlike the external id, which never leaves the server.
+	VendRoleARN                    string `json:"vend_role_arn"`
+	DataKmsKeyARN                  string `json:"data_kms_key_arn"`
+	ClusterPermissionsBoundaryARN  string `json:"cluster_permissions_boundary_arn"`
+	OperatorPermissionsBoundaryARN string `json:"operator_permissions_boundary_arn"`
+}
+
+// strDeref reads an optional column as the empty string, which is how the API
+// says "not set" for these — they are references, and absent and empty both mean
+// ungated.
+func strDeref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 func accountResponse(a repository.Account) AccountResponse {
@@ -74,6 +108,11 @@ func accountResponse(a repository.Account) AccountResponse {
 		CreatedAt:     a.CreatedAt,
 		UpdatedAt:     a.UpdatedAt,
 		ExternalIDSet: a.ExternalIDEncrypted != "",
+
+		VendRoleARN:                    strDeref(a.VendRoleARN),
+		DataKmsKeyARN:                  strDeref(a.DataKmsKeyARN),
+		ClusterPermissionsBoundaryARN:  strDeref(a.ClusterPermissionsBoundaryARN),
+		OperatorPermissionsBoundaryARN: strDeref(a.OperatorPermissionsBoundaryARN),
 	}
 }
 
@@ -85,7 +124,46 @@ var (
 
 func isValidAWSAccountID(s string) bool { return awsAccountIDRe.MatchString(s) }
 func isValidRoleARN(s string) bool      { return awsRoleARNRe.MatchString(s) }
-func isValidRegion(s string) bool       { return awsRegionRe.MatchString(s) }
+
+// substrateARN is a light shape check for the per-account prerequisites. They are
+// three different resource types — an IAM role, two IAM policies and a KMS key —
+// so this asserts the ARN grammar and a plausible service rather than pretending
+// to know each one's path.
+var substrateARNRe = regexp.MustCompile(`^arn:aws[a-z-]*:(iam|kms):[a-z0-9-]*:(\d{12}):.+$`)
+
+// checkSubstrateARNs validates the four prerequisites and enforces the one rule
+// among them: a vend role is only usable with both permissions boundaries.
+//
+// clusterspec.Input.Validate refuses that combination too, mirroring the Cluster
+// XRD's CEL rule — but it refuses it at order time, which means an account
+// registered with a role and no boundaries looks fine until the first
+// cross-account vend is rejected. Refusing it here makes the answer free, the
+// same trade the order path already makes for an unregistered account and a taken
+// cluster name.
+func checkSubstrateARNs(vendRole, dataKms, clusterPB, operatorPB string) string {
+	for _, f := range []struct{ name, value string }{
+		{"vend_role_arn", vendRole},
+		{"data_kms_key_arn", dataKms},
+		{"cluster_permissions_boundary_arn", clusterPB},
+		{"operator_permissions_boundary_arn", operatorPB},
+	} {
+		if f.value == "" {
+			continue
+		}
+		if len(f.value) > 2048 {
+			return f.name + " must be at most 2048 characters"
+		}
+		if !substrateARNRe.MatchString(f.value) {
+			return f.name + " must be an IAM or KMS ARN (arn:aws:<service>:<region>:<account>:<resource>)"
+		}
+	}
+	if vendRole != "" && (clusterPB == "" || operatorPB == "") {
+		return "vend_role_arn requires cluster_permissions_boundary_arn and operator_permissions_boundary_arn: " +
+			"a cross-account vend mints IAM under the fleet-vend boundary, and an order carrying the role without both is refused"
+	}
+	return ""
+}
+func isValidRegion(s string) bool { return awsRegionRe.MatchString(s) }
 
 // accountIDFromARN extracts the 12-digit account number embedded in an IAM
 // role ARN, or "" if the ARN doesn't match the expected shape. Used for the
@@ -162,6 +240,16 @@ func (h *AccountHandler) Create(w http.ResponseWriter, r *http.Request) {
 	req.AWSAccountID = strings.TrimSpace(req.AWSAccountID)
 	req.AssumeRoleARN = strings.TrimSpace(req.AssumeRoleARN)
 	req.DefaultRegion = strings.TrimSpace(req.DefaultRegion)
+	req.VendRoleARN = strings.TrimSpace(req.VendRoleARN)
+	req.DataKmsKeyARN = strings.TrimSpace(req.DataKmsKeyARN)
+	req.ClusterPermissionsBoundaryARN = strings.TrimSpace(req.ClusterPermissionsBoundaryARN)
+	req.OperatorPermissionsBoundaryARN = strings.TrimSpace(req.OperatorPermissionsBoundaryARN)
+
+	if msg := checkSubstrateARNs(req.VendRoleARN, req.DataKmsKeyARN,
+		req.ClusterPermissionsBoundaryARN, req.OperatorPermissionsBoundaryARN); msg != "" {
+		respond.Error(w, http.StatusBadRequest, msg)
+		return
+	}
 
 	if req.Name == "" {
 		respond.Error(w, http.StatusBadRequest, "name is required")
@@ -218,7 +306,13 @@ func (h *AccountHandler) Create(w http.ResponseWriter, r *http.Request) {
 		AssumeRoleARN: req.AssumeRoleARN,
 		ExternalID:    req.ExternalID,
 		DefaultRegion: req.DefaultRegion,
-		CreatedBy:     userCtx.UserID,
+
+		VendRoleARN:                    req.VendRoleARN,
+		DataKmsKeyARN:                  req.DataKmsKeyARN,
+		ClusterPermissionsBoundaryARN:  req.ClusterPermissionsBoundaryARN,
+		OperatorPermissionsBoundaryARN: req.OperatorPermissionsBoundaryARN,
+
+		CreatedBy: userCtx.UserID,
 	})
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -286,6 +380,37 @@ func (h *AccountHandler) Update(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusBadRequest, "default_region must look like 'us-west-2'")
 		return
 	}
+	// The substrate rule has to be checked against the merged result, not the
+	// request. A patch that clears one permissions boundary sends only that field;
+	// checking it alone would pass and leave an account carrying a vend role it can
+	// no longer use, which the operator would discover at the next cross-account
+	// vend. `merged` is what the row will actually hold.
+	merged := func(patch *string, stored *string) string {
+		if patch != nil {
+			return strings.TrimSpace(*patch)
+		}
+		return strDeref(stored)
+	}
+	if msg := checkSubstrateARNs(
+		merged(req.VendRoleARN, existing.VendRoleARN),
+		merged(req.DataKmsKeyARN, existing.DataKmsKeyARN),
+		merged(req.ClusterPermissionsBoundaryARN, existing.ClusterPermissionsBoundaryARN),
+		merged(req.OperatorPermissionsBoundaryARN, existing.OperatorPermissionsBoundaryARN),
+	); msg != "" {
+		respond.Error(w, http.StatusBadRequest, msg)
+		return
+	}
+	// Trim in place so the stored value matches what was validated.
+	for _, f := range []**string{
+		&req.VendRoleARN, &req.DataKmsKeyARN,
+		&req.ClusterPermissionsBoundaryARN, &req.OperatorPermissionsBoundaryARN,
+	} {
+		if *f != nil {
+			t := strings.TrimSpace(**f)
+			*f = &t
+		}
+	}
+
 	if len(req.ExternalID) > 1024 {
 		respond.Error(w, http.StatusBadRequest, "external_id must be at most 1024 characters")
 		return
@@ -299,6 +424,11 @@ func (h *AccountHandler) Update(w http.ResponseWriter, r *http.Request) {
 		AssumeRoleARN: req.AssumeRoleARN,
 		ExternalID:    req.ExternalID,
 		DefaultRegion: req.DefaultRegion,
+
+		VendRoleARN:                    req.VendRoleARN,
+		DataKmsKeyARN:                  req.DataKmsKeyARN,
+		ClusterPermissionsBoundaryARN:  req.ClusterPermissionsBoundaryARN,
+		OperatorPermissionsBoundaryARN: req.OperatorPermissionsBoundaryARN,
 	})
 	if err != nil {
 		if isUniqueViolation(err) {

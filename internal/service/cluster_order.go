@@ -60,23 +60,33 @@ func (s *ClusterOrderService) EnqueueProvision(ctx context.Context, orgID, creat
 	if err := s.assertNameAvailable(ctx, input.Name); err != nil {
 		return repository.ClusterOperation{}, err
 	}
-	input, err := s.withSpokeRole(ctx, orgID, input)
+	input, err := s.withAccountWiring(ctx, orgID, input)
 	if err != nil {
 		return repository.ClusterOperation{}, err
 	}
 	return s.enqueue(ctx, orgID, "provision", createdBy, input)
 }
 
-// withSpokeRole stamps the ordering account's portal-spoke role onto the input
-// so cluster-stack grants portal a read EKS access entry on the cluster it is
-// about to build. Without it portal reaches the control plane but not the kube
-// API, and the tenant watcher never sees a cluster portal vended itself.
+// withAccountWiring stamps everything the ordering account knows onto the input:
+// its portal-spoke role, and the substrate prerequisites landing-zone published
+// to SSM for it.
 //
-// The account row must exist: the watch-back resolves the same row to register
-// the finished cluster, so an unregistered AWS account is a vend that cannot
-// complete. Asking here makes that answer free rather than half an hour and a
-// billing cluster later — the same trade assertNameAvailable makes.
-func (s *ClusterOrderService) withSpokeRole(ctx context.Context, orgID string, in clusterspec.Input) (clusterspec.Input, error) {
+// The spoke role is what makes cluster-stack grant portal a read EKS access entry
+// on the cluster it is about to build. Without it portal reaches the control plane
+// but not the kube API, and the tenant watcher never sees a cluster portal vended
+// itself.
+//
+// The substrate ARNs are what make a cross-account vend orderable. Validate
+// refuses a vend_role_arn without both permissions boundaries, so before these
+// lived on the account row the only way to place such an order was to know three
+// ARNs and send them per order. They describe the account, so the account is where
+// they belong — and this lookup already happens.
+//
+// The account row must exist: the watch-back resolves the same row to register the
+// finished cluster, so an unregistered AWS account is a vend that cannot complete.
+// Asking here makes that answer free rather than half an hour and a billing
+// cluster later — the same trade assertNameAvailable makes.
+func (s *ClusterOrderService) withAccountWiring(ctx context.Context, orgID string, in clusterspec.Input) (clusterspec.Input, error) {
 	acct, err := s.records.GetAccountByAWSID(ctx, repository.GetAccountByAWSIDParams{
 		OrgID: orgID, AWSAccountID: in.Account,
 	})
@@ -88,7 +98,23 @@ func (s *ClusterOrderService) withSpokeRole(ctx context.Context, orgID string, i
 		}
 		return in, fmt.Errorf("resolve ordering account: %w", err)
 	}
-	return in.WithPortalWiring(acct.AssumeRoleARN, ""), nil
+	return in.
+		WithPortalWiring(acct.AssumeRoleARN, "").
+		WithAccountSubstrate(
+			deref(acct.VendRoleARN),
+			deref(acct.DataKmsKeyARN),
+			deref(acct.ClusterPermissionsBoundaryARN),
+			deref(acct.OperatorPermissionsBoundaryARN),
+		), nil
+}
+
+// deref reads an optional column as the empty string, which is what
+// WithAccountSubstrate treats as "not set".
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 // assertNameAvailable rejects a provision whose cluster name is already vended.

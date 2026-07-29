@@ -226,9 +226,17 @@ type Account struct {
 	AssumeRoleARN       string
 	ExternalIDEncrypted string
 	DefaultRegion       string
-	CreatedBy           string
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
+	// Per-account substrate prerequisites landing-zone publishes to SSM and the
+	// vend does not create. Nil or empty means ungated, which is the Cluster
+	// XRD's default; a cross-account vend needs the role and both boundaries,
+	// because Input.Validate refuses one without the other two.
+	VendRoleARN                    *string
+	DataKmsKeyARN                  *string
+	ClusterPermissionsBoundaryARN  *string
+	OperatorPermissionsBoundaryARN *string
+	CreatedBy                      string
+	CreatedAt                      time.Time
+	UpdatedAt                      time.Time
 }
 
 type Cluster struct {

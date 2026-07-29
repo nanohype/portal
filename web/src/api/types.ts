@@ -1780,6 +1780,14 @@ export interface components {
             updated_at: string;
             /** @description Whether an assume-role external id is configured; the value itself never leaves the server. */
             external_id_set: boolean;
+            /** @description The fleet-vend role a cross-account vend into this account assumes. Published to SSM by landing-zone; the vend does not create it. Empty means ungated (same-account vending). Requires both permissions boundaries — an order carrying the role without them is refused. */
+            vend_role_arn: string;
+            /** @description Customer-managed KMS key for this account's data at rest. Published to SSM by landing-zone. Empty means the XRD default. */
+            data_kms_key_arn: string;
+            /** @description IAM permissions boundary capping the roles a cross-account vend mints for the cluster. Published to SSM at /eks-fleet/<environment>/fleet-vend/vend_permissions_boundary_arn. */
+            cluster_permissions_boundary_arn: string;
+            /** @description Permissions boundary capping the roles the agent-platform operator mints on this account. Same requirement and SSM source as cluster_permissions_boundary_arn. */
+            operator_permissions_boundary_arn: string;
         };
         CreateAccountRequest: {
             name: string;
@@ -1788,6 +1796,14 @@ export interface components {
             assume_role_arn: string;
             external_id?: string;
             default_region: string;
+            /** @description The fleet-vend role a cross-account vend into this account assumes. Published to SSM by landing-zone; the vend does not create it. Empty means ungated (same-account vending). Requires both permissions boundaries — an order carrying the role without them is refused. */
+            vend_role_arn?: string;
+            /** @description Customer-managed KMS key for this account's data at rest. Published to SSM by landing-zone. Empty means the XRD default. */
+            data_kms_key_arn?: string;
+            /** @description IAM permissions boundary capping the roles a cross-account vend mints for the cluster. Published to SSM at /eks-fleet/<environment>/fleet-vend/vend_permissions_boundary_arn. */
+            cluster_permissions_boundary_arn?: string;
+            /** @description Permissions boundary capping the roles the agent-platform operator mints on this account. Same requirement and SSM source as cluster_permissions_boundary_arn. */
+            operator_permissions_boundary_arn?: string;
         };
         UpdateAccountRequest: {
             name?: string;
@@ -1795,6 +1811,14 @@ export interface components {
             assume_role_arn?: string;
             external_id?: string;
             default_region?: string;
+            /** @description The fleet-vend role a cross-account vend into this account assumes. Published to SSM by landing-zone. Omit the key to leave the stored value alone; send an empty string to clear it. Requires both permissions boundaries whenever it is set. */
+            vend_role_arn?: string;
+            /** @description Customer-managed KMS key for this account's data at rest. Published to SSM by landing-zone. Empty means the XRD default. */
+            data_kms_key_arn?: string;
+            /** @description IAM permissions boundary capping the roles a cross-account vend mints for the cluster. Published to SSM at /eks-fleet/<environment>/fleet-vend/vend_permissions_boundary_arn. */
+            cluster_permissions_boundary_arn?: string;
+            /** @description Permissions boundary capping the roles the agent-platform operator mints on this account. Same requirement and SSM source as cluster_permissions_boundary_arn. */
+            operator_permissions_boundary_arn?: string;
         };
         /** @enum {string} */
         ClusterConnectionStatus: "pending" | "connecting" | "connected" | "failed";

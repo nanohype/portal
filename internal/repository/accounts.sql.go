@@ -4,11 +4,15 @@ package repository
 
 import "context"
 
-const accountColumns = `id, org_id, name, description, aws_account_id, assume_role_arn, external_id_encrypted, default_region, created_by, created_at, updated_at`
+const accountColumns = `id, org_id, name, description, aws_account_id, assume_role_arn, external_id_encrypted, default_region,
+	vend_role_arn, data_kms_key_arn, cluster_permissions_boundary_arn, operator_permissions_boundary_arn,
+	created_by, created_at, updated_at`
 
 func scanAccount(row interface{ Scan(...interface{}) error }) (Account, error) {
 	var a Account
-	err := row.Scan(&a.ID, &a.OrgID, &a.Name, &a.Description, &a.AWSAccountID, &a.AssumeRoleARN, &a.ExternalIDEncrypted, &a.DefaultRegion, &a.CreatedBy, &a.CreatedAt, &a.UpdatedAt)
+	err := row.Scan(&a.ID, &a.OrgID, &a.Name, &a.Description, &a.AWSAccountID, &a.AssumeRoleARN, &a.ExternalIDEncrypted, &a.DefaultRegion,
+		&a.VendRoleARN, &a.DataKmsKeyARN, &a.ClusterPermissionsBoundaryARN, &a.OperatorPermissionsBoundaryARN,
+		&a.CreatedBy, &a.CreatedAt, &a.UpdatedAt)
 	return a, err
 }
 
@@ -90,15 +94,23 @@ type CreateAccountParams struct {
 	AssumeRoleARN       string `json:"assume_role_arn"`
 	ExternalIDEncrypted string `json:"external_id_encrypted"`
 	DefaultRegion       string `json:"default_region"`
-	CreatedBy           string `json:"created_by"`
+	// Substrate prerequisites. Nil leaves the column NULL — an account that
+	// vends same-account needs none of them.
+	VendRoleARN                    *string `json:"vend_role_arn"`
+	DataKmsKeyARN                  *string `json:"data_kms_key_arn"`
+	ClusterPermissionsBoundaryARN  *string `json:"cluster_permissions_boundary_arn"`
+	OperatorPermissionsBoundaryARN *string `json:"operator_permissions_boundary_arn"`
+	CreatedBy                      string  `json:"created_by"`
 }
 
 func (q *Queries) CreateAccount(ctx context.Context, arg CreateAccountParams) (Account, error) {
 	row := q.db.QueryRow(ctx,
-		`INSERT INTO accounts (id, org_id, name, description, aws_account_id, assume_role_arn, external_id_encrypted, default_region, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		`INSERT INTO accounts (id, org_id, name, description, aws_account_id, assume_role_arn, external_id_encrypted, default_region,
+			vend_role_arn, data_kms_key_arn, cluster_permissions_boundary_arn, operator_permissions_boundary_arn, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING `+accountColumns,
-		arg.ID, arg.OrgID, arg.Name, arg.Description, arg.AWSAccountID, arg.AssumeRoleARN, arg.ExternalIDEncrypted, arg.DefaultRegion, arg.CreatedBy,
+		arg.ID, arg.OrgID, arg.Name, arg.Description, arg.AWSAccountID, arg.AssumeRoleARN, arg.ExternalIDEncrypted, arg.DefaultRegion,
+		arg.VendRoleARN, arg.DataKmsKeyARN, arg.ClusterPermissionsBoundaryARN, arg.OperatorPermissionsBoundaryARN, arg.CreatedBy,
 	)
 	return scanAccount(row)
 }
@@ -111,6 +123,14 @@ type UpdateAccountParams struct {
 	AssumeRoleARN       string `json:"assume_role_arn"`
 	ExternalIDEncrypted string `json:"external_id_encrypted"`
 	DefaultRegion       string `json:"default_region"`
+	// Pointers rather than strings, because the other fields on this struct use
+	// "empty means leave alone" and these have to be clearable: an account that
+	// stops vending cross-account must be able to drop its role, and an empty
+	// string is the value that says so. Nil leaves the column untouched.
+	VendRoleARN                    *string `json:"vend_role_arn"`
+	DataKmsKeyARN                  *string `json:"data_kms_key_arn"`
+	ClusterPermissionsBoundaryARN  *string `json:"cluster_permissions_boundary_arn"`
+	OperatorPermissionsBoundaryARN *string `json:"operator_permissions_boundary_arn"`
 }
 
 func (q *Queries) UpdateAccount(ctx context.Context, arg UpdateAccountParams) (Account, error) {
@@ -121,10 +141,15 @@ func (q *Queries) UpdateAccount(ctx context.Context, arg UpdateAccountParams) (A
 			assume_role_arn = COALESCE(NULLIF($5, ''), assume_role_arn),
 			external_id_encrypted = COALESCE(NULLIF($6, ''), external_id_encrypted),
 			default_region = COALESCE(NULLIF($7, ''), default_region),
+			vend_role_arn = COALESCE($8, vend_role_arn),
+			data_kms_key_arn = COALESCE($9, data_kms_key_arn),
+			cluster_permissions_boundary_arn = COALESCE($10, cluster_permissions_boundary_arn),
+			operator_permissions_boundary_arn = COALESCE($11, operator_permissions_boundary_arn),
 			updated_at = NOW()
 		WHERE id = $1 AND org_id = $2
 		RETURNING `+accountColumns,
 		arg.ID, arg.OrgID, arg.Name, arg.Description, arg.AssumeRoleARN, arg.ExternalIDEncrypted, arg.DefaultRegion,
+		arg.VendRoleARN, arg.DataKmsKeyARN, arg.ClusterPermissionsBoundaryARN, arg.OperatorPermissionsBoundaryARN,
 	)
 	return scanAccount(row)
 }

@@ -1,6 +1,9 @@
 package handler
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestIsValidAWSAccountID(t *testing.T) {
 	tests := []struct {
@@ -119,6 +122,63 @@ func TestCrossFieldARNAccountMatch(t *testing.T) {
 			got := accountIDFromARN(tc.arn) == submittedAccount
 			if got != tc.shouldMatch {
 				t.Errorf("match(%q, %q) = %v, want %v", tc.arn, submittedAccount, got, tc.shouldMatch)
+			}
+		})
+	}
+}
+
+// checkSubstrateARNs is the registration-time half of a rule clusterspec.Input
+// also enforces at order time. Refusing here is what keeps an account from
+// looking correctly registered until its first cross-account vend is rejected.
+func TestCheckSubstrateARNs(t *testing.T) {
+	const (
+		role      = "arn:aws:iam::222222222222:role/production-fleet-vend"
+		kms       = "arn:aws:kms:us-west-2:222222222222:key/abcd-1234"
+		clusterPB = "arn:aws:iam::222222222222:policy/production-cluster-boundary"
+		operPB    = "arn:aws:iam::222222222222:policy/production-operator-boundary"
+	)
+
+	cases := []struct {
+		name                         string
+		role, kms, clusterPB, operPB string
+		wantSubstring                string
+	}{
+		{name: "an account with no prerequisites is fine — same-account vends need none"},
+		{name: "a data key alone is fine", kms: kms},
+		{name: "the full cross-account set", role: role, kms: kms, clusterPB: clusterPB, operPB: operPB},
+		{name: "boundaries without a role are fine (ungated, but harmless)", clusterPB: clusterPB, operPB: operPB},
+
+		{name: "a vend role with neither boundary", role: role,
+			wantSubstring: "requires cluster_permissions_boundary_arn and operator_permissions_boundary_arn"},
+		{name: "a vend role missing the operator boundary", role: role, clusterPB: clusterPB,
+			wantSubstring: "requires cluster_permissions_boundary_arn"},
+		{name: "a vend role missing the cluster boundary", role: role, operPB: operPB,
+			wantSubstring: "requires cluster_permissions_boundary_arn"},
+
+		{name: "a role ARN that is not an ARN", role: "production-fleet-vend", clusterPB: clusterPB, operPB: operPB,
+			wantSubstring: "vend_role_arn must be an IAM or KMS ARN"},
+		{name: "a boundary pointing at a non-AWS service", role: role, clusterPB: "arn:aws:s3:::bucket/key", operPB: operPB,
+			wantSubstring: "cluster_permissions_boundary_arn must be an IAM or KMS ARN"},
+		{name: "an ARN with a short account id", kms: "arn:aws:kms:us-west-2:2222:key/abcd",
+			wantSubstring: "data_kms_key_arn must be an IAM or KMS ARN"},
+		{name: "an over-long ARN", kms: "arn:aws:kms:us-west-2:222222222222:key/" + strings.Repeat("x", 2048),
+			wantSubstring: "data_kms_key_arn must be at most 2048 characters"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := checkSubstrateARNs(tc.role, tc.kms, tc.clusterPB, tc.operPB)
+			if tc.wantSubstring == "" {
+				if got != "" {
+					t.Errorf("rejected a valid combination: %s", got)
+				}
+				return
+			}
+			if got == "" {
+				t.Fatalf("accepted a combination that should have been refused")
+			}
+			if !strings.Contains(got, tc.wantSubstring) {
+				t.Errorf("refused for the wrong reason:\n  want substring: %s\n  got: %s", tc.wantSubstring, got)
 			}
 		})
 	}

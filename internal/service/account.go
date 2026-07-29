@@ -30,7 +30,13 @@ type CreateAccountParams struct {
 	AssumeRoleARN string
 	ExternalID    string
 	DefaultRegion string
-	CreatedBy     string
+	// Substrate prerequisites landing-zone published to SSM for this account.
+	// Empty means unset — an account that only vends same-account needs none.
+	VendRoleARN                    string
+	DataKmsKeyARN                  string
+	ClusterPermissionsBoundaryARN  string
+	OperatorPermissionsBoundaryARN string
+	CreatedBy                      string
 }
 
 type UpdateAccountParams struct {
@@ -41,6 +47,13 @@ type UpdateAccountParams struct {
 	AssumeRoleARN string
 	ExternalID    string
 	DefaultRegion string
+	// Pointers, so a field can be cleared rather than only replaced: nil leaves
+	// the stored value alone, "" drops it. An account that stops vending
+	// cross-account has to be able to give up its role.
+	VendRoleARN                    *string
+	DataKmsKeyARN                  *string
+	ClusterPermissionsBoundaryARN  *string
+	OperatorPermissionsBoundaryARN *string
 }
 
 func (s *AccountService) List(ctx context.Context, orgID string, page, perPage int) ([]repository.Account, int64, error) {
@@ -82,8 +95,24 @@ func (s *AccountService) Create(ctx context.Context, params CreateAccountParams)
 		AssumeRoleARN:       params.AssumeRoleARN,
 		ExternalIDEncrypted: encExtID,
 		DefaultRegion:       params.DefaultRegion,
-		CreatedBy:           params.CreatedBy,
+
+		VendRoleARN:                    optional(params.VendRoleARN),
+		DataKmsKeyARN:                  optional(params.DataKmsKeyARN),
+		ClusterPermissionsBoundaryARN:  optional(params.ClusterPermissionsBoundaryARN),
+		OperatorPermissionsBoundaryARN: optional(params.OperatorPermissionsBoundaryARN),
+
+		CreatedBy: params.CreatedBy,
 	})
+}
+
+// optional turns an absent value into a NULL column rather than an empty string,
+// so "unset" reads the same whether the account was registered before these
+// columns existed or simply without them.
+func optional(v string) *string {
+	if v == "" {
+		return nil
+	}
+	return &v
 }
 
 func (s *AccountService) Update(ctx context.Context, params UpdateAccountParams) (repository.Account, error) {
@@ -100,6 +129,11 @@ func (s *AccountService) Update(ctx context.Context, params UpdateAccountParams)
 		AssumeRoleARN:       params.AssumeRoleARN,
 		ExternalIDEncrypted: encExtID,
 		DefaultRegion:       params.DefaultRegion,
+
+		VendRoleARN:                    params.VendRoleARN,
+		DataKmsKeyARN:                  params.DataKmsKeyARN,
+		ClusterPermissionsBoundaryARN:  params.ClusterPermissionsBoundaryARN,
+		OperatorPermissionsBoundaryARN: params.OperatorPermissionsBoundaryARN,
 	})
 }
 

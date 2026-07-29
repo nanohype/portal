@@ -308,6 +308,35 @@ func (in Input) WithPortalWiring(spokeRoleArn, tenantsRepoURL string) Input {
 	return in
 }
 
+// WithAccountSubstrate stamps the per-account prerequisites landing-zone publishes
+// to SSM: the fleet-vend role a cross-account vend assumes, the data KMS key, and
+// the two permissions boundaries that cap the IAM such a vend mints.
+//
+// These describe the account, not the order — the same account answers the same
+// way for every cluster vended into it. Storing them on the account row and
+// stamping here is what makes a cross-account vend orderable at all without the
+// caller knowing three ARNs, because Validate refuses a vend_role_arn that does
+// not carry both boundaries.
+//
+// Same semantics as WithPortalWiring, deliberately: an empty argument stamps
+// nothing, and an already-set field is an explicit order-level override that
+// wins. An account registered without these is ungated, which is the XRD default.
+func (in Input) WithAccountSubstrate(vendRole, dataKmsKey, clusterBoundary, operatorBoundary string) Input {
+	if vendRole != "" && in.VendRoleArn == "" {
+		in.VendRoleArn = vendRole
+	}
+	if dataKmsKey != "" && in.DataKmsKeyArn == "" {
+		in.DataKmsKeyArn = dataKmsKey
+	}
+	if clusterBoundary != "" && in.ClusterPermissionsBoundaryArn == "" {
+		in.ClusterPermissionsBoundaryArn = clusterBoundary
+	}
+	if operatorBoundary != "" && in.OperatorPermissionsBoundaryArn == "" {
+		in.OperatorPermissionsBoundaryArn = operatorBoundary
+	}
+	return in
+}
+
 // the camelCase CR shape (matches apis/cluster/definition.yaml).
 type clusterCR struct {
 	APIVersion string     `json:"apiVersion"`

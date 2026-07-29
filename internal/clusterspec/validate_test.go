@@ -313,3 +313,77 @@ func TestValidName(t *testing.T) {
 		}
 	}
 }
+
+func TestWithAccountSubstrate(t *testing.T) {
+	const (
+		vendRole  = "arn:aws:iam::222222222222:role/production-fleet-vend"
+		kms       = "arn:aws:kms:us-west-2:222222222222:key/abcd-1234"
+		clusterPB = "arn:aws:iam::222222222222:policy/production-cluster-boundary"
+		operPB    = "arn:aws:iam::222222222222:policy/production-operator-boundary"
+	)
+
+	t.Run("stamps all four when unset", func(t *testing.T) {
+		got := validOrder().WithAccountSubstrate(vendRole, kms, clusterPB, operPB)
+
+		if got.VendRoleArn != vendRole || got.DataKmsKeyArn != kms ||
+			got.ClusterPermissionsBoundaryArn != clusterPB || got.OperatorPermissionsBoundaryArn != operPB {
+			t.Errorf("stamped %q / %q / %q / %q",
+				got.VendRoleArn, got.DataKmsKeyArn,
+				got.ClusterPermissionsBoundaryArn, got.OperatorPermissionsBoundaryArn)
+		}
+	})
+
+	// An account registered with only some of these is the ordinary case: an
+	// account that vends same-account may still have a data KMS key.
+	t.Run("stamps each field independently", func(t *testing.T) {
+		got := validOrder().WithAccountSubstrate("", kms, "", "")
+
+		if got.DataKmsKeyArn != kms {
+			t.Errorf("did not stamp the one field it was given: %q", got.DataKmsKeyArn)
+		}
+		if got.VendRoleArn != "" || got.ClusterPermissionsBoundaryArn != "" || got.OperatorPermissionsBoundaryArn != "" {
+			t.Errorf("invented a value for an unregistered field: %q / %q / %q",
+				got.VendRoleArn, got.ClusterPermissionsBoundaryArn, got.OperatorPermissionsBoundaryArn)
+		}
+	})
+
+	t.Run("never overwrites an explicit order-level value", func(t *testing.T) {
+		in := validOrder()
+		in.VendRoleArn = "arn:aws:iam::222222222222:role/ordered"
+		in.OperatorPermissionsBoundaryArn = "arn:aws:iam::222222222222:policy/ordered"
+
+		got := in.WithAccountSubstrate(vendRole, kms, clusterPB, operPB)
+
+		if got.VendRoleArn != in.VendRoleArn || got.OperatorPermissionsBoundaryArn != in.OperatorPermissionsBoundaryArn {
+			t.Errorf("the account overruled the order: %q / %q", got.VendRoleArn, got.OperatorPermissionsBoundaryArn)
+		}
+		// The fields the order left alone still take the account's values.
+		if got.DataKmsKeyArn != kms || got.ClusterPermissionsBoundaryArn != clusterPB {
+			t.Errorf("an override on one field suppressed another: %q / %q", got.DataKmsKeyArn, got.ClusterPermissionsBoundaryArn)
+		}
+	})
+
+	t.Run("an account with no prerequisites stamps nothing", func(t *testing.T) {
+		got := validOrder().WithAccountSubstrate("", "", "", "")
+
+		if got.VendRoleArn != "" || got.DataKmsKeyArn != "" ||
+			got.ClusterPermissionsBoundaryArn != "" || got.OperatorPermissionsBoundaryArn != "" {
+			t.Error("stamped a value from an account that has none — empty means ungated")
+		}
+	})
+
+	// The point of the whole change: a cross-account order that would have been
+	// refused for missing boundaries now validates from what the account carries.
+	t.Run("a cross-account order validates from the account's ARNs alone", func(t *testing.T) {
+		bare := validOrder()
+		bare.VendRoleArn = vendRole
+		if err := bare.Validate(); err == nil {
+			t.Fatal("a vend role with no boundaries was accepted; the guard this test relies on is gone")
+		}
+
+		stamped := validOrder().WithAccountSubstrate(vendRole, kms, clusterPB, operPB)
+		if err := stamped.Validate(); err != nil {
+			t.Errorf("a cross-account order still fails after stamping: %v", err)
+		}
+	})
+}
