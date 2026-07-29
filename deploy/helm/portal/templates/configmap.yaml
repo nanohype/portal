@@ -29,6 +29,7 @@ data:
   DB_MIN_CONNS: {{ .Values.config.dbMinConns | quote }}
   {{- if .Values.gitops.sshKey }}
   GITOPS_SSH_KEY_PATH: "/etc/portal/git-ssh/id_ed25519"
+  GITOPS_SSH_KNOWN_HOSTS: "/etc/portal/git-ssh/known_hosts"
   GITOPS_AUTHOR_NAME: {{ .Values.gitops.authorName | quote }}
   GITOPS_AUTHOR_EMAIL: {{ .Values.gitops.authorEmail | quote }}
   {{- end }}

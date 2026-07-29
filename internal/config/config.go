@@ -85,10 +85,15 @@ type Config struct {
 	// GitOps (tenant write path). When TenantsRepoURL is empty the worker
 	// surfaces "not configured" on any tenant_apply attempt — keeps dev
 	// machines without SSH keys from blowing up on startup.
-	GitCacheDir                   string `env:"GITOPS_CACHE_DIR" envDefault:"/tmp/portal/git"`
-	TenantsRepoURL                string `env:"GITOPS_TENANTS_REPO_URL"`
-	TenantsRepoRef                string `env:"GITOPS_TENANTS_REPO_REF" envDefault:"main"`
-	GitSSHKeyPath                 string `env:"GITOPS_SSH_KEY_PATH"`
+	GitCacheDir    string `env:"GITOPS_CACHE_DIR" envDefault:"/tmp/portal/git"`
+	TenantsRepoURL string `env:"GITOPS_TENANTS_REPO_URL"`
+	TenantsRepoRef string `env:"GITOPS_TENANTS_REPO_REF" envDefault:"main"`
+	GitSSHKeyPath  string `env:"GITOPS_SSH_KEY_PATH"`
+	// GitSSHKnownHosts is required whenever GitSSHKeyPath is set. The worker
+	// image carries no hosts file, so without it there is nothing to verify the
+	// GitOps remote's host key against — and the deploy key being offered has
+	// write access to every repo portal's write path pushes to.
+	GitSSHKnownHosts              string `env:"GITOPS_SSH_KNOWN_HOSTS"`
 	GitAuthorName                 string `env:"GITOPS_AUTHOR_NAME" envDefault:"portal"`
 	GitAuthorEmail                string `env:"GITOPS_AUTHOR_EMAIL" envDefault:"portal@local"`
 	EksAgentPlatformChartsRepoURL string `env:"EKS_AGENT_PLATFORM_CHARTS_REPO_URL"`

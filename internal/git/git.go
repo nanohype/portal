@@ -22,8 +22,15 @@ import (
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 )
 
-// Author identifies a commit. Each tenant operation's commit records the
-// portal user who triggered it via the standard Co-authored-by trailer.
+// Author identifies a commit. Every commit portal writes is authored by portal
+// itself — one deploy key, one identity — and names the operator who triggered
+// it in the message body, by user id, alongside the operation id.
+//
+// That attribution is prose, not a machine-parseable trailer. Making it one
+// means resolving the operator's name and email at enqueue and storing them on
+// the operation row, so the record still reads correctly after the user is
+// renamed or removed; a lookup at commit time would silently degrade to no
+// attribution exactly when someone is auditing a departed user's actions.
 type Author struct {
 	Name  string
 	Email string
@@ -42,21 +49,38 @@ type Repo struct {
 // yet — CloneOrPull will create it. sshKeyPath may be empty in dev, in which
 // case operations against a remote will fail with a clear error rather than
 // silently using unconfigured auth.
-func NewRepo(workdir, url, sshKeyPath string) (*Repo, error) {
+//
+// knownHostsPath is required whenever sshKeyPath is set, and the pairing is
+// enforced here rather than at the first push. Host-key verification is what
+// stops a machine that answers on the GitOps remote's address from receiving a
+// deploy key with write access to the repo portal's whole write path runs
+// through; a worker that discovers it has no way to verify only once it is
+// already talking to that machine has discovered it too late.
+func NewRepo(workdir, url, sshKeyPath, knownHostsPath string) (*Repo, error) {
 	r := &Repo{workdir: workdir, url: url}
-	if sshKeyPath != "" {
-		auth, err := gitssh.NewPublicKeysFromFile("git", sshKeyPath, "")
-		if err != nil {
-			return nil, fmt.Errorf("load ssh key: %w", err)
-		}
-		// HostKeyCallback: trust the remote on first contact. The alternative
-		// (verify against ~/.ssh/known_hosts) doesn't make sense in a
-		// containerized worker that ships without a populated hosts file.
-		// Pin trust by limiting access to keys whose public half is registered
-		// as a deploy key on a specific repo.
-		auth.HostKeyCallbackHelper = gitssh.HostKeyCallbackHelper{}
-		r.auth = auth
+	if sshKeyPath == "" {
+		return r, nil
 	}
+
+	auth, err := gitssh.NewPublicKeysFromFile("git", sshKeyPath, "")
+	if err != nil {
+		return nil, fmt.Errorf("load ssh key: %w", err)
+	}
+
+	if knownHostsPath == "" {
+		return nil, fmt.Errorf("GITOPS_SSH_KNOWN_HOSTS is required when GITOPS_SSH_KEY_PATH is set: the remote's host key has to be verified against something, and the worker image ships no default hosts file")
+	}
+	// An explicit callback over an explicit file. Leaving HostKeyCallback nil
+	// makes go-git fall back to NewKnownHostsDb, which searches $HOME/.ssh and
+	// /etc/ssh — neither of which exists in this image — and fails at connect
+	// time with a message about an environment variable nothing sets.
+	callback, err := gitssh.NewKnownHostsCallback(knownHostsPath)
+	if err != nil {
+		return nil, fmt.Errorf("read known_hosts at %s: %w", knownHostsPath, err)
+	}
+	auth.HostKeyCallbackHelper = gitssh.HostKeyCallbackHelper{HostKeyCallback: callback}
+
+	r.auth = auth
 	return r, nil
 }
 

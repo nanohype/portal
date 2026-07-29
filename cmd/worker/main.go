@@ -266,7 +266,7 @@ func main() {
 	// clear "not configured" error rather than crashing at boot.
 	var tenantApplyWorker *worker.TenantApplyJobWorker
 	if cfg.TenantsRepoURL != "" && cfg.EksAgentPlatformChartsRepoURL != "" && cfg.GitSSHKeyPath != "" {
-		eksAgentPlatformRepo, err := tofugit.NewRepo(filepath.Join(cfg.GitCacheDir, "eks-agent-platform"), cfg.EksAgentPlatformChartsRepoURL, cfg.GitSSHKeyPath)
+		eksAgentPlatformRepo, err := tofugit.NewRepo(filepath.Join(cfg.GitCacheDir, "eks-agent-platform"), cfg.EksAgentPlatformChartsRepoURL, cfg.GitSSHKeyPath, cfg.GitSSHKnownHosts)
 		if err != nil {
 			logger.Error("failed to initialize eks-agent-platform charts repo", "error", err)
 			os.Exit(1)
@@ -274,7 +274,7 @@ func main() {
 		if err := eksAgentPlatformRepo.CloneOrPull(context.Background(), cfg.EksAgentPlatformChartsRepoRef); err != nil {
 			logger.Warn("eks-agent-platform charts initial sync failed (will retry on first tenant op)", "error", err)
 		}
-		tenantsRepo, err := tofugit.NewRepo(filepath.Join(cfg.GitCacheDir, "tenants"), cfg.TenantsRepoURL, cfg.GitSSHKeyPath)
+		tenantsRepo, err := tofugit.NewRepo(filepath.Join(cfg.GitCacheDir, "tenants"), cfg.TenantsRepoURL, cfg.GitSSHKeyPath, cfg.GitSSHKnownHosts)
 		if err != nil {
 			logger.Error("failed to initialize tenants repo", "error", err)
 			os.Exit(1)
@@ -365,7 +365,7 @@ func main() {
 	// set, the worker surfaces a clear "not configured" error rather than crashing.
 	var clusterApplyWorker *worker.ClusterApplyJobWorker
 	if cfg.ClustersRepoURL != "" && cfg.GitSSHKeyPath != "" {
-		clustersRepo, err := tofugit.NewRepo(filepath.Join(cfg.GitCacheDir, "clusters"), cfg.ClustersRepoURL, cfg.GitSSHKeyPath)
+		clustersRepo, err := tofugit.NewRepo(filepath.Join(cfg.GitCacheDir, "clusters"), cfg.ClustersRepoURL, cfg.GitSSHKeyPath, cfg.GitSSHKnownHosts)
 		if err != nil {
 			logger.Error("failed to initialize clusters repo", "error", err)
 			os.Exit(1)

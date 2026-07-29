@@ -123,6 +123,7 @@ The tenant write path helm-renders the eks-agent-platform `charts/tenant` chart 
 | `GITOPS_TENANTS_REPO_URL` | _(empty)_ | Tenants GitOps repo. Empty disables the tenant write path |
 | `GITOPS_TENANTS_REPO_REF` | `main` | Branch/ref to commit tenant changes to |
 | `GITOPS_SSH_KEY_PATH` | _(empty)_ | Path to the SSH key used to push to the GitOps repos (tenant + cluster) |
+| `GITOPS_SSH_KNOWN_HOSTS` | _(empty)_ | Path to a `known_hosts` file for the GitOps remote. **Required whenever `GITOPS_SSH_KEY_PATH` is set** — the worker image carries no hosts file, and without one there is nothing to verify the remote against before the deploy key is offered to it. The chart writes it from `gitops.knownHosts` and refuses to install a key without one. Generate with `ssh-keyscan <host>` and review the output before trusting it. |
 | `GITOPS_AUTHOR_NAME` | `portal` | Git commit author name |
 | `GITOPS_AUTHOR_EMAIL` | `portal@local` | Git commit author email |
 | `EKS_AGENT_PLATFORM_CHARTS_REPO_URL` | _(empty)_ | eks-agent-platform charts repo, source of `charts/tenant` for rendering |

@@ -170,6 +170,11 @@ argocdSync:
 # mounted read-only on the worker and never exposed as an env var.
 gitops:
   sshKey: ""                 # private deploy key (PEM); enables the SSH git remote
+  # -- known_hosts for the GitOps remote. REQUIRED whenever sshKey is set: the
+  # worker image ships no hosts file, so this is the only thing standing between
+  # the deploy key and a machine that answers on the remote's address. Generate
+  # with `ssh-keyscan github.com` and review the output before pasting it.
+  knownHosts: ""
   authorName: "portal"
   authorEmail: "portal@local"
   clustersRepoURL: ""        # e.g. git@github.com:nanohype/clusters.git — enables cluster vend
