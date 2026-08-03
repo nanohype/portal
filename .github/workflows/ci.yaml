@@ -132,15 +132,24 @@ jobs:
       # The chart deliberately requires database.url (no bundled DB — point it at
       # a managed Postgres), so render with a dummy URL purely to exercise
       # templating in CI.
+      #
+      # Rendered twice. The defaults leave executorType "local", which emits no
+      # ServiceAccount and no RBAC at all — so a default-only render validates
+      # none of the objects the Kubernetes executor needs, and a malformed Role
+      # would reach a cluster before anything looked at it.
       - name: Helm template
         run: |
           mkdir -p rendered
           helm template portal deploy/helm/portal \
             --set 'database.url=postgres://portal:portal@db.example.com:5432/portal?sslmode=require' \
             > rendered/portal.yaml
+          helm template portal deploy/helm/portal \
+            --set 'database.url=postgres://portal:portal@db.example.com:5432/portal?sslmode=require' \
+            --set config.executorType=kubernetes \
+            > rendered/portal-k8s-executor.yaml
 
       - name: Validate against Kubernetes schemas
-        run: kubeconform -strict -ignore-missing-schemas -summary rendered/portal.yaml
+        run: kubeconform -strict -ignore-missing-schemas -summary rendered/portal.yaml rendered/portal-k8s-executor.yaml
 
       # Source files are gated elsewhere; this asserts the RENDERED chart too —
       # a zero account id, placeholder token, or account-less ARN that only

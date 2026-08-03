@@ -1,9 +1,11 @@
-{{- if or .Values.argocdSync.enabled .Values.clusterWatchback.enabled .Values.clusterHealth.enabled .Values.unwedge.enabled }}
-# RBAC for the worker's in-cluster reads. Created when argocdSync, clusterWatchback,
-# clusterHealth, OR unwedge is enabled. The worker watches Platform/Tenant CRs and
-# (for the provision watch-back) the eks-fleet Cluster XRs cluster-wide; with
-# argocdSync it reads ArgoCD's cluster Secrets, and with clusterHealth the
-# per-cluster ArgoCD Applications — both scoped to argocdSync.namespace.
+{{- if include "portal.worker.needsServiceAccount" . }}
+# RBAC for the worker's in-cluster work. Created when argocdSync, clusterWatchback,
+# clusterHealth or unwedge is enabled, or when the executor runs in Kubernetes.
+# The worker watches Platform/Tenant CRs and (for the provision watch-back) the
+# eks-fleet Cluster XRs cluster-wide; with argocdSync it reads ArgoCD's cluster
+# Secrets, and with clusterHealth the per-cluster ArgoCD Applications — both
+# scoped to argocdSync.namespace. With executorType "kubernetes" it also runs each
+# tofu operation as a pod of its own; that grant is the namespaced Role below.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -77,6 +79,56 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
   name: {{ .Release.Name }}-argocd-reader
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-worker
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- if eq .Values.config.executorType "kubernetes" }}
+---
+# The Kubernetes executor runs each tofu operation as a pod of its own in
+# config.executorNamespace, staging the run's script in a ConfigMap and
+# everything sensitive beside it in a Secret — the decrypted tfvars, the
+# state-encryption passphrase, the prior state file.
+#
+# A namespaced Role, not a ClusterRole: the executor only ever addresses one
+# namespace, and what it handles there is cleartext provider credentials.
+# Narrowing further to the object names would be better still, but every name
+# carries a run id and RBAC has no prefix match — the namespace is the boundary
+# that can actually be expressed.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-executor
+  namespace: {{ .Values.config.executorNamespace }}
+rules:
+  # get + watch, not list: waitForPodPhase reads the one pod by name and then
+  # watches it with a field selector, which authorizes as `watch` on the
+  # resource. Nothing enumerates the namespace.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "delete", "get", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  # create + delete only. The worker writes these on the way into a run and
+  # removes them on the way out; it never reads one back — a leftover from a
+  # cancelled run is replaced by delete-then-create, not inspected. Granting
+  # `get` here would let a compromised worker read every other run's Secret for
+  # nothing in return.
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-executor
+  namespace: {{ .Values.config.executorNamespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ .Release.Name }}-executor
 subjects:
   - kind: ServiceAccount
     name: {{ .Release.Name }}-worker

@@ -1,10 +1,8 @@
 package executor
 
 import (
-	"bufio"
 	"context"
 	"fmt"
-	"io"
 	"log/slog"
 	"regexp"
 	"strconv"
@@ -95,92 +93,19 @@ func (e *KubernetesExecutor) Execute(ctx context.Context, params ExecuteParams) 
 	// Build OpenTofu command script
 	script := e.buildScript(params)
 
-	// Build environment variables
-	envVars := []corev1.EnvVar{
-		{Name: "TF_IN_AUTOMATION", Value: "true"},
-		{Name: "TF_INPUT", Value: "false"},
-		{Name: "PORTAL_RUN_ID", Value: params.RunID},
-		{Name: "PORTAL_OPERATION", Value: params.Operation},
-		// Repo URL / branch / working dir are passed as env vars (never inlined
-		// into run.sh) so the script can reference them as quoted "$VAR" — a
-		// branch or working_dir containing shell metacharacters is then a
-		// literal value to git/cd, not executable shell. See buildScript.
-		{Name: "PORTAL_REPO_URL", Value: params.RepoURL},
-		{Name: "PORTAL_REPO_BRANCH", Value: params.RepoBranch},
-		{Name: "PORTAL_WORKING_DIR", Value: params.WorkingDir},
-		{Name: "PORTAL_COMMIT_SHA", Value: params.CommitSHA},
-		// Terragrunt-specific defaults. Harmless for tofu runs (tofu
-		// ignores TG_*-prefixed env vars). See local.go for rationale.
-		{Name: "TG_NON_INTERACTIVE", Value: "true"},
-		{Name: "TG_BACKEND_BOOTSTRAP", Value: "true"},
-	}
-	for _, v := range params.Variables {
-		switch v.Category {
-		case "env":
-			envVars = append(envVars, corev1.EnvVar{Name: v.Key, Value: v.Value})
-		case "terraform":
-			// Mirror the local executor: terraform vars are always passed as
-			// TF_VAR_* env so they flow into both tofu mode (redundant with
-			// portal.auto.tfvars; the file wins) and terragrunt mode (the only
-			// source — and it OVERRIDES the leaf's `inputs`, per the precedence
-			// note in local.go).
-			envVars = append(envVars, corev1.EnvVar{Name: "TF_VAR_" + v.Key, Value: v.Value})
-		}
-	}
+	payload := buildRunPayload(script, podName, params)
 
-	// Build tfvars content for ConfigMap
-	var tfvarsContent string
-	var tfVarLines []string
-	for _, v := range params.Variables {
-		if v.Category == "terraform" {
-			if isHCLLiteral(v.Value) {
-				tfVarLines = append(tfVarLines, fmt.Sprintf("%s = %s", v.Key, v.Value))
-			} else {
-				tfVarLines = append(tfVarLines, fmt.Sprintf("%s = %q", v.Key, v.Value))
-			}
-		}
-	}
-	if len(tfVarLines) > 0 {
-		tfvarsContent = strings.Join(tfVarLines, "\n") + "\n"
-	}
-
-	// Generate encryption override if enabled
-	var encryptionOverride string
-	if params.StateEncryptionPassphrase != "" {
-		encryptionOverride = GenerateEncryptionOverride(params.StateEncryptionPassphrase)
-	}
-
-	// Create ConfigMap with script, tfvars, encryption, and previous state
-	cmData := map[string]string{
-		"run.sh": script,
-	}
-	if tfvarsContent != "" {
-		cmData["portal.auto.tfvars"] = tfvarsContent
-	}
-	if encryptionOverride != "" {
-		cmData["portal_encryption_override.tf"] = encryptionOverride
-	}
-	if len(params.PreviousState) > 0 {
-		cmData["terraform.tfstate"] = string(params.PreviousState)
+	labels := map[string]string{
+		"app.kubernetes.io/managed-by": "portal",
+		"portal/run-id":                params.RunID,
 	}
 
 	cm := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      podName,
-			Namespace: e.namespace,
-			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "portal",
-				"portal/run-id":                params.RunID,
-			},
-		},
-		Data: cmData,
+		ObjectMeta: metav1.ObjectMeta{Name: podName, Namespace: e.namespace, Labels: labels},
+		Data:       payload.public,
 	}
-
-	// For upload workspaces, store the archive as binary data in the ConfigMap
-	if params.Source == "upload" && len(params.ArchiveData) > 0 {
-		cm.BinaryData = map[string][]byte{
-			"source.tar.gz": params.ArchiveData,
-		}
+	if len(payload.archive) > 0 {
+		cm.BinaryData = map[string][]byte{archiveKey: payload.archive}
 	}
 
 	if err := e.createConfigMap(ctx, cm); err != nil {
@@ -190,10 +115,22 @@ func (e *KubernetesExecutor) Execute(ctx context.Context, params ExecuteParams) 
 	// the pod keeps tofu-applying unobserved and a retry hits AlreadyExists on
 	// the deterministic ConfigMap name.
 	defer e.deleteResource(ctx, "configmap", podName)
+
+	if len(payload.sensitive) > 0 {
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: podName, Namespace: e.namespace, Labels: labels},
+			Type:       corev1.SecretTypeOpaque,
+			Data:       payload.sensitive,
+		}
+		if err := e.createSecret(ctx, secret); err != nil {
+			return nil, fmt.Errorf("failed to create secret: %w", err)
+		}
+		defer e.deleteResource(ctx, "secret", podName)
+	}
 	defer e.deleteResource(ctx, "pod", podName)
 
 	// Create Pod
-	pod := e.buildPod(podName, params, envVars)
+	pod := e.buildPod(podName, params, payload)
 
 	_, err := e.client.CoreV1().Pods(e.namespace).Create(ctx, pod, metav1.CreateOptions{})
 	if err != nil {
@@ -208,8 +145,9 @@ func (e *KubernetesExecutor) Execute(ctx context.Context, params ExecuteParams) 
 		return nil, fmt.Errorf("pod failed to start: %w", err)
 	}
 
-	// Stream logs
-	output, err := e.streamPodLogs(ctx, podName, params.LogCallback)
+	// Stream logs. The framed payloads come back out-of-band — they are not in
+	// `output` and were never handed to the log callback (framing.go).
+	output, captured, err := e.streamPodLogs(ctx, podName, params.LogCallback)
 	if err != nil {
 		return nil, fmt.Errorf("failed to stream logs: %w", err)
 	}
@@ -220,7 +158,7 @@ func (e *KubernetesExecutor) Execute(ctx context.Context, params ExecuteParams) 
 	}
 
 	// Parse result
-	result := &ExecuteResult{Output: output}
+	result := resultFromCaptured(output, captured)
 
 	// Lift the executed commit out of the log and drop the marker line from what
 	// the user reads.
@@ -239,45 +177,6 @@ func (e *KubernetesExecutor) Execute(ctx context.Context, params ExecuteParams) 
 		result.ResourcesAdded = conv.Int32(added)
 		result.ResourcesChanged = conv.Int32(changed)
 		result.ResourcesDeleted = conv.Int32(deleted)
-	}
-
-	// For plan: extract JSON plan between markers
-	if params.Operation == "plan" {
-		jsonMarker := "===PORTAL_PLAN_JSON_BEGIN==="
-		jsonEndMarker := "===PORTAL_PLAN_JSON_END==="
-		if idx := strings.Index(output, jsonMarker); idx != -1 {
-			jsonData := output[idx+len(jsonMarker):]
-			if endIdx := strings.Index(jsonData, jsonEndMarker); endIdx != -1 {
-				jsonData = strings.TrimSpace(jsonData[:endIdx])
-				result.PlanJSON = []byte(jsonData)
-				// Remove JSON plan data from visible output
-				result.Output = output[:idx]
-			}
-		}
-	}
-
-	// For apply/destroy: extract raw state and decrypted state JSON from markers
-	if params.Operation == "apply" || params.Operation == "destroy" {
-		stateMarker := "===PORTAL_STATE_BEGIN==="
-		stateEndMarker := "===PORTAL_STATE_END==="
-		if idx := strings.Index(output, stateMarker); idx != -1 {
-			stateData := output[idx+len(stateMarker):]
-			if endIdx := strings.Index(stateData, stateEndMarker); endIdx != -1 {
-				stateData = strings.TrimSpace(stateData[:endIdx])
-				result.StateFile = []byte(stateData)
-				result.Output = output[:idx]
-			}
-		}
-
-		jsonMarker := "===PORTAL_STATE_JSON_BEGIN==="
-		jsonEndMarker := "===PORTAL_STATE_JSON_END==="
-		if idx := strings.Index(result.Output, jsonMarker); idx != -1 {
-			jsonData := result.Output[idx+len(jsonMarker):]
-			if endIdx := strings.Index(jsonData, jsonEndMarker); endIdx != -1 {
-				result.StateJSON = []byte(strings.TrimSpace(jsonData[:endIdx]))
-				result.Output = result.Output[:idx]
-			}
-		}
 	}
 
 	logger.Info("executor pod completed", "pod", podName)
@@ -384,39 +283,45 @@ func (e *KubernetesExecutor) buildScript(params ExecuteParams) string {
 		sb.WriteString("PLAN_EXIT=$?\n")
 		sb.WriteString("set -e\n")
 		sb.WriteString("if [ \"$PLAN_EXIT\" -eq 1 ]; then echo 'Plan failed with errors'; exit 1; fi\n")
-		sb.WriteString("\n# Output JSON plan for capture\n")
+		sb.WriteString("\n# JSON plan, framed — see framing.go.\n")
 		sb.WriteString("if [ -f planfile ]; then\n")
-		sb.WriteString("  echo '===PORTAL_PLAN_JSON_BEGIN==='\n")
-		sb.WriteString("  $BIN show -json planfile\n")
-		sb.WriteString("  echo '===PORTAL_PLAN_JSON_END==='\n")
+		sb.WriteString(frameFor(framedPlanJSON).open())
+		sb.WriteString("$BIN show -json planfile\n")
+		sb.WriteString(frameFor(framedPlanJSON).close())
 		sb.WriteString("fi\n")
 	case "apply":
 		sb.WriteString("echo \"\\$ $BIN apply\"\n")
 		sb.WriteString("$BIN apply -no-color -auto-approve $VAR_FILE\n")
-		sb.WriteString("\n# Output raw state (may be encrypted) for restoration\n")
-		sb.WriteString("if [ -f terraform.tfstate ]; then\n")
-		sb.WriteString("  echo '===PORTAL_STATE_BEGIN==='\n")
-		sb.WriteString("  cat terraform.tfstate\n")
-		sb.WriteString("  echo '===PORTAL_STATE_END==='\n")
-		sb.WriteString("fi\n")
-		sb.WriteString("# Output decrypted state for resource browsing\n")
-		sb.WriteString("echo '===PORTAL_STATE_JSON_BEGIN==='\n")
-		sb.WriteString("$BIN state pull\n")
-		sb.WriteString("echo '===PORTAL_STATE_JSON_END==='\n")
+		sb.WriteString(captureState())
 	case "destroy":
 		sb.WriteString("echo \"\\$ $BIN destroy\"\n")
 		sb.WriteString("$BIN destroy -no-color -auto-approve $VAR_FILE\n")
-		sb.WriteString("\n# Output raw state for restoration\n")
-		sb.WriteString("if [ -f terraform.tfstate ]; then\n")
-		sb.WriteString("  echo '===PORTAL_STATE_BEGIN==='\n")
-		sb.WriteString("  cat terraform.tfstate\n")
-		sb.WriteString("  echo '===PORTAL_STATE_END==='\n")
-		sb.WriteString("fi\n")
-		sb.WriteString("# Output decrypted state for resource browsing\n")
-		sb.WriteString("echo '===PORTAL_STATE_JSON_BEGIN==='\n")
-		sb.WriteString("$BIN state pull\n")
-		sb.WriteString("echo '===PORTAL_STATE_JSON_END==='\n")
+		sb.WriteString(captureState())
 	}
+
+	return sb.String()
+}
+
+// captureState renders the tail apply and destroy share: the raw state file the
+// next run is restored from, and the decrypted state the State tab browses.
+//
+// Both are framed, so neither reaches the run log. They are also the reason the
+// framing exists at all — this is the tofu output that carries every generated
+// password and provider credential the workspace holds.
+func captureState() string {
+	var sb strings.Builder
+
+	sb.WriteString("\n# Raw state (may be encrypted) — restored onto the next run.\n")
+	sb.WriteString("if [ -f terraform.tfstate ]; then\n")
+	sb.WriteString(frameFor(framedStateFile).open())
+	sb.WriteString("cat terraform.tfstate\n")
+	sb.WriteString(frameFor(framedStateFile).close())
+	sb.WriteString("fi\n")
+
+	sb.WriteString("# Decrypted state — backs resource browsing.\n")
+	sb.WriteString(frameFor(framedStateJSON).open())
+	sb.WriteString("$BIN state pull\n")
+	sb.WriteString(frameFor(framedStateJSON).close())
 
 	return sb.String()
 }
@@ -431,17 +336,9 @@ func (e *KubernetesExecutor) resolveImage(tofuVersion string) string {
 	return e.image
 }
 
-func (e *KubernetesExecutor) buildPod(name string, params ExecuteParams, envVars []corev1.EnvVar) *corev1.Pod {
+func (e *KubernetesExecutor) buildPod(name string, params ExecuteParams, payload runPayload) *corev1.Pod {
 	volumes := []corev1.Volume{
-		{
-			Name: "config",
-			VolumeSource: corev1.VolumeSource{
-				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{Name: name},
-					DefaultMode:          int32Ptr(0755),
-				},
-			},
-		},
+		payload.volume(name),
 		{
 			Name: "work",
 			VolumeSource: corev1.VolumeSource{
@@ -479,7 +376,7 @@ func (e *KubernetesExecutor) buildPod(name string, params ExecuteParams, envVars
 					Name:         "tofu",
 					Image:        e.resolveImage(params.TofuVersion),
 					Command:      []string{"/bin/sh", "/config/run.sh"},
-					Env:          envVars,
+					Env:          payload.env,
 					VolumeMounts: volumeMounts,
 					Resources: corev1.ResourceRequirements{
 						Requests: corev1.ResourceList{
@@ -519,8 +416,27 @@ func (e *KubernetesExecutor) createConfigMap(ctx context.Context, cm *corev1.Con
 	return err
 }
 
-// deleteResource removes a pod or ConfigMap using a context that survives the
-// job deadline so SIGTERM mid-Execute still cleans up.
+// createSecret creates the run Secret, replacing a leftover from a prior
+// cancelled run of the same deterministic name. Mirrors createConfigMap — and
+// matters more here, since what a leftover holds is the previous run's
+// cleartext variables rather than its script.
+func (e *KubernetesExecutor) createSecret(ctx context.Context, secret *corev1.Secret) error {
+	_, err := e.client.CoreV1().Secrets(e.namespace).Create(ctx, secret, metav1.CreateOptions{})
+	if err == nil {
+		return nil
+	}
+	if !apierrors.IsAlreadyExists(err) {
+		return err
+	}
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+	defer cancel()
+	_ = e.client.CoreV1().Secrets(e.namespace).Delete(cleanupCtx, secret.Name, metav1.DeleteOptions{})
+	_, err = e.client.CoreV1().Secrets(e.namespace).Create(ctx, secret, metav1.CreateOptions{})
+	return err
+}
+
+// deleteResource removes a pod, ConfigMap or Secret using a context that
+// survives the job deadline so SIGTERM mid-Execute still cleans up.
 func (e *KubernetesExecutor) deleteResource(ctx context.Context, kind, name string) {
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 	defer cancel()
@@ -530,6 +446,8 @@ func (e *KubernetesExecutor) deleteResource(ctx context.Context, kind, name stri
 		err = e.client.CoreV1().Pods(e.namespace).Delete(cleanupCtx, name, metav1.DeleteOptions{})
 	case "configmap":
 		err = e.client.CoreV1().ConfigMaps(e.namespace).Delete(cleanupCtx, name, metav1.DeleteOptions{})
+	case "secret":
+		err = e.client.CoreV1().Secrets(e.namespace).Delete(cleanupCtx, name, metav1.DeleteOptions{})
 	}
 	if err != nil && !apierrors.IsNotFound(err) {
 		slog.Warn("executor cleanup failed", "kind", kind, "name", name, "error", err)
@@ -587,37 +505,23 @@ func (e *KubernetesExecutor) waitForPodPhase(ctx context.Context, podName string
 	}
 }
 
-func (e *KubernetesExecutor) streamPodLogs(ctx context.Context, podName string, logCallback func([]byte)) (string, error) {
+// streamPodLogs follows the run pod's log, forwarding what the user is meant to
+// read to logCallback and demultiplexing the framed payloads out of it.
+//
+// The framed material is returned separately and never passed to logCallback —
+// see framing.go for why that separation is the whole point of the frames.
+func (e *KubernetesExecutor) streamPodLogs(ctx context.Context, podName string, logCallback func([]byte)) (string, map[framed][]byte, error) {
 	req := e.client.CoreV1().Pods(e.namespace).GetLogs(podName, &corev1.PodLogOptions{
 		Follow: true,
 	})
 
 	stream, err := req.Stream(ctx)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	defer stream.Close()
 
-	var output strings.Builder
-	scanner := bufio.NewScanner(stream)
-	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		output.WriteString(line)
-		output.WriteString("\n")
-		logCallback([]byte(line + "\r\n"))
-	}
-
-	if scanner.Err() != nil && scanner.Err() != io.EOF {
-		remaining, _ := io.ReadAll(stream)
-		if len(remaining) > 0 {
-			output.Write(remaining)
-			logCallback(remaining)
-		}
-	}
-
-	return output.String(), nil
+	return demuxFramed(stream, logCallback)
 }
 
 func int32Ptr(i int32) *int32 { return &i }

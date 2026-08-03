@@ -90,11 +90,26 @@ Runs `tofu` directly on the worker's host machine. Good for development and smal
 Runs `tofu` in ephemeral pods. Used in production for isolation and resource control.
 
 1. Builds a shell script with the full tofu workflow
-2. Creates a ConfigMap with the script, variables, and state
-3. Creates a Pod that mounts the ConfigMap and runs the script
+2. Creates a ConfigMap with the script and the uploaded config archive, and a
+   Secret beside it with everything sensitive — the decrypted tfvars, the
+   state-encryption passphrase, the prior state file, and each variable's value
+3. Creates a Pod that projects both onto one volume, reads the variable values
+   through `secretKeyRef` rather than inline, and runs the script
 4. Streams pod logs back to the worker via the K8s API
-5. Extracts state and plan JSON from stdout markers
-6. Cleans up the Pod and ConfigMap
+5. Demultiplexes the framed payloads — state file, decrypted state, JSON plan —
+   out of that stream as it arrives, so they never reach the run log
+6. Cleans up the Pod, ConfigMap and Secret
+
+The pod has one channel back to the worker, so the state and plan travel on its
+log stream inside sentinel frames. Those frames are removed at the point of
+arrival rather than after the pod exits: the log callback fans out to the run's
+WebSocket, the S3 log object and the `plan_output` column, all of which sit at
+`ActionViewWorkspace`, while the state download route sits at
+`ActionManageState`. See `internal/worker/executor/framing.go`.
+
+Set `config.executorType: kubernetes` to select it. The chart then also creates
+the worker ServiceAccount and a Role in `config.executorNamespace` scoped to the
+pods, ConfigMaps and Secrets the executor manages.
 
 Per-workspace tofu versions are supported: the pod image is resolved from `EXECUTOR_IMAGE_PREFIX` + the workspace's configured tofu version.
 
