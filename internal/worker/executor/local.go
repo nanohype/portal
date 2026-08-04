@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nanohype/portal/internal/config"
 	"github.com/nanohype/portal/internal/conv"
 )
 
@@ -137,18 +138,14 @@ func (e *LocalExecutor) Execute(ctx context.Context, params ExecuteParams) (*Exe
 		}
 	}
 
-	// Build environment with env variables, filtering out portal-internal vars
-	// that could interfere with provider SDKs (e.g. S3_ENDPOINT confusing the AWS SDK)
-	var env []string
-	for _, e := range os.Environ() {
-		key := strings.SplitN(e, "=", 2)[0]
-		switch key {
-		case "S3_ENDPOINT", "S3_ACCESS_KEY", "S3_SECRET_KEY", "S3_BUCKET", "S3_USE_SSL", "S3_REGION":
-			continue // skip portal MinIO config
-		default:
-			env = append(env, e)
-		}
-	}
+	// The environment a run gets is the worker's, minus everything portal is
+	// itself configured by — see config.ChildEnviron. That covers the reason the
+	// S3_* keys were dropped here originally (S3_ENDPOINT confuses the AWS SDK,
+	// which reads the same name) and the larger one: tofu runs providers and
+	// provisioners out of the workspace's repo, and a `test` run executes that
+	// repo's smoke-test.sh directly, so this environment reaches code portal did
+	// not write.
+	env := config.ChildEnviron()
 	env = append(env, "TF_IN_AUTOMATION=true", "TF_INPUT=false")
 
 	// Terragrunt-specific defaults. Harmless for tofu runs (tofu ignores

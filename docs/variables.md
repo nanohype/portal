@@ -97,6 +97,8 @@ Works with both VCS workspaces (clones the repo) and upload workspaces (extracts
 
 Discovery is a read, so anyone who can see the workspace can run it — but the values are held at the bar the variable writes are held at. Below admin (or an admin team grant on that workspace) the response carries names, types, descriptions and provenance with no values, and the `terragrunt render` that would resolve them is skipped: resolving evaluates the config's own `get_env()` and `run_cmd()` in the API server's process.
 
+That gate decides who may *see* the resolved inputs. It does not decide what the config may *ask for* — `get_env()` reads whatever environment the render was started in. So the render gets `config.ChildEnviron()`: the server's environment with every variable portal is itself configured by removed, derived from the `Config` struct so a secret added later is covered the day it lands. A `terragrunt.hcl` cannot read portal's encryption key, its JWT secret or its database URL out of the process evaluating it.
+
 ## Imported Outputs
 
 Pipeline stages automatically import outputs from the previous stage as workspace variables. These are non-sensitive terraform variables with a description noting the source. Since they're workspace-scoped, they override org and pipeline defaults.

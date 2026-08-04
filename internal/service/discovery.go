@@ -19,6 +19,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 
 	"github.com/nanohype/portal/internal/apperr"
+	"github.com/nanohype/portal/internal/config"
 	"github.com/nanohype/portal/internal/repository"
 	"github.com/nanohype/portal/internal/storage"
 	"github.com/nanohype/portal/internal/tfparse"
@@ -230,7 +231,12 @@ func runTerragruntRender(ctx context.Context, leafDir string) (*renderedTerragru
 	defer cancel()
 	cmd := exec.CommandContext(cctx, "terragrunt", "render", "--json", "--log-disable",
 		"--non-interactive", "--working-dir", leafDir)
-	cmd.Env = append(os.Environ(), "TG_NO_COLOR=1")
+	// `terragrunt render` EVALUATES the config it is pointed at — the repo's own
+	// get_env() and run_cmd() calls run here, in the API server's process, on a
+	// user-triggered request. So this gets the environment with portal's own
+	// configuration removed; ActionManageVars gates who may see the rendered
+	// inputs, but nothing gates what the HCL asks the environment for.
+	cmd.Env = append(config.ChildEnviron(), "TG_NO_COLOR=1")
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("terragrunt render: %w", err)
