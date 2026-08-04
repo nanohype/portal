@@ -67,7 +67,7 @@ package internal/server             88
 package internal/service            36
 package internal/storage            0     # s3/minio client construction
 package internal/tfparse            75
-package internal/tfstate            74
+package internal/tfstate            84
 package internal/tracing            0     # otel wiring
 package internal/varmerge           91
 package internal/vcs                100

@@ -111,6 +111,41 @@ Set `config.executorType: kubernetes` to select it. The chart then also creates
 the worker ServiceAccount and a Role in `config.executorNamespace` scoped to the
 pods, ConfigMaps and Secrets the executor manages.
 
+### The JSON plan is projected, not served
+
+The captured JSON plan is stored as `tofu show -json` wrote it, and that document
+is not the plan a human reads. It carries the root variable values — the
+sensitive ones portal decrypted to run the plan, marked as sensitive nowhere in
+that section — a complete `prior_state` representation, the configuration's
+literals and variable defaults, and, in `resource_changes`, the cleartext of
+every value the rendered plan prints as `(sensitive value)`. Sensitivity is
+recorded in a structure alongside the value rather than applied to it.
+
+`GET /runs/{runID}/plan-json` therefore serves a projection: the resource
+changes, narrowed to the attributes that differ — down to the member, so the
+sibling of a changed map key is never sent — with values the plan marks
+sensitive withheld from callers below `ActionManageState`. The bar is
+`handler.attributeView`, the same function the state routes use. The projection
+is an allowlist by construction, so a section a later tofu format adds arrives
+with nowhere to land, and an absent sensitivity marking withholds rather than
+discloses: absence is not a claim that nothing is sensitive.
+
+The rule behind the bar is that a projection sits at the bar of the co-located
+artifact carrying the same material. For state that artifact is the tfstate
+download at `ActionManageState`, so the state browser withholds every attribute
+value below it — state has no reliable marking. For a plan it is the rendered
+plan text, which `plan_output` and the run log both serve at
+`ActionViewWorkspace`. So the plan honours its markings, because unlike state it
+has them, and withholds below the bar exactly what its own text render
+withholds. Redacting more would not close anything: the values would still be
+one tab away, in a form nobody could reason about.
+
+What that does not claim is that the surviving values are safe. tofu's markings
+do not follow a value into a computed attribute, and its text renderer prints
+those in cleartext too. The bar this holds is that the machine-readable plan
+discloses no more than the human-readable one, which before the projection was
+not true. See `internal/tfstate/plan.go`.
+
 Per-workspace tofu versions are supported: the pod image is resolved from `EXECUTOR_IMAGE_PREFIX` + the workspace's configured tofu version.
 
 ## Run Lifecycle

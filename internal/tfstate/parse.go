@@ -81,6 +81,15 @@ type Resource struct {
 // which of them changed between two serials — is inventory, and stays at the
 // workspace read bar.
 //
+// WHAT REDACTED MEANS DEPENDS ON THE DOCUMENT, because what the document can
+// prove differs. On state, AttributesRedacted drops every value, for the reason
+// above. On a plan, it drops the values the plan MARKS sensitive and keeps the
+// rest — a plan carries markings and state does not, and the plan's co-located
+// artifact is the rendered plan text at the workspace read bar rather than a
+// download at ActionManageState. ParseOutputs is the same distinction in the
+// other direction: outputs take no view at all, because their marking is
+// reliable enough to blank them at every bar. See ProjectPlan in plan.go.
+//
 // The zero value redacts, so a caller that never decides discloses nothing.
 type AttributeView int
 

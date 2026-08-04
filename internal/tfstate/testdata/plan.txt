@@ -1,0 +1,93 @@
+
+OpenTofu used the selected providers to generate the following execution
+plan. Resource actions are indicated with the following symbols:
+  + create
+  ~ update in-place (current -> planned)
+  - destroy
+-/+ destroy and then create replacement
+
+OpenTofu will perform the following actions:
+
+  # terraform_data.doomed will be destroyed
+  # (because terraform_data.doomed is not in configuration)
+  - resource "terraform_data" "doomed" {
+      - id     = "9a4ba6c3-2cc1-fe6e-0981-76733841fac7" -> null
+      - input  = {
+          - farewell = (sensitive value)
+        } -> null
+      - output = {
+          - farewell = "sentinel-var-default-AAAA"
+        } -> null
+    }
+
+  # terraform_data.fresh will be created
+  + resource "terraform_data" "fresh" {
+      + id     = (known after apply)
+      + input  = {
+          + greeting = (sensitive value)
+        }
+      + output = (known after apply)
+    }
+
+  # terraform_data.nested will be updated in-place
+  ~ resource "terraform_data" "nested" {
+        id     = "c82ac92d-9a8a-6fe6-78f9-a7dcd2886d20"
+      ~ input  = [
+          ~ {
+                name   = "a"
+              ~ secret = (sensitive value)
+            },
+            {
+                name   = "b"
+                secret = "sentinel-list-plain-DDDD"
+            },
+        ]
+      ~ output = [
+          - {
+              - name   = "a"
+              - secret = "sentinel-var-default-AAAA"
+            },
+          - {
+              - name   = "b"
+              - secret = "sentinel-list-plain-DDDD"
+            },
+        ] -> (known after apply)
+    }
+
+  # terraform_data.rotated will be updated in-place
+  ~ resource "terraform_data" "rotated" {
+        id     = "22b8d9c2-8349-f0a8-89da-68a4be34b837"
+      ~ input  = {
+          ~ password  = (sensitive value)
+            # (1 unchanged attribute hidden)
+        }
+      ~ output = {
+          - password  = "sentinel-var-default-AAAA"
+          - untouched = "sentinel-unchanged-CCCC"
+        } -> (known after apply)
+    }
+
+  # terraform_data.trigger_only must be replaced
+-/+ resource "terraform_data" "trigger_only" {
+      ~ id               = "5aef71a1-1b57-d592-139a-4a2c5d2c28c9" -> (known after apply)
+      ~ triggers_replace = [
+          - (sensitive value),
+          + (sensitive value),
+        ]
+    }
+
+  # module.child.terraform_data.inner will be updated in-place
+  ~ resource "terraform_data" "inner" {
+        id     = "9d748948-a829-7b74-c0e6-8fd86701bf46"
+      ~ input  = {
+          ~ held = (sensitive value)
+        }
+      ~ output = {
+          - held = "sentinel-var-default-AAAA"
+        } -> (known after apply)
+    }
+
+Plan: 2 to add, 3 to change, 2 to destroy.
+
+Changes to Outputs:
+  ~ conn      = (sensitive value)

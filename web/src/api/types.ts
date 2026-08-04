@@ -1247,7 +1247,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The run's machine-readable plan */
+        /**
+         * The run's machine-readable plan
+         * @description The resource changes the plan makes, with values the plan marks sensitive withheld from callers who may not manage this workspace's state.
+         */
         get: operations["getRunPlanJSON"];
         put?: never;
         post?: never;
@@ -1477,17 +1480,23 @@ export interface components {
             provider_name: string;
             change: {
                 actions: string[];
+                /** @description The attributes that differ, at their prior values — not the resource's whole attribute map, and inside an attribute whose value is a map, not the members that stayed put. Every key present is one that changed, so a caller reads the keys rather than comparing the two maps: a withheld value reads the same on both sides. A leaf reading "(sensitive value)" was withheld — the string matches what `tofu show` prints and is not reserved, so an attribute whose real value is that string is indistinguishable. Null means the resource did not exist. */
                 before: {
                     [key: string]: unknown;
                 } | null;
+                /** @description The attributes that differ, at their planned values. Null means the resource is being destroyed. */
                 after: {
                     [key: string]: unknown;
                 } | null;
             };
         };
+        /** @description The run's plan, projected. Not the stored `tofu show -json` artifact: that document carries the root variable values, a complete prior-state representation, the configuration's literals, and the cleartext of every value the rendered plan prints as "(sensitive value)". This carries the resource changes and nothing else, so a section a later tofu format adds cannot begin disclosing on its own. */
         TofuPlanJSON: {
-            format_version?: string;
-            resource_changes?: components["schemas"]["TofuResourceChange"][];
+            format_version: string;
+            /** @description One entry per resource the plan is acting on. Resources it is not touching are omitted. */
+            resource_changes: components["schemas"]["TofuResourceChange"][];
+            /** @description Values the plan marks sensitive were withheld and read "(sensitive value)". Unmarked values ARE present in cleartext — this names a subset, unlike attributes_redacted on the state surface, where every value is gone. Absent for callers who may manage this workspace's state, which is the bar the raw state download sits at — a plan's before and after are state attributes under another name. */
+            sensitive_values_redacted?: boolean;
         };
         StateVersion: {
             id: string;
@@ -4840,7 +4849,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description tofu show -json output */
+            /** @description The projected plan */
             200: {
                 headers: {
                     [name: string]: unknown;

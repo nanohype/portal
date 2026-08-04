@@ -10,12 +10,12 @@ import (
 	"github.com/nanohype/portal/internal/tfstate"
 )
 
-// stateRequestAs builds a request as the workspace gates leave it: the caller's
-// org role in the user context, and the effective workspace role the gate
-// resolved in the request context. An empty effective role is what a request
-// that never passed a workspace gate looks like.
-func stateRequestAs(effectiveRole string) *http.Request {
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/workspaces/ws-1/state/current/resources", nil)
+// workspaceRequestAs builds a request as the workspace gates leave it: the
+// caller's org role in the user context, and the effective workspace role the
+// gate resolved in the request context. An empty effective role is what a
+// request that never passed a workspace gate looks like.
+func workspaceRequestAs(path, effectiveRole string) *http.Request {
+	req := httptest.NewRequest(http.MethodGet, path, nil)
 	ctx := context.WithValue(req.Context(), auth.UserContextKey, &auth.UserContext{
 		UserID: "user-1", OrgID: "org-1", Role: effectiveRole,
 	})
@@ -23,6 +23,10 @@ func stateRequestAs(effectiveRole string) *http.Request {
 		ctx = auth.ContextWithWorkspaceRole(ctx, effectiveRole)
 	}
 	return req.WithContext(ctx)
+}
+
+func stateRequestAs(effectiveRole string) *http.Request {
+	return workspaceRequestAs("/api/v1/workspaces/ws-1/state/current/resources", effectiveRole)
 }
 
 // The resource browser and the state diff sit at the workspace READ bar so

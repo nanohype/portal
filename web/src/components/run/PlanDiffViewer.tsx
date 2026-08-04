@@ -136,29 +136,24 @@ function JSONResourceChange({ rc }: { rc: TofuResourceChange }) {
   const action = actionsToType(rc.change.actions);
   const style = actionStyles[action];
 
+  // The API sends the attributes that differ and only those, so every key here
+  // is a change and there is nothing to filter. Recovering the set by comparing
+  // the two sides would be wrong now: values the plan marks sensitive read
+  // "(sensitive value)" on both sides, so a resource whose only change was a
+  // rotated password would render as touching nothing at all.
   const changedKeys = useMemo(() => {
     const before = rc.change.before ?? {};
     const after = rc.change.after ?? {};
-    const allKeys = new Set([...Object.keys(before), ...Object.keys(after)]);
-    const changed: {
-      key: string;
-      before: unknown;
-      after: unknown;
-      type: 'added' | 'removed' | 'changed';
-    }[] = [];
-    for (const key of allKeys) {
-      const b = before[key];
-      const a = after[key];
-      if (JSON.stringify(b) !== JSON.stringify(a)) {
-        changed.push({
-          key,
-          before: b,
-          after: a,
-          type: b === undefined ? 'added' : a === undefined ? 'removed' : 'changed',
-        });
-      }
-    }
-    return changed;
+    const keys = [...new Set([...Object.keys(before), ...Object.keys(after)])].sort();
+    return keys.map((key) => ({
+      key,
+      before: before[key],
+      after: after[key],
+      type: (!(key in before) ? 'added' : !(key in after) ? 'removed' : 'changed') as
+        | 'added'
+        | 'removed'
+        | 'changed',
+    }));
   }, [rc.change.before, rc.change.after]);
 
   return (
@@ -238,6 +233,11 @@ export function PlanDiffViewer({ planOutput, planJSON }: Props) {
             )}
             {groups.read.length > 0 && (
               <span className="text-blue-400">≡{groups.read.length} to read</span>
+            )}
+            {planJSON.sensitive_values_redacted && (
+              <span className="text-muted-foreground text-xs">
+                sensitive values withheld — needs state access on this workspace
+              </span>
             )}
           </div>
           {changes.map((rc) => (

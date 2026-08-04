@@ -18,6 +18,7 @@ import (
 	"github.com/nanohype/portal/internal/repository"
 	"github.com/nanohype/portal/internal/service"
 	"github.com/nanohype/portal/internal/storage"
+	"github.com/nanohype/portal/internal/tfstate"
 	"github.com/nanohype/portal/internal/worker"
 )
 
@@ -356,9 +357,31 @@ func (h *RunHandler) GetPlanJSON(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write(data)
+	servePlanJSON(w, r, runID, data)
+}
+
+// servePlanJSON writes the projection of a stored plan at the view this request
+// clears.
+//
+// The stored artifact is `tofu show -json`, which does not redact. It holds the
+// root variable values, a complete prior-state representation, the
+// configuration's literals, and the cleartext of everything the rendered plan
+// prints as "(sensitive value)". Writing those bytes to the response — which is
+// what this did — put all of it at the workspace read bar.
+//
+// Values follow attributeView, the same function the state routes use: a plan's
+// before and after are this workspace's state attributes under another name, so
+// they sit where the state download sits. Split out from the fetch so the
+// decision can be exercised without a database and an object store.
+func servePlanJSON(w http.ResponseWriter, r *http.Request, runID string, data []byte) {
+	plan, err := tfstate.ProjectPlan(data, attributeView(r))
+	if err != nil {
+		slog.ErrorContext(r.Context(), "stored plan JSON did not parse", "run_id", runID, "error", err)
+		respond.Error(w, http.StatusInternalServerError, "failed to read plan JSON")
+		return
+	}
+
+	respond.JSON(w, http.StatusOK, plan)
 }
 
 func (h *RunHandler) StreamLogs(w http.ResponseWriter, r *http.Request) {
