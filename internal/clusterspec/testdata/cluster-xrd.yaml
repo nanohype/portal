@@ -2,6 +2,10 @@
 # API — users apply a `Cluster` in their team namespace; there is no separate claim.
 # Spec fields track the landing-zone fleet/aws/cluster-stack entrypoint inputs (which
 # wrap components/aws/{network,cluster}); status fields track its outputs.
+#
+# What that shape means is stated in the schema's own descriptions rather than only
+# here, so `kubectl explain cluster` answers it against a live cluster and any
+# generated reference reads the same text. A comment is invisible to both.
 apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
@@ -21,9 +25,21 @@ spec:
       schema:
         openAPIV3Schema:
           type: object
+          description: >-
+            Cluster is an order for one EKS cluster. Applying it in a team
+            namespace vends a cluster into a workload account: the Composition
+            renders provider-opentofu Workspaces over the landing-zone substrate,
+            and the cluster's endpoint, CA, OIDC issuer and network identifiers
+            are written back to status as they converge. The substrate stays the
+            source of truth — this is the ordering API on top of it.
           properties:
             spec:
               type: object
+              description: >-
+                The order. Placement (which account and region), the cluster's
+                shape (version, networking, node pools), and the cross-account
+                vend credentials, mirroring the fleet/aws/cluster-stack
+                entrypoint's inputs field-for-field.
               properties:
                 # --- placement: which spoke account/region to vend into -------
                 account:
@@ -396,15 +412,25 @@ spec:
                     /eks-fleet/<env>/fleet-vend/vend_permissions_boundary_arn)
             status:
               type: object
+              description: >-
+                What the vend produced. Populated from the Workspaces' outputs as
+                they converge, and read by everything downstream — cluster-bootstrap,
+                the agent-platform operator, and anyone connecting to the cluster.
               properties:
-                clusterName: {type: string}
+                clusterName: {type: string, description: The vended cluster's EKS name.}
                 clusterEndpoint: {type: string, description: EKS API endpoint.}
                 certificateAuthorityData: {type: string, description: Base64 cluster CA.}
-                clusterSecurityGroupId: {type: string}
-                oidcProviderArn: {type: string, description: IAM OIDC provider ARN (for tenant IRSA).}
+                clusterSecurityGroupId:
+                  type: string
+                  description: >-
+                    The EKS-managed cluster security group. Rules that need to reach
+                    the control plane target this, not the node groups' own groups.
+                oidcProviderArn: {type: string, description: IAM OIDC provider ARN.}
                 oidcIssuer: {type: string, description: OIDC issuer URL (no scheme).}
-                karpenterIamRoleArn: {type: string}
-                vpcId: {type: string}
+                karpenterIamRoleArn:
+                  type: string
+                  description: The instance-profile role Karpenter assigns to the nodes it launches.
+                vpcId: {type: string, description: The cluster VPC, for peering and endpoint attachment.}
                 privateSubnetIds:
                   type: array
                   items: {type: string}
@@ -436,9 +462,12 @@ spec:
         - name: REGION
           type: string
           jsonPath: .spec.region
+          description: Region the cluster was vended into.
         - name: ACCOUNT
           type: string
           jsonPath: .spec.account
+          description: Workload account the cluster was vended into.
         - name: ENDPOINT
           type: string
           jsonPath: .status.clusterEndpoint
+          description: EKS API endpoint — empty until the vend converges.

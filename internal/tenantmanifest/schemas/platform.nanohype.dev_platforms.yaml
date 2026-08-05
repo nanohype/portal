@@ -67,7 +67,7 @@ spec:
                 description: |-
                   Attribution opts the Platform into per-session human attribution. When
                   set, the operator provisions a session role — assumable by the tenant
-                  IRSA role with the operator carried as STS SourceIdentity, scoped to the
+                  role with the operator carried as STS SourceIdentity, scoped to the
                   tenant baseline (Bedrock invoke) and NOT broad sts:AssumeRole — plus a
                   ClusterRole letting the tenant ServiceAccount impersonate the named
                   operators at the apiserver. fab's role-session entrypoint consumes both,
@@ -90,7 +90,7 @@ spec:
                     default: 3600
                     description: |-
                       SessionRoleMaxDurationSeconds caps the assumed session lifetime. Because
-                      the caller is the tenant IRSA role, AWS STS role chaining hard-caps a
+                      the caller is the tenant role, AWS STS role chaining hard-caps a
                       chained session at 3600s regardless of this value; larger values only
                       matter if the caller ever changes. Defaults to 3600.
                     format: int32
@@ -460,7 +460,7 @@ spec:
                 type: string
               identity:
                 description: |-
-                  Identity controls how the IRSA role is named + which Bedrock models are
+                  Identity controls how the tenant role is named + which Bedrock models are
                   reachable.
                 properties:
                   allowedModelFamilies:
@@ -551,10 +551,34 @@ spec:
                     maxItems: 16
                     type: array
                   extraPolicyArns:
-                    description: ExtraPolicyArns are managed IAM policies attached
-                      on top of the baseline.
+                    description: |-
+                      ExtraPolicyArns are managed IAM policies attached on top of the baseline.
+
+                      Every sibling on this struct is bounded — DirectSecretReads by count, length
+                      and pattern, Capabilities by count, AllowedModelFamilies by enum — and this
+                      one governs which managed IAM policies get attached to the tenant role, so it
+                      is the field where an unbounded value costs the most.
+
+                      MaxItems=9 keeps the role inside AWS's default quota. "Managed policies per
+                      role" is 10 by default (raisable to 25), and the operator attaches the tenant
+                      baseline itself (platform_iam.go reconcileManagedPolicies), so nine declared
+                      entries is the most that can be satisfied without a quota increase. Past that
+                      the attach fails at reconcile — a LimitExceeded the author never sees, on a
+                      Platform that stays Provisioning. Bounding it here puts the failure at
+                      admission, where the person who typed it is looking.
+
+                      The pattern is an IAM POLICY arn specifically. Without it this field accepts
+                      any string, and the operator hands whatever it holds to AttachRolePolicy —
+                      so a typo becomes a reconcile error and an ARN of the wrong service becomes
+                      one too, both discovered long after apply. Both partitions and both policy
+                      owners are allowed: `arn:aws:iam::aws:policy/ReadOnlyAccess` (AWS-managed) and
+                      `arn:aws:iam::123456789012:policy/team/MyPolicy` (customer-managed, path
+                      optional).
                     items:
+                      maxLength: 2048
+                      pattern: ^arn:aws[a-z-]*:iam::(aws|[0-9]{12}):policy/[A-Za-z0-9+=,.@_/-]+$
                       type: string
+                    maxItems: 9
                     type: array
                 type: object
                 x-kubernetes-validations:
@@ -792,7 +816,7 @@ spec:
                   non-nil the operator stops reattaching the baseline IAM policy and
                   the AgentFleetReconciler scales fleets to zero. Resets to nil only
                   when ops clears the iam:TagRole 'platform.nanohype.dev/suspended'
-                  marker on the tenant IRSA role.
+                  marker on the tenant role.
                 format: date-time
                 type: string
               suspendedReason:

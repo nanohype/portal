@@ -8,18 +8,114 @@ name: Cluster XRD freshness
 # answering it in CI would turn a required check red because someone pushed to
 # another repository.
 #
-# A red run here means: re-vendor, read the schema diff, and ship whatever
-# render change it implies.
+# But a scheduled red run is not a signal anyone receives. This job and its CRD
+# sibling both sat red for two consecutive weeks while the vendored schemas
+# drifted, and nothing said so. So drift files an ISSUE — one, edited in place
+# rather than re-commented, closed automatically when the pin catches up. The run
+# still goes red; the issue is what makes the red durable.
+#
+# The three exits are distinct on purpose. 0 is current, 2 is behind, and anything
+# else means the check could not reach a verdict at all — a broken lookup must not
+# be filed as confirmed drift, nor drift dismissed as a broken lookup.
 on:
   schedule:
     - cron: "0 14 * * 1"
   workflow_dispatch:
 permissions:
   contents: read
+  issues: write
 jobs:
   freshness:
     runs-on: ubuntu-latest
+    env:
+      DRIFT_LABEL: schema-drift
+      DRIFT_TITLE: "Cluster XRD pin is behind eks-fleet"
     steps:
       - uses: actions/checkout@v4
+
       - name: Is the pin behind upstream?
-        run: scripts/xrd.sh freshness
+        id: freshness
+        run: |
+          set -uo pipefail
+          # Redirect to a file and read $? from the script itself. Reading an exit
+          # code off the end of a pipeline reports the LAST command's status, which
+          # is how a check ends up reporting `tee` succeeded.
+          scripts/xrd.sh freshness > freshness.log 2>&1
+          code=$?
+          cat freshness.log
+          echo "code=${code}" >> "$GITHUB_OUTPUT"
+          {
+            echo 'report<<REPORT_EOF'
+            cat freshness.log
+            echo 'REPORT_EOF'
+          } >> "$GITHUB_OUTPUT"
+          # 0 and 2 are verdicts and are handled in the steps below. Anything else
+          # is the check failing to run, and fails the job here where the log is.
+          if [[ "$code" -ne 0 && "$code" -ne 2 ]]; then
+            echo "::error::scripts/xrd.sh freshness exited ${code} — it could not reach a verdict"
+            exit 1
+          fi
+
+      - name: File the drift issue
+        if: steps.freshness.outputs.code == '2'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPORT: ${{ steps.freshness.outputs.report }}
+        run: |
+          set -euo pipefail
+          gh label create "$DRIFT_LABEL" \
+            --color B60205 \
+            --description "A vendored upstream copy is behind the repo it was copied from" \
+            2>/dev/null || true
+
+          body=$(cat <<EOF
+          The vendored Cluster XRD in \`internal/clusterspec/testdata\` is pinned to a commit that
+          is no longer the newest \`apis/cluster/definition.yaml\` in
+          [nanohype/eks-fleet](https://github.com/nanohype/eks-fleet).
+
+          \`\`\`
+          ${REPORT}
+          \`\`\`
+
+          **Why this matters more than it reads.** portal renders a \`Cluster\` CR and commits it
+          to the clusters GitOps repo. Every field the XRD gains or constrains upstream is checked
+          here only after this pin moves — until then portal can write a CR that Crossplane will
+          refuse, and the refusal surfaces during a vend rather than at the form.
+
+          Re-vendor and re-run the render tests:
+
+          \`\`\`
+          task xrd:sync -- <sha>
+          go test ./internal/clusterspec/
+          \`\`\`
+
+          Read the schema diff before merging — a new field upstream usually implies a render or
+          form change here. This issue closes itself once the pin is current.
+          EOF
+          )
+
+          existing=$(gh issue list --state open --label "$DRIFT_LABEL" --json number,title \
+            --jq "[.[] | select(.title == \"${DRIFT_TITLE}\")] | .[0].number // empty")
+
+          if [[ -n "$existing" ]]; then
+            gh issue edit "$existing" --body "$body"
+            echo "updated issue #${existing}"
+          else
+            gh issue create --title "$DRIFT_TITLE" --label "$DRIFT_LABEL" --body "$body"
+          fi
+
+      - name: Close the drift issue
+        if: steps.freshness.outputs.code == '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          existing=$(gh issue list --state open --label "$DRIFT_LABEL" --json number,title \
+            --jq "[.[] | select(.title == \"${DRIFT_TITLE}\")] | .[0].number // empty")
+          if [[ -n "$existing" ]]; then
+            gh issue close "$existing" --comment "The pin is current again — closed by the scheduled freshness check."
+          fi
+
+      - name: Fail while the pin is behind
+        if: steps.freshness.outputs.code == '2'
+        run: exit 1

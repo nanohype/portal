@@ -6,7 +6,7 @@
 #
 #   scripts/crd.sh sync [<sha>]   # re-vendor (optionally moving the pin) + rewrite the digests
 #   scripts/crd.sh check          # the blocking CI gate
-#   scripts/crd.sh freshness      # is the pin behind upstream? (scheduled, never in PR CI)
+#   scripts/crd.sh freshness      # is the pin behind upstream? (scheduled; exit 2 = behind)
 #
 # Why the copies exist at all is in internal/tenantmanifest/schemas/README.md.
 # The short version: resolving them over the network at write time would make
@@ -143,12 +143,15 @@ cmd_freshness() {
     echo "crd: pin is current (${ref})"
     return 0
   fi
-  # Deliberately non-zero so a scheduled run is visibly actionable, and
-  # deliberately separate from `check` so a push to another repository can never
-  # turn a required check red.
+  # Exit 2, not 1, and the distinction is load-bearing. `die` exits 1 for every
+  # way this check can BREAK — no curl, GitHub unreachable, a ref that resolves
+  # to nothing. "The pin is behind" is a different fact from "I could not find
+  # out", and the scheduled workflow files an issue for the first while failing
+  # loudly for the second. Collapsing them would let a week of failed lookups
+  # read as a week of confirmed drift, or the reverse.
   echo "crd: pin ${ref} is behind — ${UPSTREAM_PATH} last changed at ${head}" >&2
   echo "crd: re-vendor with: task crd:sync -- ${head}" >&2
-  return 1
+  return 2
 }
 
 case "${1:-}" in
