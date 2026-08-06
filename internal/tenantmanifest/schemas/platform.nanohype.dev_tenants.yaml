@@ -79,16 +79,21 @@ spec:
                 type: string
               compliance:
                 description: |-
-                  Compliance baseline applied to every Platform owned by this Tenant
-                  unless the Platform itself sets a stricter value.
+                  Compliance is the posture expected of every Platform this Tenant owns. A
+                  Platform may declare more than its Tenant, never less: `cloudgov platform
+                  audit` reports a Platform declaring less than its Tenant as a finding.
+                  Nothing copies this value down — each Platform declares its own.
                 properties:
                   hipaa:
                     description: |-
-                      HIPAA: object-lock compliance mode, no cross-region inference, PII detect
-                      required on Guardrails.
+                      HIPAA marks the Platform as handling PHI. One audited invariant: a
+                      Platform whose Tenant sets hipaa must set it too.
                     type: boolean
                   soc2:
-                    description: 'SOC2: invocation logging required, kill-switch enabled.'
+                    description: |-
+                      SOC2 marks the Platform as in SOC 2 audit scope. Two audited invariants:
+                      the referenced BudgetPolicy must have killSwitchEnabled, and a Platform
+                      whose Tenant sets soc2 must set it too.
                     type: boolean
                 type: object
               contact:

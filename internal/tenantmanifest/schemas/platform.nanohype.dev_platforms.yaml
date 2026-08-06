@@ -109,15 +109,20 @@ spec:
                 - name
                 type: object
               compliance:
-                description: Compliance flags drive stricter defaults across the Platform.
+                description: |-
+                  Compliance is the posture this Platform declares, audited by
+                  `cloudgov platform audit` rather than enforced by this operator.
                 properties:
                   hipaa:
                     description: |-
-                      HIPAA: object-lock compliance mode, no cross-region inference, PII detect
-                      required on Guardrails.
+                      HIPAA marks the Platform as handling PHI. One audited invariant: a
+                      Platform whose Tenant sets hipaa must set it too.
                     type: boolean
                   soc2:
-                    description: 'SOC2: invocation logging required, kill-switch enabled.'
+                    description: |-
+                      SOC2 marks the Platform as in SOC 2 audit scope. Two audited invariants:
+                      the referenced BudgetPolicy must have killSwitchEnabled, and a Platform
+                      whose Tenant sets soc2 must set it too.
                     type: boolean
                 type: object
               datastores:
@@ -170,14 +175,31 @@ spec:
                     deletionPolicy:
                       default: Retain
                       description: |-
-                        DeletionPolicy governs the underlying AWS resource when this datastore is
-                        removed from spec or the Platform is deleted (T2).
-                          Retain (default): the resource is orphaned, tagged
-                            platform.nanohype.dev/owned-by and platform.nanohype.dev/released-at,
-                            so a `kubectl delete platform` never takes the data with it.
-                          Delete: the resource is torn down with the declaration.
-                        Independent of the per-kind deletion_protection backstop, which defaults on
-                        for relational and cache — two gates, both defaulting closed.
+                        DeletionPolicy declares whether this datastore's AWS resource should
+                        survive a teardown of the substrate that provisioned it.
+
+                        It does NOT govern `kubectl delete platform`. The operator holds no delete
+                        permission on any datastore, so deleting the CR orphans every store
+                        regardless of this field — the isolation boundary is enforced by
+                        permission, not by policy. This field reaches only the tenant-substrate
+                        module's destroy path.
+
+                        What it means is per-kind, because the same word cannot name the same
+                        mechanism across services that offer different ones:
+                          keyValue: Retain arms DynamoDB deletion protection, which refuses the
+                            delete outright and leaves no cost behind. The clean case.
+                          relational: Retain takes a final Aurora snapshot; Delete skips it. The
+                            snapshot outlives the cluster and begins billing per GB-month once it
+                            falls outside backupRetentionDays, so Retain here is durability with a
+                            cost tail, not free protection. Aurora's own deletionProtection is a
+                            separate and independent gate: Delete alone will not drop a protected
+                            cluster, both must open.
+                          objectStore, queue, cache, stream: no effect. S3 has no deletion
+                            protection (force_destroy governs emptying a bucket, not deleting an
+                            empty one), and SQS, ElastiCache and MSK offer no retain lever at all.
+                            Cache is derived data by design and is deliberately unprotected.
+
+                        The operator's substrate-wide teardown lever overrides this in every case.
                       enum:
                       - Retain
                       - Delete
