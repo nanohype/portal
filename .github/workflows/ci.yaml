@@ -158,3 +158,26 @@ jobs:
         uses: nanohype/nanohype/.github/actions/render-assert@main
         with:
           manifests: rendered
+
+  merge-gate:
+    name: merge gate
+    runs-on: ubuntu-latest
+    needs:
+      [
+        ci,
+        chart,
+      ]
+    # always() is load-bearing: without it a failed dependency SKIPS this job,
+    # and GitHub counts a skipped check as passing for branch protection, so the
+    # gate would report green exactly when something broke.
+    #
+    # Restricted to pull_request because the gate treats a skipped dependency as
+    # a failure, and a job carrying `if: github.event_name == 'pull_request'` is
+    # legitimately skipped on a push to main. The gate exists to gate merges, and
+    # merges come from pull requests; on push it is skipped and gates nothing.
+    if: always() && github.event_name == 'pull_request'
+    steps:
+      - uses: nanohype/.github/actions/merge-gate@6ec6c5b3e6c4a8b15e12da4afd7ac4870a630092 # main
+        with:
+          needs: ${{ toJSON(needs) }}
+          gate-job-id: merge-gate
