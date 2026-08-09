@@ -85,7 +85,7 @@ config:
 # redis.url is OPTIONAL: leave it empty to run the log streamer in-memory (no
 # Redis). For local dev, `task dev` brings these up via docker-compose, not the chart.
 database:
-  url: ""   # REQUIRED — postgres://user:pass@host:5432/portal?sslmode=require
+  url: ""   # REQUIRED unless externalSecret.enabled — postgres://user:pass@host:5432/portal?sslmode=require
 redis:
   url: ""   # optional — redis://host:6379 ; empty = in-memory log streaming
 
@@ -107,6 +107,44 @@ objectStore:
   useSSL: true
   accessKey: ""             # S3 access key id
   secretKey: ""             # S3 secret access key
+
+# -- Running as a Platform tenant: credentials from the substrate, not from values.
+#
+# The operator provisions this tenant's Aurora and ElastiCache from its Platform
+# CR's spec.datastores, and RDS keeps the master credential in a Secrets Manager
+# entry it names itself (rds!cluster-<id>). So the connection string cannot be a
+# committed value: half of it is generated at provision time and the other half
+# rotates.
+#
+# external-secrets composes it instead. The password never lands in a values
+# file, a helm release, or this chart's own Secret — the ExternalSecret reads it
+# at refresh and writes only the assembled URL.
+#
+# The endpoint halves are NOT secret and ride as plain values, which is what
+# lets the ExternalSecret name one remote ref per credential instead of
+# depending on something to have copied five fields into a bespoke secret. That
+# copy is exactly the contract three tenant apps read today and nothing writes.
+externalSecret:
+  enabled: false
+  refreshInterval: 1h
+  secretStore: aws-secretsmanager       # ClusterSecretStore installed by the catalog
+  # Secrets Manager ARN of the RDS-managed master credential. rackctl reads it
+  # from the tenant-substrate output; there is no name to guess.
+  relationalSecretArn: ""
+  # ARN of the cache AUTH token secret. Empty = no auth token, and the composed
+  # REDIS_URL carries no credential.
+  cacheSecretArn: ""
+
+# -- Where the substrate lives. Not secret, so not in the ExternalSecret.
+tenantInfra:
+  relational:
+    host: ""
+    port: 5432
+    database: portal
+    sslMode: require
+  cache:
+    host: ""
+    port: 6379
 
 # -- Ingress
 ingress:

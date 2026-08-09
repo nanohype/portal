@@ -37,3 +37,10 @@ spec:
                 name: {{ .Release.Name }}-config
             - secretRef:
                 name: {{ .Release.Name }}-secret
+            {{- if $.Values.externalSecret.enabled }}
+            # After the chart's own Secret, deliberately: envFrom takes the LAST
+            # value for a duplicate key, and this one carries the composed
+            # DATABASE_URL/REDIS_URL.
+            - secretRef:
+                name: {{ $.Release.Name }}-tenant-secret
+            {{- end }}
