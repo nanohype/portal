@@ -1,0 +1,104 @@
+# Platform CR — portal as a tenant of the platform it operates.
+#
+# Portal is a factory-built app, so it ships the same way every other one does: a
+# Helm chart, a Platform CR, an ApplicationSet entry. What it needs from the
+# operator is the ordinary tenant boundary — a namespace, a ResourceQuota, a
+# default-deny NetworkPolicy, an AppProject, and an IAM identity bound by Pod
+# Identity — plus the stateful substrate it cannot bundle: Postgres, Redis and an
+# object store.
+#
+# Declaring that substrate here rather than as a per-app landing-zone component is
+# the whole point of `spec.datastores`. The generic tenant-substrate module
+# provisions what this file names, and the operator generates the scoped
+# datastore-access policy from the same declaration, so both halves read one
+# source. Adding portal to an environment is one line in that environment's
+# tenants.selection.yaml; what it gets is written only here.
+#
+# TWO THINGS PORTAL DOES NOT HAVE, both deliberate:
+#
+#   - No model access. identity.allowedModels is empty, so the operator's
+#     bedrock-model-scoping policy denies every model. Portal orchestrates
+#     OpenTofu and reads cluster state; it makes no inference calls, and a console
+#     that could invoke a model is a console that can spend.
+#
+#   - No ModelGateway. Nothing to route.
+---
+apiVersion: governance.nanohype.dev/v1alpha1
+kind: BudgetPolicy
+metadata:
+  name: portal
+  namespace: tenants-platform-ops
+spec:
+  platformRef:
+    name: portal
+  # Nominal, and it is the kill switch below that matters rather than the number.
+  # Portal invokes no model, so its Bedrock spend is structurally zero; the budget
+  # exists because Platform.spec.budget is required and because a tenant with no
+  # declared ceiling is a tenant nobody is watching.
+  monthlyUsd: "5"
+  alertThresholdsPercent: [100]
+  # OFF, and this is the one setting here worth arguing about.
+  #
+  # The kill switch stops a tenant serving when it burns past its cap. Portal is
+  # the console an operator opens to see WHY a kill switch fired and to unwind
+  # whatever caused it. A control plane that can switch off its own console fails
+  # exactly when it is needed, and portal cannot trip this anyway — zero spend
+  # never crosses a threshold. Off by intent, not by accident.
+  killSwitchEnabled: false
+---
+apiVersion: platform.nanohype.dev/v1alpha1
+kind: Platform
+metadata:
+  name: portal
+  namespace: tenants-platform-ops
+spec:
+  displayName: Operations Portal
+  persona: ops
+  # The platform-engineering tenant, declared by the eks-gitops catalog alongside
+  # the `ops` Platform. Portal is that team's own tool, so it belongs under the
+  # same Tenant rather than inventing a second one for the same humans — and the
+  # Tenant's aggregate ceiling covers both Platforms.
+  tenant: platform-ops
+  budget:
+    name: portal
+  isolation: namespace
+  compliance:
+    soc2: true
+  identity:
+    # Empty on purpose. See the header: portal makes no inference calls, and the
+    # operator clamps Bedrock invoke to exactly this list.
+    allowedModels: []
+    # S3, Postgres and ElastiCache access all ride spec.datastores below, and the
+    # operator generates the scoped policy from that declaration. Portal's
+    # cross-account reach — assuming into managed accounts, reading vended
+    # clusters — is the portal-spoke role's job and is granted per account, not
+    # here.
+    extraPolicyArns: []
+    capabilities: []
+  # The stateful substrate portal cannot bundle. Its chart deliberately ships no
+  # database, cache or object store: it speaks to managed services, which is what
+  # keeps it off the archived Bitnami catalog.
+  datastores:
+    # Postgres — the domain model plus River's job queue. River polls, so this is
+    # not a store that can be swapped for something eventually-consistent.
+    - name: main
+      kind: relational
+      relational:
+        # A control plane, not a workload: small and steady. Serverless v2 scales
+        # to the floor between runs, which is most of the time.
+        minACU: 0.5
+        maxACU: 4
+        backupRetentionDays: 7
+    # Redis — log-streaming pub/sub between the worker and the API server, so run
+    # output reaches a browser while the run is still going. Optional in the chart
+    # (empty falls back to in-memory), and in-memory is wrong here: server and
+    # worker are separate processes, so a run's log would never reach the UI.
+    - name: main
+      kind: cache
+    # OpenTofu state and run logs. Versioning is not optional for state — it is
+    # the difference between a bad apply being recoverable and being the end of
+    # the workspace.
+    - name: state
+      kind: objectStore
+      objectStore:
+        versioning: true
