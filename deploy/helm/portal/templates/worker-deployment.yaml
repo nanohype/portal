@@ -39,7 +39,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: worker
-          image: "{{ .Values.image.worker.repository }}:{{ .Values.image.worker.tag }}"
+          image: {{ include "portal.image" (dict "img" .Values.image.worker "ctx" $) | quote }}
           imagePullPolicy: {{ .Values.image.worker.pullPolicy }}
           ports:
             - name: health

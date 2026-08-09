@@ -22,7 +22,8 @@ data:
   JWT_EXPIRATION: {{ .Values.config.jwtExpiration | quote }}
   SHUTDOWN_TIMEOUT: {{ .Values.config.shutdownTimeout | quote }}
   EXECUTOR_NAMESPACE: {{ .Values.config.executorNamespace | quote }}
-  EXECUTOR_IMAGE: {{ .Values.config.executorImage | quote }}
+  EXECUTOR_IMAGE: {{ include "portal.executorImage" . | quote }}
+  EXECUTOR_IMAGE_PREFIX: {{ include "portal.executorRepository" . | quote }}
   WORKER_HEALTH_ADDR: {{ .Values.config.workerHealthAddr | quote }}
   LOG_LEVEL: {{ .Values.config.logLevel | quote }}
   DB_MAX_CONNS: {{ .Values.config.dbMaxConns | quote }}

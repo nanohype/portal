@@ -16,25 +16,42 @@ Portal is three processes plus its data plane:
 
 ## Docker images
 
-Build everything from the repo root:
+Published to GHCR by `release.yaml` on a `v*` tag, multi-arch (amd64 + arm64),
+cosign-signed with an SBOM attestation:
 
-```bash
-task docker:build
+```
+ghcr.io/nanohype/portal/server
+ghcr.io/nanohype/portal/worker
+ghcr.io/nanohype/portal/web
+ghcr.io/nanohype/portal/migrate     # the one-shot migration runner
+ghcr.io/nanohype/portal/executor    # tofu/terragrunt runner for the K8s executor
 ```
 
-That produces `portal/server`, `portal/worker`, `portal/web`, and
-`portal/migrate` (the one-shot migration runner). Multi-stage Alpine builds,
-all running as a non-root `portal` user.
+Multi-stage Alpine builds, all running as a non-root user. The chart's image
+tags default to its `appVersion`, and the release refuses to run when the tag
+and the chart's `appVersion` disagree — so a chart can never resolve a build
+that tag did not produce.
 
-If you run the Kubernetes executor (the worker spawns ephemeral pods to run
-tofu instead of running it in-process), also build the executor image — one per
-tofu version you need:
+arm64 is not a portability nicety: every nanohype cluster defaults to Graviton
+system nodes, so it is the half of the manifest that actually gets pulled.
+
+The executor image carries a second tag, `tofu-<version>`, taken from the
+`TOFU_VERSION` arg in its own Dockerfile. That is the name the worker resolves
+for a workspace that pins a tofu version —
+`{EXECUTOR_IMAGE_PREFIX}:tofu-{workspace.tofu_version}` — while a workspace
+that pins nothing gets `EXECUTOR_IMAGE`, the appVersion tag. The chart sets
+both.
+
+To build locally instead — for kind, or to test a change before tagging:
 
 ```bash
+task docker:build                                            # server, worker, web, migrate
 docker build -f docker/Dockerfile.executor -t portal-executor:tofu-1.11 .
 ```
 
-The worker resolves the image as `{EXECUTOR_IMAGE_PREFIX}:tofu-{workspace.tofu_version}`.
+Those carry local names, so point the chart at them:
+`--set image.server.repository=portal/server --set image.server.tag=latest`
+(and the same for worker/web/migrate).
 
 ## Local dev (docker-compose)
 

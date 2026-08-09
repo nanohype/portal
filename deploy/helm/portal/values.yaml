@@ -4,23 +4,31 @@ replicaCount:
   worker: 1   # Only 1 worker recommended — River handles concurrency internally
   web: 1
 
-# -- Container images
+# -- Container images.
+#
+# Fully qualified, because an unqualified name is not "unset" — `portal/server`
+# is a valid reference to docker.io/portal/server, a repository this project
+# does not own. A chart installed with its own defaults must either work or
+# fail; pulling something else entirely is the one outcome that is neither.
+#
+# tag empty means the chart's appVersion, which is what release.yaml builds the
+# images at. Pin one only to run a build the chart does not ship with.
 image:
   server:
-    repository: portal/server
-    tag: latest
+    repository: ghcr.io/nanohype/portal/server
+    tag: ""
     pullPolicy: IfNotPresent
   worker:
-    repository: portal/worker
-    tag: latest
+    repository: ghcr.io/nanohype/portal/worker
+    tag: ""
     pullPolicy: IfNotPresent
   web:
-    repository: portal/web
-    tag: latest
+    repository: ghcr.io/nanohype/portal/web
+    tag: ""
     pullPolicy: IfNotPresent
   migrate:
-    repository: portal/migrate
-    tag: latest
+    repository: ghcr.io/nanohype/portal/migrate
+    tag: ""
     pullPolicy: IfNotPresent
 
 # -- Application configuration
@@ -54,7 +62,12 @@ config:
   # Executor — "local" runs tofu on the worker host, "kubernetes" uses ephemeral pods
   executorType: "local"
   executorNamespace: "portal"                  # K8s namespace for executor pods
-  executorImage: "portal-executor:tofu-1.11"   # Default executor image
+  executorImage: ""                            # empty = ghcr.io/nanohype/portal/executor:<appVersion>
+  # Repository for per-tofu-version executor images. A workspace that pins a
+  # tofu version makes the executor resolve "<prefix>:tofu-<version>" instead of
+  # executorImage, and the release tags the executor image that way too. Empty
+  # = ghcr.io/nanohype/portal/executor.
+  executorImagePrefix: ""
 
   # Worker
   workerConcurrency: "10"

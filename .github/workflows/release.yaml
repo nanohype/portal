@@ -1,0 +1,219 @@
+name: release
+
+# One way in: a tag.
+#
+# Portal is one application built from one commit, so it releases as one unit:
+# `v0.1.0` builds the five images at 0.1.0 and publishes the chart. Splitting
+# them would let the chart resolve a tag no build produced, which is the exact
+# failure the appVersion assertion below exists to make impossible.
+#
+# Keyless OIDC signing produces a certificate whose subject ends
+# `release.yaml@refs/tags/<tag>`, and eks-gitops' Kyverno `verify-images`
+# policy admits only `release\.ya?ml@refs/tags/.+`. A build triggered from a
+# branch would therefore publish, sign, and then be denied at admission on
+# every cluster it was built for — so there is no branch trigger to be tempted
+# by.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  plan:
+    name: what this tag releases
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: derive version and hold it against the chart
+        id: plan
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF#refs/tags/v}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+          # The chart's image tags default to appVersion — that is how an
+          # install with no --set pulls the build this tag produces. So the two
+          # must be the same string, and the only moment either is knowable is
+          # here.
+          #
+          # Asserting it is not pedantry. Tagging v0.2.0 against a chart still
+          # declaring appVersion 0.1.0 publishes five images nothing references
+          # and leaves every install on 0.1.0, reporting a release that did not
+          # reach anyone. The reverse — appVersion ahead of the images — is the
+          # ImagePullBackOff.
+          app=$(awk '/^appVersion:/ {gsub(/"/,"",$2); print $2; exit}' deploy/helm/portal/Chart.yaml)
+          if [ "$app" != "$version" ]; then
+            echo "::error::tag v${version} does not match deploy/helm/portal/Chart.yaml appVersion ${app}."
+            echo "The chart's image tags default to appVersion, so these must agree or the chart"
+            echo "resolves images this tag did not build. Set appVersion to ${version} and re-tag."
+            exit 1
+          fi
+          echo "releasing portal ${version} (chart appVersion matches)"
+
+  images:
+    name: build + sign ${{ matrix.component }}
+    needs: plan
+    runs-on: ubuntu-latest
+    strategy:
+      # Fail-fast off: a failure in one image should not hide whether the
+      # others build. A partial release is recoverable by re-running the tag;
+      # not knowing which four of five were fine is not.
+      fail-fast: false
+      matrix:
+        component: [server, worker, web, migrate, executor]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+      - uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+      - name: docker login (ghcr.io)
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      # A workspace that pins a tofu version makes the worker resolve
+      # `<prefix>:tofu-<version>` rather than the appVersion tag, so the
+      # executor needs that name to exist as well. The version comes from the
+      # Dockerfile's own ARG — the two cannot disagree about which tofu is
+      # actually inside the image.
+      - name: extra tag for the executor
+        id: extra
+        if: matrix.component == 'executor'
+        run: |
+          set -euo pipefail
+          tofu=$(awk -F= '/^ARG TOFU_VERSION=/ {print $2; exit}' docker/Dockerfile.executor)
+          if [ -z "$tofu" ]; then
+            echo "::error::docker/Dockerfile.executor declares no TOFU_VERSION"
+            exit 1
+          fi
+          echo "tag=ghcr.io/${{ github.repository }}/executor:tofu-${tofu}" >> "$GITHUB_OUTPUT"
+      - name: build + push (multi-arch)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          # Repo root for every image: the Go builds copy go.mod/go.sum and the
+          # tree, and the web build copies web/ and docker/nginx.conf.
+          context: .
+          file: docker/Dockerfile.${{ matrix.component }}
+          # arm64 is not optional here. Every nanohype cluster defaults to
+          # Graviton system nodes, so arm64 is the half of the manifest that
+          # actually gets pulled.
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: mode=max
+          sbom: true
+          tags: |
+            ghcr.io/${{ github.repository }}/${{ matrix.component }}:${{ needs.plan.outputs.version }}
+            ghcr.io/${{ github.repository }}/${{ matrix.component }}:latest
+            ${{ steps.extra.outputs.tag }}
+      - name: sign (keyless, OIDC)
+        run: |
+          cosign sign --yes "ghcr.io/${{ github.repository }}/${{ matrix.component }}:${{ needs.plan.outputs.version }}"
+      - name: sbom
+        run: |
+          set -euo pipefail
+          ref="ghcr.io/${{ github.repository }}/${{ matrix.component }}:${{ needs.plan.outputs.version }}"
+          syft "$ref" -o spdx-json > sbom.spdx.json
+          cosign attest --yes --predicate sbom.spdx.json --type spdxjson "$ref"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ matrix.component }}-${{ needs.plan.outputs.version }}
+          path: sbom.spdx.json
+
+  chart-oci:
+    name: package + push chart to OCI
+    # After the images, never beside them. The chart's whole purpose is to name
+    # those tags; publishing it first opens a window in which an install
+    # resolves the chart and then fails to pull what it references.
+    needs: [plan, images]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+      - name: login
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: package + push
+        env:
+          REGISTRY: oci://ghcr.io/${{ github.repository }}/charts
+        run: |
+          set -euo pipefail
+
+          # An OCI tag is mutable: pushing 0.1.0 a second time replaces what
+          # every cluster already resolved. Identical content makes that a
+          # no-op, but a chart edited without a version bump would be swapped
+          # underneath running installs with nothing to say so.
+          #
+          # So this refuses to overwrite. The published version is either
+          # absent (publish), byte-identical (skip), or different (fail — the
+          # chart changed and its version did not).
+          #
+          # The comparison packages the source and diffs the extracted trees
+          # rather than the tarballs: helm rewrites Chart.yaml on package (keys
+          # reordered, comments dropped) and stamps mtimes, so source and
+          # registry only compare equal once both have been through
+          # `helm package`.
+          src=deploy/helm/portal
+          version=$(helm show chart "$src" | awk '/^version:/ {print $2; exit}')
+          if [ -z "$version" ]; then
+            echo "::error::deploy/helm/portal/Chart.yaml declares no version"
+            exit 1
+          fi
+
+          work=/tmp/chart
+          mkdir -p "${work}/candidate"
+          helm package "$src" -d "$work"
+          tgz="${work}/portal-${version}.tgz"
+          tar xzf "$tgz" -C "${work}/candidate"
+
+          # Three outcomes, and anything else stops the job. An unrecognized
+          # registry error must not fall through to a push — that is the one
+          # path that could overwrite a live version. Login ran as its own step
+          # above, so by here auth is established and `denied` means the
+          # package does not exist yet (GHCR does not distinguish an absent
+          # package from an unreadable one).
+          state=unknown
+          err=""
+          for attempt in 1 2 3; do
+            if err=$(helm show chart "${REGISTRY}/portal" --version "$version" 2>&1); then
+              state=present
+              break
+            fi
+            case "$err" in
+              *"not found"*|*NAME_UNKNOWN*|*MANIFEST_UNKNOWN*|*denied*)
+                state=absent
+                break
+                ;;
+            esac
+            echo "attempt ${attempt}: could not read portal ${version}: ${err}"
+            sleep 5
+          done
+
+          case "$state" in
+            present)
+              helm pull "${REGISTRY}/portal" --version "$version" \
+                -d "$work" --untar --untardir published
+              if diff -r "${work}/published/portal" "${work}/candidate/portal" >/dev/null; then
+                echo "skip portal ${version} — already published, identical content"
+                exit 0
+              fi
+              echo "::error::portal ${version} is already published with different content."
+              echo "The chart changed without a version bump. Bump deploy/helm/portal/Chart.yaml"
+              echo "and tag again — overwriting a published version would swap the chart"
+              echo "underneath every install already resolving it."
+              diff -r "${work}/published/portal" "${work}/candidate/portal" || true
+              exit 1
+              ;;
+            absent)
+              helm push "$tgz" "$REGISTRY"
+              echo "published portal ${version}"
+              ;;
+            *)
+              echo "::error::could not determine whether portal ${version} is published."
+              echo "Refusing to push — the last error was: ${err}"
+              exit 1
+              ;;
+          esac

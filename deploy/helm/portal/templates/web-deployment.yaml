@@ -24,7 +24,7 @@ spec:
         fsGroup: 101
       containers:
         - name: web
-          image: "{{ .Values.image.web.repository }}:{{ .Values.image.web.tag }}"
+          image: {{ include "portal.image" (dict "img" .Values.image.web "ctx" $) | quote }}
           imagePullPolicy: {{ .Values.image.web.pullPolicy }}
           ports:
             - containerPort: 8080

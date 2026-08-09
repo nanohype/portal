@@ -29,7 +29,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: server
-          image: "{{ .Values.image.server.repository }}:{{ .Values.image.server.tag }}"
+          image: {{ include "portal.image" (dict "img" .Values.image.server "ctx" $) | quote }}
           imagePullPolicy: {{ .Values.image.server.pullPolicy }}
           ports:
             - containerPort: 8080

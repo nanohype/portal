@@ -25,7 +25,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: migrate
-          image: "{{ .Values.image.migrate.repository }}:{{ .Values.image.migrate.tag }}"
+          image: {{ include "portal.image" (dict "img" .Values.image.migrate "ctx" $) | quote }}
           imagePullPolicy: {{ .Values.image.migrate.pullPolicy }}
           securityContext:
             allowPrivilegeEscalation: false
