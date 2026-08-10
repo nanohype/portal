@@ -56,3 +56,35 @@ nothing in the render to show for it, since both files are individually valid.
 true
 {{- end -}}
 {{- end -}}
+
+{{/*
+The ServiceAccount every portal pod runs under.
+
+serviceAccount.name names an account this chart does not create — under the
+eks-agent-platform operator that is `tenant-runtime`, which the operator binds
+to the tenant IAM role with a Pod Identity association. The association targets
+exactly system:serviceaccount:<namespace>:tenant-runtime, so a pod running as
+anything else is a pod with no AWS identity. That failure is silent in the way
+this org keeps meeting: the release deploys, the pods run, and the object store
+is simply never reachable.
+
+Falls back to the chart's own worker account, which is what a standalone or
+local install wants.
+*/}}
+{{- define "portal.serviceAccountName" -}}
+{{- .Values.serviceAccount.name | default (printf "%s-worker" .Release.Name) -}}
+{{- end -}}
+
+{{/*
+Whether THIS CHART creates the ServiceAccount.
+
+Naming an external account and creating one are mutually exclusive: creating
+`tenant-runtime` here would fight the operator's own CreateOrUpdate over the
+same object, and adopting it into the Helm release makes an uninstall delete an
+identity the operator owns.
+*/}}
+{{- define "portal.createServiceAccount" -}}
+{{- if and (include "portal.worker.needsServiceAccount" .) (not .Values.serviceAccount.name) -}}
+true
+{{- end -}}
+{{- end -}}

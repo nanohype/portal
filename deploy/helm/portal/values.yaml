@@ -282,9 +282,26 @@ tracing:
   otlpProtocol: "http/protobuf"
   sampleRatio: "1"           # fraction of new traces sampled (1 = all, 0.1 = 10%)
 
-# -- Worker ServiceAccount IRSA. Set roleArn to an IAM role bound to the cluster's
-# EKS OIDC provider to give the worker AWS credentials for read-only cluster
-# status (e.g. eks:DescribeCluster, for the live cluster-detail view). Empty = no
-# IRSA; the worker does Kubernetes reads only (the vend timeline needs none).
+# -- ServiceAccount portal's pods run under.
+#
+# `name` names an account this chart does NOT create — the case that matters is
+# a Platform tenant, where the eks-agent-platform operator creates
+# `tenant-runtime` in the tenant namespace and binds it to the tenant IAM role
+# with an EKS Pod Identity association. Pods have to run AS that account or the
+# association matches nothing and every AWS call falls through to a credential
+# chain with nothing in it: the object store is unreachable while the pods stay
+# Running and the release reports deployed.
+#
+# All three deployments take it, not just the worker. The server is what reads
+# and writes the object store.
+#
+# Empty (the default) keeps the chart self-contained: the worker gets an account
+# this chart creates when its in-cluster features are on, and the server and web
+# pods run as `default`, which is correct off-EKS and for a local kind install.
+#
+# `roleArn` is the pre-Pod-Identity binding and applies only to the account this
+# chart creates. Leave it empty under `name` — an account the operator owns
+# takes no annotation from here, and Pod Identity needs none.
 serviceAccount:
+  name: ""                  # e.g. tenant-runtime — operator-owned, not created here
   roleArn: ""               # e.g. arn:aws:iam::111111111111:role/portal-worker

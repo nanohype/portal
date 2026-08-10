@@ -22,6 +22,12 @@ spec:
         app.kubernetes.io/name: portal-server
         app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
+      {{- if .Values.serviceAccount.name }}
+      # The server is what reads and writes the object store, so it is the pod
+      # that most needs the tenant identity — a Pod Identity association matches
+      # on (namespace, service account), and `default` matches nothing.
+      serviceAccountName: {{ include "portal.serviceAccountName" . }}
+      {{- end }}
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000

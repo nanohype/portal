@@ -17,6 +17,13 @@ spec:
         app.kubernetes.io/name: portal-web
         app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
+      {{- if .Values.serviceAccount.name }}
+      # nginx serving static assets makes no AWS call, so this is not about
+      # credentials. It keeps one identity across the release, so a NetworkPolicy
+      # or an audit query written against the tenant's ServiceAccount covers
+      # every pod the tenant runs rather than two of three.
+      serviceAccountName: {{ include "portal.serviceAccountName" . }}
+      {{- end }}
       securityContext:
         runAsNonRoot: true
         runAsUser: 101

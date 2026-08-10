@@ -1,4 +1,5 @@
 {{- if include "portal.worker.needsServiceAccount" . }}
+{{- if include "portal.createServiceAccount" . }}
 # RBAC for the worker's in-cluster work. Created when argocdSync, clusterWatchback,
 # clusterHealth or unwedge is enabled, or when the executor runs in Kubernetes.
 # The worker watches Platform/Tenant CRs and (for the provision watch-back) the
@@ -9,7 +10,7 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: {{ .Release.Name }}-worker
+  name: {{ include "portal.serviceAccountName" . }}
   {{- with .Values.serviceAccount.roleArn }}
   annotations:
     eks.amazonaws.com/role-arn: {{ . | quote }}  # IRSA — AWS creds for cluster-status reads
@@ -17,6 +18,7 @@ metadata:
   labels:
     app.kubernetes.io/name: portal-worker
     app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -55,7 +57,7 @@ roleRef:
   name: {{ .Release.Name }}-worker
 subjects:
   - kind: ServiceAccount
-    name: {{ .Release.Name }}-worker
+    name: {{ include "portal.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
 {{- if .Values.argocdSync.enabled }}
 ---
@@ -81,7 +83,7 @@ roleRef:
   name: {{ .Release.Name }}-argocd-reader
 subjects:
   - kind: ServiceAccount
-    name: {{ .Release.Name }}-worker
+    name: {{ include "portal.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
 {{- end }}
 {{- if eq .Values.config.executorType "kubernetes" }}
@@ -131,7 +133,7 @@ roleRef:
   name: {{ .Release.Name }}-executor
 subjects:
   - kind: ServiceAccount
-    name: {{ .Release.Name }}-worker
+    name: {{ include "portal.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
 {{- end }}
 {{- if .Values.clusterHealth.enabled }}
@@ -159,7 +161,7 @@ roleRef:
   name: {{ .Release.Name }}-argocd-apps-reader
 subjects:
   - kind: ServiceAccount
-    name: {{ .Release.Name }}-worker
+    name: {{ include "portal.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
 {{- end }}
 {{- end }}
