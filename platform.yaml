@@ -93,7 +93,14 @@ spec:
     # output reaches a browser while the run is still going. Optional in the chart
     # (empty falls back to in-memory), and in-memory is wrong here: server and
     # worker are separate processes, so a run's log would never reach the UI.
-    - name: main
+    #
+    # Named `logstream` rather than `main`: datastore names are unique per tenant,
+    # not per kind. The CRD enforces it (x-kubernetes-list-type: map keyed on
+    # name) and tenant-substrate enforces it again in a variable validation, and
+    # a second `main` here cost a live apply — the name is also what composes
+    # every AWS resource this store gets, so two of them could not be told apart
+    # anyway.
+    - name: logstream
       kind: cache
     # OpenTofu state and run logs. Versioning is not optional for state — it is
     # the difference between a bad apply being recoverable and being the end of
