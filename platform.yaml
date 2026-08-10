@@ -86,8 +86,18 @@ spec:
       relational:
         # A control plane, not a workload: small and steady. Serverless v2 scales
         # to the floor between runs, which is most of the time.
-        minACU: 0.5
-        maxACU: 4
+        # Quoted, and the CRD is strict about it: minACU and maxACU are strings, per the
+        # Kubernetes convention for fractional values (the same reason resource quantities
+        # are strings). Unquoted, YAML makes these a number and an integer, and the API
+        # server refuses the whole object:
+        #
+        #   spec.datastores[0].relational.minACU: Invalid value: "number":
+        #     ... in body must be of type string: "number"
+        #
+        # backupRetentionDays below is genuinely an integer, so the two sit next to each
+        # other looking inconsistent and are not.
+        minACU: "0.5"
+        maxACU: "4"
         backupRetentionDays: 7
     # Redis — log-streaming pub/sub between the worker and the API server, so run
     # output reaches a browser while the run is still going. Optional in the chart
