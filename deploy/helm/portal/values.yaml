@@ -127,7 +127,7 @@ objectStore:
 externalSecret:
   enabled: false
   refreshInterval: 1h
-  secretStore: aws-secretsmanager       # ClusterSecretStore installed by the catalog
+  secretStore: aws-secrets-manager  # ClusterSecretStore installed by the catalog
   # Secrets Manager ARN of the RDS-managed master credential. rackctl reads it
   # from the tenant-substrate output; there is no name to guess.
   relationalSecretArn: ""
