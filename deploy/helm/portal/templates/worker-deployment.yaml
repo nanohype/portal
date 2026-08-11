@@ -37,6 +37,8 @@ spec:
         runAsUser: 1000
         runAsGroup: 1000
         fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: worker
           image: {{ include "portal.image" (dict "img" .Values.image.worker "ctx" $) | quote }}

@@ -33,6 +33,16 @@ spec:
         runAsUser: 1000
         runAsGroup: 1000
         fsGroup: 1000
+        # Required by the Pod Security Standard `restricted`, which the
+        # eks-agent-platform operator ENFORCES on every tenant namespace. Without it
+        # the pod is not warned about — it is refused, while the Deployment is still
+        # created and sits at 0/1 forever:
+        #
+        #   pods "portal-server-..." is forbidden: violates PodSecurity
+        #   "restricted:latest": seccompProfile (pod or container "server" must set
+        #   securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: server
           image: {{ include "portal.image" (dict "img" .Values.image.server "ctx" $) | quote }}
