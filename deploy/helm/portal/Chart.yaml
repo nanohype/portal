@@ -2,7 +2,7 @@ apiVersion: v2
 name: portal
 description: OpenTofu Lifecycle Management UI
 type: application
-version: 0.5.0
+version: 0.5.1
 appVersion: "0.1.0"
 
 # Portal bundles no database, cache, or object store — it speaks to managed

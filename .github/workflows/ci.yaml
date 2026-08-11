@@ -151,6 +151,47 @@ jobs:
       - name: Validate against Kubernetes schemas
         run: kubeconform -strict -ignore-missing-schemas -summary rendered/portal.yaml rendered/portal-k8s-executor.yaml
 
+      # The ExternalSecret composes DATABASE_URL and REDIS_URL from credentials
+      # it reads at runtime, so what ships is a template the External Secrets
+      # controller renders later — helm never sees the password, and neither
+      # does kubeconform. That makes this the one object in the chart whose
+      # correctness no other gate here can reach.
+      #
+      # A credential interpolated raw is valid YAML, valid Helm, and produces a
+      # broken URL the moment the password contains a character URLs reserve.
+      # RDS draws passwords from "any printable ASCII except /, ", @, or space",
+      # which leaves # ? : [ ] in play; # is the worst of them, because
+      # net/url.Parse reads it as the fragment delimiter and silently drops the
+      # rest of the string — @host included. The failure surfaces from the app
+      # as "invalid port after host", naming the username as the host, which
+      # points at everything except the password that caused it.
+      #
+      # So: every credential in a composed URL goes through urlquery. Asserting
+      # the absence of the bare form (rather than the presence of the piped one)
+      # is deliberate — it fails on a NEW unescaped interpolation, not just on a
+      # regression of these two.
+      - name: Assert composed URLs percent-encode their credentials
+        run: |
+          helm template portal deploy/helm/portal \
+            --set externalSecret.enabled=true \
+            --set 'externalSecret.relationalSecretArn=arn:aws:secretsmanager:us-west-2:111111111111:secret:rds!cluster-probe' \
+            --set tenantInfra.relational.host=db.example.internal \
+            --set tenantInfra.cache.host=cache.example.internal \
+            --set 'externalSecret.cacheSecretArn=arn:aws:secretsmanager:us-west-2:111111111111:secret:cache-probe' \
+            > rendered/portal-externalsecret.yaml
+          fail=0
+          for cred in pgUser pgPassword cacheAuthToken; do
+            if grep -Eq "\{\{[[:space:]]*\.${cred}[[:space:]]*\}\}" rendered/portal-externalsecret.yaml; then
+              echo "::error::${cred} is interpolated into a URL without urlquery — a password containing # or ? will silently truncate the URL"
+              fail=1
+            fi
+            grep -q "\.${cred} | urlquery" rendered/portal-externalsecret.yaml || {
+              echo "::error::expected ${cred} to be piped through urlquery in the composed URL"
+              fail=1
+            }
+          done
+          exit $fail
+
       # Source files are gated elsewhere; this asserts the RENDERED chart too —
       # a zero account id, placeholder token, or account-less ARN that only
       # appears after templating.
