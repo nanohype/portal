@@ -32,10 +32,28 @@ type Config struct {
 	RedisURL string `env:"REDIS_URL" envDefault:"redis://localhost:6379"`
 
 	// S3/MinIO
-	S3Endpoint  string `env:"S3_ENDPOINT" envDefault:"localhost:9000"`
+	//
+	// The credentials carry NO default, and that is load-bearing rather than
+	// tidiness. Empty here is what selects the AWS default credential chain —
+	// Pod Identity in-cluster — because NewS3Storage only installs a static
+	// provider when both are non-empty.
+	//
+	// A dev default made that branch unreachable. env applies envDefault when a
+	// variable is SET BUT EMPTY, not only when it is absent, so the chart
+	// passing `S3_ACCESS_KEY: ""` did not disable the default — it selected it.
+	// Portal then signed real S3 requests with `minioadmin` and got
+	// `InvalidAccessKeyId`, on a cluster where Pod Identity was configured,
+	// working, and never consulted. The guard below rejects minioadmin outside
+	// development, and this install is labelled development, so nothing caught
+	// it.
+	//
+	// Local development supplies these explicitly in Taskfile.yaml's dev tasks,
+	// matching docker-compose's minio root user. That is the right place for a
+	// value that is only ever true on a laptop.
+	S3Endpoint  string `env:"S3_ENDPOINT"`
 	S3Bucket    string `env:"S3_BUCKET" envDefault:"portal"`
-	S3AccessKey string `env:"S3_ACCESS_KEY" envDefault:"minioadmin"`
-	S3SecretKey string `env:"S3_SECRET_KEY" envDefault:"minioadmin"`
+	S3AccessKey string `env:"S3_ACCESS_KEY"`
+	S3SecretKey string `env:"S3_SECRET_KEY"`
 	S3UseSSL    bool   `env:"S3_USE_SSL" envDefault:"false"`
 	S3Region    string `env:"S3_REGION" envDefault:"us-east-1"`
 

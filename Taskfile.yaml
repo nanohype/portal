@@ -26,6 +26,15 @@ tasks:
     env:
       DATABASE_URL: "{{.DATABASE_URL}}"
       ENVIRONMENT: development
+      # The S3 config lives here rather than as a default in config.go. An
+      # envDefault applies when a variable is set but EMPTY, so a dev default
+      # cannot be turned off by passing "" — which is how the deployed chart
+      # ended up signing real S3 requests as minioadmin instead of using Pod
+      # Identity. Empty now means "use the AWS credential chain"; a laptop says
+      # so explicitly.
+      S3_ENDPOINT: localhost:9000
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
     cmds:
       - go run ./cmd/server
 
@@ -34,6 +43,15 @@ tasks:
     env:
       DATABASE_URL: "{{.DATABASE_URL}}"
       ENVIRONMENT: development
+      # The S3 config lives here rather than as a default in config.go. An
+      # envDefault applies when a variable is set but EMPTY, so a dev default
+      # cannot be turned off by passing "" — which is how the deployed chart
+      # ended up signing real S3 requests as minioadmin instead of using Pod
+      # Identity. Empty now means "use the AWS credential chain"; a laptop says
+      # so explicitly.
+      S3_ENDPOINT: localhost:9000
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
     cmds:
       - go run ./cmd/worker
 
@@ -72,6 +90,15 @@ tasks:
     env:
       DATABASE_URL: "{{.DATABASE_URL}}"
       ENVIRONMENT: development
+      # The S3 config lives here rather than as a default in config.go. An
+      # envDefault applies when a variable is set but EMPTY, so a dev default
+      # cannot be turned off by passing "" — which is how the deployed chart
+      # ended up signing real S3 requests as minioadmin instead of using Pod
+      # Identity. Empty now means "use the AWS credential chain"; a laptop says
+      # so explicitly.
+      S3_ENDPOINT: localhost:9000
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
     cmds:
       - go run ./cmd/seeddemo
 
