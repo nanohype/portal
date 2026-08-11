@@ -45,6 +45,15 @@ import (
 // -ldflags at build time.
 var version = "dev"
 
+// s3StartupTimeout bounds the optional bucket check at boot.
+//
+// Sized against the liveness probe, not against S3: the worker's probe allows
+// 10s + 3 × 15s = 55s before restarting the container, and this check runs
+// before :8081 binds. Ten seconds leaves the probe most of its budget while
+// still being long enough for a healthy round-trip, so a reachable bucket is
+// never declared unavailable and an unreachable one never outlives the probe.
+const s3StartupTimeout = 10 * time.Second
+
 func main() {
 	cfg := &config.Config{}
 	if err := env.Parse(cfg); err != nil {
@@ -111,15 +120,33 @@ func main() {
 		streamer = logstream.NewMemoryStreamer()
 	}
 
-	// Optional S3 storage
+	// Optional S3 storage.
+	//
+	// The bucket check is bounded here, and the bound is what makes "optional"
+	// true. The S3 client's own timeout is two minutes — correct for a body
+	// transfer mid-run, and far past the liveness budget at startup: the probe
+	// allows initialDelay 10s + 3 × 15s = 55s before it restarts the container,
+	// and this call runs BEFORE the health server binds :8081. So an
+	// unreachable S3 does not degrade to "logs and state won't be persisted",
+	// it hangs past the probe and the worker is killed — then killed again, in
+	// a crashloop whose logs end after "using redis log streamer" with nothing
+	// to say why.
+	//
+	// A dependency the code treats as optional has to be optional on every
+	// path, including the one where the network drops the packets rather than
+	// refusing them.
 	var store *storage.S3Storage
 	if cfg.S3Endpoint != "" {
 		s, err := storage.NewS3Storage(cfg)
 		if err != nil {
 			logger.Warn("S3 storage not available, logs and state won't be persisted", "error", err)
 		} else {
-			if err := s.EnsureBucket(context.Background()); err != nil {
-				logger.Warn("failed to ensure S3 bucket", "error", err)
+			ctx, cancel := context.WithTimeout(context.Background(), s3StartupTimeout)
+			err := s.EnsureBucket(ctx)
+			cancel()
+			if err != nil {
+				logger.Warn("S3 storage not available, logs and state won't be persisted",
+					"error", err, "timeout", s3StartupTimeout)
 			} else {
 				store = s
 				logger.Info("S3 storage connected", "bucket", cfg.S3Bucket)
