@@ -170,6 +170,47 @@ jobs:
       # the absence of the bare form (rather than the presence of the piped one)
       # is deliberate — it fails on a NEW unescaped interpolation, not just on a
       # regression of these two.
+      # One identity across the release. The chart says so on the web Deployment
+      # — nginx makes no AWS call and still runs as the tenant SA, so that a
+      # NetworkPolicy or an audit query written against it covers every pod the
+      # tenant runs. An unattributed pod is a hole in that claim, not a detail.
+      #
+      # The migrate Job was the one that slipped: it ran as `default`, which is
+      # the worst workload to leave unnamed, since migrations are the only thing
+      # in the release that mutates schema. Nothing failed — it reaches Postgres
+      # with the composed DSN and makes no AWS call — so only a pod-by-pod look
+      # at a live namespace showed it.
+      #
+      # Counting workloads against ServiceAccounts is what makes a NEW pod-bearing
+      # template fail here rather than ship unattributed.
+      - name: Every pod-bearing workload runs as the tenant ServiceAccount
+        run: |
+          helm template portal deploy/helm/portal \
+            --set 'database.url=postgres://portal:portal@db.example.com:5432/portal?sslmode=require' \
+            --set serviceAccount.name=tenant-runtime \
+            > rendered/portal-sa.yaml
+          python3 - <<'PY'
+          import sys, yaml
+          POD_KINDS = {"Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob", "ReplicaSet"}
+          bad = []
+          seen = 0
+          for doc in yaml.safe_load_all(open("rendered/portal-sa.yaml")):
+              if not doc or doc.get("kind") not in POD_KINDS:
+                  continue
+              spec = doc["spec"]
+              pod = spec["jobTemplate"]["spec"]["template"]["spec"] if doc["kind"] == "CronJob" \
+                  else spec["template"]["spec"]
+              seen += 1
+              if not pod.get("serviceAccountName"):
+                  bad.append(f'{doc["kind"]}/{doc["metadata"]["name"]}')
+          if not seen:
+              sys.exit("rendered no pod-bearing workloads — the check would pass vacuously")
+          if bad:
+              sys.exit("::error::these run as `default`, so an audit query or NetworkPolicy "
+                       "written against the tenant ServiceAccount misses them: " + ", ".join(bad))
+          print(f"ok — all {seen} pod-bearing workloads run as the tenant ServiceAccount")
+          PY
+
       - name: Assert composed URLs percent-encode their credentials
         run: |
           helm template portal deploy/helm/portal \

@@ -18,6 +18,20 @@ spec:
         app.kubernetes.io/name: portal-migrate
     spec:
       restartPolicy: OnFailure
+      {{- if .Values.serviceAccount.name }}
+      # The same identity the deployments run as, for the same reason they all
+      # share one: a NetworkPolicy or an audit query written against the tenant's
+      # ServiceAccount should cover every pod the tenant runs, not three of four.
+      #
+      # This Job was the odd one out and ran as `default`, which is the worst pod
+      # to leave unattributed — migrations are the only thing in the release that
+      # mutates schema, so the one workload whose actions most need a name was the
+      # one without one. It also silently held no Pod Identity credentials, which
+      # costs nothing today (it reaches Postgres with the composed DSN and makes
+      # no AWS call) and would fail confusingly the first time a migration needed
+      # one.
+      serviceAccountName: {{ include "portal.serviceAccountName" . }}
+      {{- end }}
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
