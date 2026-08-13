@@ -5,13 +5,14 @@ import (
 	"strings"
 	"testing"
 
-	"helm.sh/helm/v3/pkg/chart"
+	"helm.sh/helm/v4/pkg/chart/common"
+	chart "helm.sh/helm/v4/pkg/chart/v2"
 )
 
 // minimalChart builds a chart in memory rather than reading one from disk: the
 // tenant chart lives in eks-agent-platform, and what is under test here is
 // portal's render path, not that chart's content.
-func minimalChart(templates ...*chart.File) *chart.Chart {
+func minimalChart(templates ...*common.File) *chart.Chart {
 	return &chart.Chart{
 		Metadata:  &chart.Metadata{APIVersion: "v2", Name: "probe", Version: "0.1.0"},
 		Templates: templates,
@@ -44,7 +45,7 @@ func TestRender_LargeJSONNumbersSurviveToYAML(t *testing.T) {
 		t.Fatalf("precondition: a JSON number should decode to float64, got %T", values["big"])
 	}
 
-	ch := minimalChart(&chart.File{
+	ch := minimalChart(&common.File{
 		Name: "templates/probe.yaml",
 		Data: []byte("interpolated: {{ .Values.big }}\n" +
 			"coerced: {{ .Values.big | int64 }}\n" +
@@ -77,8 +78,8 @@ func TestRender_LargeJSONNumbersSurviveToYAML(t *testing.T) {
 // identical form values.
 func TestRender_OrdersTemplatesDeterministically(t *testing.T) {
 	ch := minimalChart(
-		&chart.File{Name: "templates/zebra.yaml", Data: []byte("kind: Zebra\n")},
-		&chart.File{Name: "templates/alpha.yaml", Data: []byte("kind: Alpha\n")},
+		&common.File{Name: "templates/zebra.yaml", Data: []byte("kind: Zebra\n")},
+		&common.File{Name: "templates/alpha.yaml", Data: []byte("kind: Alpha\n")},
 	)
 	first, err := Render(ch, "probe", "eks-agent-platform", map[string]interface{}{})
 	if err != nil {

@@ -6,6 +6,12 @@
 // eks-agent-platform charts repo maintained by internal/git's CloneOrPull. The chart cache
 // here keeps loaded *chart.Chart objects in memory keyed by chart name so
 // repeated tenant writes don't re-parse the chart from disk.
+//
+// Helm 4 splits the chart packages by apiVersion: pkg/chart/v2 holds the
+// concrete apiVersion-v2 Chart this renders, pkg/chart/common holds the pieces
+// that are version-independent (File, Values, ReleaseOptions), and the engine
+// takes the chart as an interface. The imports are aliased so the call sites
+// still read as chart/chartutil.
 package helm
 
 import (
@@ -14,10 +20,11 @@ import (
 	"strings"
 	"sync"
 
-	"helm.sh/helm/v3/pkg/chart"
-	"helm.sh/helm/v3/pkg/chart/loader"
-	"helm.sh/helm/v3/pkg/chartutil"
-	"helm.sh/helm/v3/pkg/engine"
+	"helm.sh/helm/v4/pkg/chart/common"
+	chartutil "helm.sh/helm/v4/pkg/chart/common/util"
+	chart "helm.sh/helm/v4/pkg/chart/v2"
+	"helm.sh/helm/v4/pkg/chart/v2/loader"
+	"helm.sh/helm/v4/pkg/engine"
 )
 
 // Cache loads + memoizes charts from a base directory (typically the local
@@ -87,7 +94,7 @@ func Render(ch *chart.Chart, releaseName, namespace string, values map[string]in
 	if err != nil {
 		return "", fmt.Errorf("merge values: %w", err)
 	}
-	render, err := chartutil.ToRenderValues(ch, merged, chartutil.ReleaseOptions{
+	render, err := chartutil.ToRenderValues(ch, merged, common.ReleaseOptions{
 		Name:      releaseName,
 		Namespace: namespace,
 		IsInstall: true,
