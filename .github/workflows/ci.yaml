@@ -31,6 +31,14 @@ jobs:
       # Fail the build on unformatted Go so formatting drift can't land on main.
       - name: gofmt
         run: test -z "$(gofmt -l .)" || { echo "unformatted Go files:"; gofmt -l .; exit 1; }
+      # go.mod has to describe what the code actually imports. A bot-authored
+      # major bump adds the new module path without touching a single import,
+      # so the old major keeps building the binary and the new one is inert —
+      # every other check here passes on that, because the code it compiles is
+      # unchanged. `tidy -diff` is the only gate that can see it: it fails on
+      # a require nothing imports and on an import nothing requires.
+      - name: go.mod is tidy
+        run: go mod tidy -diff
       - run: go build ./...
       - run: go vet ./...
       # portal renders an eks-fleet Cluster CR against a schema eks-fleet owns.
