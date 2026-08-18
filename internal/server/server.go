@@ -200,7 +200,7 @@ func (s *Server) setupRouter() {
 	accessSvc := service.NewTeamAccessService(queries, s.db)
 	templateHandler := handler.NewTemplateHandler(templateSvc, accessSvc, auditSvc)
 	tenantHandler := handler.NewTenantHandler(s.tenantSvc, templateSvc, accessSvc, auditSvc)
-	s.clusterOrderSvc = service.NewClusterOrderService(queries, s.db)
+	s.clusterOrderSvc = service.NewClusterOrderService(queries, s.db, s.cfg.ClusterAllowedRegions)
 	clusterOrderHandler := handler.NewClusterOrderHandler(s.clusterOrderSvc, auditSvc)
 	opsHandler := handler.NewOpsHandler(service.NewOpsFeedService(queries))
 	wsOrigins := []string{s.cfg.WebURL}

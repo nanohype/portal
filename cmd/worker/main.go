@@ -282,7 +282,7 @@ func main() {
 	clusterWatchWorker := worker.NewClusterWatchJobWorker(queries, clusterDecrypt, tenantReconcile)
 	river.AddWorker(workers, clusterWatchWorker)
 
-	clusterOrderSvc := service.NewClusterOrderService(queries, dbPool)
+	clusterOrderSvc := service.NewClusterOrderService(queries, dbPool, cfg.ClusterAllowedRegions)
 
 	// Tenant write path: renders the eks-agent-platform `charts/tenant` chart
 	// with the user-supplied values, commits the rendered manifest into the
