@@ -96,7 +96,7 @@ describe('ClusterDetail RBAC', () => {
     expect(screen.queryByRole('button', { name: /deprovision/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /remove from portal/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /test connection/i })).toBeNull();
-    expect(screen.getByDisplayValue('https://eks.example')).toBeDisabled();
+    expect(await screen.findByDisplayValue('https://eks.example')).toBeDisabled();
   });
 
   it('exposes the actions and enables the fields for an admin', async () => {
@@ -106,7 +106,7 @@ describe('ClusterDetail RBAC', () => {
     await screen.findByRole('heading', { name: 'prod-eks' });
     expect(await screen.findByRole('button', { name: /deprovision/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /remove from portal/i })).toBeInTheDocument();
-    expect(screen.getByDisplayValue('https://eks.example')).toBeEnabled();
+    expect(await screen.findByDisplayValue('https://eks.example')).toBeEnabled();
   });
 });
 
