@@ -18,10 +18,10 @@ import (
 type PipelineVariableHandler struct {
 	queries   *repository.Queries
 	encryptor *secrets.Encryptor
-	auditSvc  *service.AuditService
+	auditSvc  auditLogger
 }
 
-func NewPipelineVariableHandler(queries *repository.Queries, encryptor *secrets.Encryptor, auditSvc *service.AuditService) *PipelineVariableHandler {
+func NewPipelineVariableHandler(queries *repository.Queries, encryptor *secrets.Encryptor, auditSvc auditLogger) *PipelineVariableHandler {
 	return &PipelineVariableHandler{queries: queries, encryptor: encryptor, auditSvc: auditSvc}
 }
 
@@ -264,11 +264,18 @@ func (h *PipelineVariableHandler) RevealValue(w http.ResponseWriter, r *http.Req
 	}
 
 	ip, ua := auditContext(r)
-	h.auditSvc.Log(r.Context(), service.AuditEntry{
+	// The audit row has to land before the plaintext does. AuditService.Log
+	// is best-effort by contract and explicitly not for credential
+	// operations, so a failed write here used to be logged while the secret
+	// was returned anyway — a disclosure with no record of it.
+	if err := h.auditSvc.LogDisclosure(r.Context(), service.AuditEntry{
 		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
 		Action: "pipeline_variable.reveal", EntityType: "pipeline_variable", EntityID: varID,
 		IPAddress: ip, UserAgent: ua,
-	})
+	}); err != nil {
+		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to record the disclosure; value withheld")
+		return
+	}
 
 	respond.JSON(w, http.StatusOK, map[string]string{"value": value})
 }
