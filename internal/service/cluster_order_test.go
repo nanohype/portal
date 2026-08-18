@@ -1,7 +1,9 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -189,4 +191,56 @@ func TestIdentityChange(t *testing.T) {
 	if err := identityChange("", "staging", current); apperr.KindOf(err) != apperr.KindConflict {
 		t.Errorf("environment-move error = %v, want apperr.Conflict", err)
 	}
+}
+
+// Region policy is deployment config, not product behavior. The zero value has
+// to stay permissive: the Cluster XRD documents spec.region as "any region is
+// valid", so a portal that shipped with a region baked in would refuse orders
+// its own CRD accepts.
+func TestAssertRegionAllowed(t *testing.T) {
+	acct := repository.Account{AWSAccountID: "111111111111"}
+
+	t.Run("unset policy permits any region", func(t *testing.T) {
+		s := &ClusterOrderService{}
+		for _, region := range []string{"us-east-1", "us-west-2", "eu-central-1", "ap-southeast-2"} {
+			if err := s.assertRegionAllowed(context.Background(), region, acct); err != nil {
+				t.Errorf("region %s should be permitted with no policy set, got: %v", region, err)
+			}
+		}
+	})
+
+	t.Run("region inside the policy is permitted", func(t *testing.T) {
+		s := &ClusterOrderService{allowedRegions: []string{"us-east-1", "eu-west-1"}}
+		for _, region := range []string{"us-east-1", "eu-west-1"} {
+			if err := s.assertRegionAllowed(context.Background(), region, acct); err != nil {
+				t.Errorf("region %s is in the policy, got: %v", region, err)
+			}
+		}
+	})
+
+	t.Run("region outside the policy is a validation error naming the allowed set", func(t *testing.T) {
+		s := &ClusterOrderService{allowedRegions: []string{"us-east-1"}}
+		err := s.assertRegionAllowed(context.Background(), "us-west-2", acct)
+		if err == nil {
+			t.Fatal("us-west-2 must be refused when the policy is us-east-1")
+		}
+		var appErr *apperr.Error
+		if !errors.As(err, &appErr) || appErr.Kind != apperr.KindValidation {
+			t.Fatalf("want a validation error (400, actionable at the order desk), got %T: %v", err, err)
+		}
+		// The order desk cannot act on "not permitted" without knowing what is.
+		if !strings.Contains(err.Error(), "us-east-1") {
+			t.Errorf("error should name the allowed set, got: %v", err)
+		}
+	})
+
+	t.Run("an account default_region mismatch warns but does not refuse", func(t *testing.T) {
+		// An account may legitimately vend into more than one region, so this is
+		// a log line rather than a gate.
+		s := &ClusterOrderService{}
+		mismatched := repository.Account{AWSAccountID: "111111111111", DefaultRegion: "us-east-1"}
+		if err := s.assertRegionAllowed(context.Background(), "eu-west-1", mismatched); err != nil {
+			t.Errorf("a default_region mismatch must not refuse the order, got: %v", err)
+		}
+	})
 }
