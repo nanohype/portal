@@ -38,11 +38,29 @@ func NewAuditService(queries *repository.Queries) *AuditService {
 // For compliance-relevant decisions that must not stand without their audit
 // record — approve/reject of a gated apply, credential operations — do NOT use
 // this. Use LogTx inside the mutation's transaction so the decision and its
-// audit row commit or roll back together.
+// audit row commit or roll back together, or LogDisclosure when the operation
+// is a read and there is no transaction to join.
 func (s *AuditService) Log(ctx context.Context, entry AuditEntry) {
 	if err := s.logWith(ctx, s.queries, entry); err != nil {
 		slog.Error("failed to write audit log", "error", err, "action", entry.Action, "entity_type", entry.EntityType, "entity_id", entry.EntityID)
 	}
+}
+
+// LogDisclosure records the release of a secret and returns the error, so the
+// caller can refuse to release it.
+//
+// Revealing a decrypted variable is compliance-relevant in the same way an
+// approval is, but it is a read: nothing is mutated, so there is no surrounding
+// transaction for LogTx to join, and a single INSERT commits on its own. The
+// durability requirement is therefore not atomicity but ordering — the record
+// must be committed before the plaintext leaves the process.
+//
+// What makes that hold is the caller: this returns the error instead of logging
+// it, and a caller that answers with the secret anyway has the same gap as
+// calling Log. A disclosure nobody can prove happened is the one an auditor
+// asks about.
+func (s *AuditService) LogDisclosure(ctx context.Context, entry AuditEntry) error {
+	return s.logWith(ctx, s.queries, entry)
 }
 
 // AuditWriter is the single query the audit path needs. Narrowing to it lets a
