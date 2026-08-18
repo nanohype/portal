@@ -388,7 +388,16 @@ func (e *KubernetesExecutor) buildPod(name string, params ExecuteParams, payload
 			//
 			// fsGroup matters as much as the rest: the work and tmp volumes are
 			// emptyDirs owned by root, and a container forced to a non-root UID
-			// cannot write to them without a group it belongs to.
+			// cannot write to them without a group it belongs to. fsGroup and
+			// runAsGroup are the same value on purpose — kubelet chgrps the
+			// volume to fsGroup and sets setgid, so the process's primary group
+			// is what makes it writable.
+			//
+			// 1000 deliberately overrides the executor image's own user (uid 100,
+			// gid 101, HOME=/home/tofu). Pinning the uid here keeps the posture a
+			// property of the pod rather than of whatever the image happens to
+			// declare, and /home/tofu is on the read-only root filesystem anyway,
+			// so the image's HOME could not be used regardless.
 			SecurityContext: &corev1.PodSecurityContext{
 				RunAsNonRoot: boolPtr(true),
 				RunAsUser:    int64Ptr(1000),
