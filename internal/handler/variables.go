@@ -19,10 +19,19 @@ import (
 	"github.com/nanohype/portal/internal/varmerge"
 )
 
+// auditLogger is the audit surface the variable handlers use. Narrowing to it
+// keeps the constructors taking *service.AuditService while making the
+// disclosure path's failure branch reachable from a test — the branch that
+// decides whether a secret is released when its audit row did not land.
+type auditLogger interface {
+	Log(ctx context.Context, entry service.AuditEntry)
+	LogDisclosure(ctx context.Context, entry service.AuditEntry) error
+}
+
 type VariableHandler struct {
 	queries      *repository.Queries
 	encryptor    *secrets.Encryptor
-	auditSvc     *service.AuditService
+	auditSvc     auditLogger
 	workspaceSvc *service.WorkspaceService
 	discoverySvc *service.DiscoveryService
 	authz        auth.WorkspaceRoleResolver
@@ -33,7 +42,7 @@ type VariableHandler struct {
 // import-outputs — name a SECOND workspace in the request body. The route's
 // gate only covers the workspace in the path, so those two have to authorize
 // the body's workspace themselves.
-func NewVariableHandler(queries *repository.Queries, encryptor *secrets.Encryptor, auditSvc *service.AuditService, workspaceSvc *service.WorkspaceService, discoverySvc *service.DiscoveryService, authz auth.WorkspaceRoleResolver) *VariableHandler {
+func NewVariableHandler(queries *repository.Queries, encryptor *secrets.Encryptor, auditSvc auditLogger, workspaceSvc *service.WorkspaceService, discoverySvc *service.DiscoveryService, authz auth.WorkspaceRoleResolver) *VariableHandler {
 	return &VariableHandler{
 		queries:      queries,
 		encryptor:    encryptor,
@@ -592,11 +601,18 @@ func (h *VariableHandler) RevealValue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ip, ua := auditContext(r)
-	h.auditSvc.Log(r.Context(), service.AuditEntry{
+	// The audit row has to land before the plaintext does. AuditService.Log
+	// is best-effort by contract and explicitly not for credential
+	// operations, so a failed write here used to be logged while the secret
+	// was returned anyway — a disclosure with no record of it.
+	if err := h.auditSvc.LogDisclosure(r.Context(), service.AuditEntry{
 		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
 		Action: "variable.reveal", EntityType: "variable", EntityID: varID,
 		IPAddress: ip, UserAgent: ua,
-	})
+	}); err != nil {
+		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to record the disclosure; value withheld")
+		return
+	}
 
 	respond.JSON(w, http.StatusOK, map[string]string{"value": value})
 }
