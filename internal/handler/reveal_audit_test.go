@@ -54,7 +54,10 @@ func revealOrgVariable(t *testing.T, audit auditLogger, plaintext string) *httpt
 	execSQL(t, ctx, `INSERT INTO org_variables (id,org_id,key,value,sensitive,category)
 		VALUES ($1,$2,'aws_secret_access_key',$3,true,'env')`, varID, orgID, sealed)
 
-	h := NewOrgVariableHandler(testQueries, enc, audit)
+	// Real service over the real database; only the audit recorder is faulted, so
+	// this exercises handler → service → repository and isolates the one branch
+	// under test.
+	h := NewOrgVariableHandler(service.NewVariableService(testQueries, enc, audit))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/variables/"+varID+"/value", nil)
 	rctx := chi.NewRouteContext()

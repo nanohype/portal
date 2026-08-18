@@ -6,27 +6,23 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/oklog/ulid/v2"
 
 	"github.com/nanohype/portal/internal/auth"
 	"github.com/nanohype/portal/internal/handler/respond"
 	"github.com/nanohype/portal/internal/repository"
-	"github.com/nanohype/portal/internal/secrets"
 	"github.com/nanohype/portal/internal/service"
 )
 
 type PipelineVariableHandler struct {
-	queries   *repository.Queries
-	encryptor *secrets.Encryptor
-	auditSvc  auditLogger
+	variableSvc *service.VariableService
 }
 
-func NewPipelineVariableHandler(queries *repository.Queries, encryptor *secrets.Encryptor, auditSvc auditLogger) *PipelineVariableHandler {
-	return &PipelineVariableHandler{queries: queries, encryptor: encryptor, auditSvc: auditSvc}
+func NewPipelineVariableHandler(variableSvc *service.VariableService) *PipelineVariableHandler {
+	return &PipelineVariableHandler{variableSvc: variableSvc}
 }
 
-// PipelineVariableResponse projects repository.PipelineVariable for API +
-// audit consumption; sensitive values are redacted to *** before mapping.
+// PipelineVariableResponse projects repository.PipelineVariable for the wire.
+// Redaction happens in the service, so this cannot leak a withheld value.
 type PipelineVariableResponse struct {
 	ID          string    `json:"id"`
 	PipelineID  string    `json:"pipeline_id"`
@@ -59,22 +55,16 @@ func (h *PipelineVariableHandler) List(w http.ResponseWriter, r *http.Request) {
 	userCtx := auth.GetUser(r.Context())
 	pipelineID := chi.URLParam(r, "pipelineID")
 
-	vars, err := h.queries.ListPipelineVariables(r.Context(), repository.ListPipelineVariablesParams{
-		PipelineID: pipelineID, OrgID: userCtx.OrgID,
-	})
+	vars, err := h.variableSvc.ListPipelineVariables(r.Context(), userCtx.OrgID, pipelineID)
 	if err != nil {
-		respond.Error(w, http.StatusInternalServerError, "failed to list pipeline variables")
+		respond.FromError(w, r, err)
 		return
 	}
 
 	data := make([]PipelineVariableResponse, len(vars))
 	for i, v := range vars {
-		if v.Sensitive {
-			v.Value = "***"
-		}
 		data[i] = pipelineVariableResponse(v)
 	}
-
 	respond.List(w, data)
 }
 
@@ -88,64 +78,11 @@ func (h *PipelineVariableHandler) Create(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if req.Key == "" {
-		respond.Error(w, http.StatusBadRequest, "key is required")
-		return
-	}
-	if len(req.Key) > 256 {
-		respond.Error(w, http.StatusBadRequest, "key must be at most 256 characters")
-		return
-	}
-	if len(req.Value) > 65536 {
-		respond.Error(w, http.StatusBadRequest, "value must be at most 64KB")
-		return
-	}
-	if req.Category == "" {
-		req.Category = "terraform"
-	}
-	if req.Category != "terraform" && req.Category != "env" {
-		respond.Error(w, http.StatusBadRequest, "category must be 'terraform' or 'env'")
-		return
-	}
-
-	value := req.Value
-	if req.Sensitive && h.encryptor != nil {
-		encrypted, err := h.encryptor.Encrypt(req.Value)
-		if err != nil {
-			respond.Error(w, http.StatusInternalServerError, "failed to encrypt value")
-			return
-		}
-		value = encrypted
-	}
-
-	v, err := h.queries.CreatePipelineVariable(r.Context(), repository.CreatePipelineVariableParams{
-		ID:          ulid.Make().String(),
-		PipelineID:  pipelineID,
-		OrgID:       userCtx.OrgID,
-		Key:         req.Key,
-		Value:       value,
-		Sensitive:   req.Sensitive,
-		Category:    req.Category,
-		Description: req.Description,
-	})
+	v, err := h.variableSvc.CreatePipelineVariable(r.Context(), userCtx.OrgID, pipelineID, variableInputFrom(req), actorFrom(r))
 	if err != nil {
-		respond.Error(w, http.StatusInternalServerError, "failed to create pipeline variable")
+		respond.FromError(w, r, err)
 		return
 	}
-
-	ip, ua := auditContext(r)
-	auditVar := v
-	auditVar.Value = "***"
-	h.auditSvc.Log(r.Context(), service.AuditEntry{
-		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
-		Action: "pipeline_variable.create", EntityType: "pipeline_variable", EntityID: v.ID,
-		After: pipelineVariableResponse(auditVar), IPAddress: ip, UserAgent: ua,
-	})
-
-	if v.Sensitive {
-		v.Value = "***"
-	}
-
 	respond.JSON(w, http.StatusCreated, pipelineVariableResponse(v))
 }
 
@@ -154,67 +91,17 @@ func (h *PipelineVariableHandler) Update(w http.ResponseWriter, r *http.Request)
 	pipelineID := chi.URLParam(r, "pipelineID")
 	varID := chi.URLParam(r, "variableID")
 
-	before, err := h.queries.GetPipelineVariable(r.Context(), repository.GetPipelineVariableParams{
-		ID: varID, PipelineID: pipelineID, OrgID: userCtx.OrgID,
-	})
-	if err != nil {
-		respond.Error(w, http.StatusNotFound, "variable not found")
-		return
-	}
-
 	var req CreateVariableRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respond.Error(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if len(req.Key) > 256 {
-		respond.Error(w, http.StatusBadRequest, "key must be at most 256 characters")
-		return
-	}
-	if len(req.Value) > 65536 {
-		respond.Error(w, http.StatusBadRequest, "value must be at most 64KB")
-		return
-	}
-	if req.Category != "" && req.Category != "terraform" && req.Category != "env" {
-		respond.Error(w, http.StatusBadRequest, "category must be 'terraform' or 'env'")
-		return
-	}
-
-	value := req.Value
-	if req.Sensitive && h.encryptor != nil {
-		encrypted, err := h.encryptor.Encrypt(req.Value)
-		if err != nil {
-			respond.Error(w, http.StatusInternalServerError, "failed to encrypt value")
-			return
-		}
-		value = encrypted
-	}
-
-	v, err := h.queries.UpdatePipelineVariable(r.Context(), repository.UpdatePipelineVariableParams{
-		ID: varID, PipelineID: pipelineID, OrgID: userCtx.OrgID, Value: value, Sensitive: req.Sensitive, Description: req.Description, Category: req.Category,
-	})
+	v, err := h.variableSvc.UpdatePipelineVariable(r.Context(), userCtx.OrgID, pipelineID, varID, variableInputFrom(req), actorFrom(r))
 	if err != nil {
-		respond.Error(w, http.StatusInternalServerError, "failed to update pipeline variable")
+		respond.FromError(w, r, err)
 		return
 	}
-
-	ip, ua := auditContext(r)
-	auditBefore := before
-	auditBefore.Value = "***"
-	auditAfter := v
-	auditAfter.Value = "***"
-	h.auditSvc.Log(r.Context(), service.AuditEntry{
-		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
-		Action: "pipeline_variable.update", EntityType: "pipeline_variable", EntityID: varID,
-		Before: pipelineVariableResponse(auditBefore), After: pipelineVariableResponse(auditAfter),
-		IPAddress: ip, UserAgent: ua,
-	})
-
-	if v.Sensitive {
-		v.Value = "***"
-	}
-
 	respond.JSON(w, http.StatusOK, pipelineVariableResponse(v))
 }
 
@@ -223,20 +110,10 @@ func (h *PipelineVariableHandler) Delete(w http.ResponseWriter, r *http.Request)
 	pipelineID := chi.URLParam(r, "pipelineID")
 	varID := chi.URLParam(r, "variableID")
 
-	if _, err := h.queries.DeletePipelineVariable(r.Context(), repository.DeletePipelineVariableParams{
-		ID: varID, PipelineID: pipelineID, OrgID: userCtx.OrgID,
-	}); err != nil {
+	if err := h.variableSvc.DeletePipelineVariable(r.Context(), userCtx.OrgID, pipelineID, varID, actorFrom(r)); err != nil {
 		respond.FromError(w, r, err)
 		return
 	}
-
-	ip, ua := auditContext(r)
-	h.auditSvc.Log(r.Context(), service.AuditEntry{
-		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
-		Action: "pipeline_variable.delete", EntityType: "pipeline_variable", EntityID: varID,
-		IPAddress: ip, UserAgent: ua,
-	})
-
 	respond.NoContent(w)
 }
 
@@ -245,37 +122,10 @@ func (h *PipelineVariableHandler) RevealValue(w http.ResponseWriter, r *http.Req
 	pipelineID := chi.URLParam(r, "pipelineID")
 	varID := chi.URLParam(r, "variableID")
 
-	v, err := h.queries.GetPipelineVariable(r.Context(), repository.GetPipelineVariableParams{
-		ID: varID, PipelineID: pipelineID, OrgID: userCtx.OrgID,
-	})
+	value, err := h.variableSvc.RevealPipelineVariable(r.Context(), userCtx.OrgID, pipelineID, varID, actorFrom(r))
 	if err != nil {
-		respond.Error(w, http.StatusNotFound, "variable not found")
+		respond.FromError(w, r, err)
 		return
 	}
-
-	value := v.Value
-	if v.Sensitive && h.encryptor != nil {
-		decrypted, err := h.encryptor.Decrypt(v.Value)
-		if err != nil {
-			respond.Error(w, http.StatusInternalServerError, "failed to decrypt variable")
-			return
-		}
-		value = decrypted
-	}
-
-	ip, ua := auditContext(r)
-	// The audit row has to land before the plaintext does. AuditService.Log
-	// is best-effort by contract and explicitly not for credential
-	// operations, so a failed write here used to be logged while the secret
-	// was returned anyway — a disclosure with no record of it.
-	if err := h.auditSvc.LogDisclosure(r.Context(), service.AuditEntry{
-		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
-		Action: "pipeline_variable.reveal", EntityType: "pipeline_variable", EntityID: varID,
-		IPAddress: ip, UserAgent: ua,
-	}); err != nil {
-		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to record the disclosure; value withheld")
-		return
-	}
-
 	respond.JSON(w, http.StatusOK, map[string]string{"value": value})
 }

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/oklog/ulid/v2"
 
 	"github.com/nanohype/portal/internal/auth"
 	"github.com/nanohype/portal/internal/handler/respond"
@@ -30,6 +29,7 @@ type auditLogger interface {
 
 type VariableHandler struct {
 	queries      *repository.Queries
+	variableSvc  *service.VariableService
 	encryptor    *secrets.Encryptor
 	auditSvc     auditLogger
 	workspaceSvc *service.WorkspaceService
@@ -42,7 +42,7 @@ type VariableHandler struct {
 // import-outputs — name a SECOND workspace in the request body. The route's
 // gate only covers the workspace in the path, so those two have to authorize
 // the body's workspace themselves.
-func NewVariableHandler(queries *repository.Queries, encryptor *secrets.Encryptor, auditSvc auditLogger, workspaceSvc *service.WorkspaceService, discoverySvc *service.DiscoveryService, authz auth.WorkspaceRoleResolver) *VariableHandler {
+func NewVariableHandler(queries *repository.Queries, encryptor *secrets.Encryptor, auditSvc auditLogger, variableSvc *service.VariableService, workspaceSvc *service.WorkspaceService, discoverySvc *service.DiscoveryService, authz auth.WorkspaceRoleResolver) *VariableHandler {
 	return &VariableHandler{
 		queries:      queries,
 		encryptor:    encryptor,
@@ -50,6 +50,7 @@ func NewVariableHandler(queries *repository.Queries, encryptor *secrets.Encrypto
 		workspaceSvc: workspaceSvc,
 		discoverySvc: discoverySvc,
 		authz:        authz,
+		variableSvc:  variableSvc,
 	}
 }
 
@@ -113,23 +114,16 @@ func (h *VariableHandler) List(w http.ResponseWriter, r *http.Request) {
 	userCtx := auth.GetUser(r.Context())
 	workspaceID := chi.URLParam(r, "workspaceID")
 
-	vars, err := h.queries.ListWorkspaceVariables(r.Context(), repository.ListWorkspaceVariablesParams{
-		WorkspaceID: workspaceID, OrgID: userCtx.OrgID,
-	})
+	vars, err := h.variableSvc.ListWorkspaceVariables(r.Context(), userCtx.OrgID, workspaceID)
 	if err != nil {
-		respond.Error(w, http.StatusInternalServerError, "failed to list variables")
+		respond.FromError(w, r, err)
 		return
 	}
 
-	// Redact sensitive values in response
 	data := make([]WorkspaceVariableResponse, len(vars))
 	for i, v := range vars {
-		if v.Sensitive {
-			v.Value = "***"
-		}
 		data[i] = workspaceVariableResponse(v)
 	}
-
 	respond.List(w, data)
 }
 
@@ -143,64 +137,11 @@ func (h *VariableHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Key == "" {
-		respond.Error(w, http.StatusBadRequest, "key is required")
-		return
-	}
-	if len(req.Key) > 256 {
-		respond.Error(w, http.StatusBadRequest, "key must be at most 256 characters")
-		return
-	}
-	if len(req.Value) > 65536 {
-		respond.Error(w, http.StatusBadRequest, "value must be at most 64KB")
-		return
-	}
-	if req.Category == "" {
-		req.Category = "terraform"
-	}
-	if req.Category != "terraform" && req.Category != "env" {
-		respond.Error(w, http.StatusBadRequest, "category must be 'terraform' or 'env'")
-		return
-	}
-
-	value := req.Value
-	if req.Sensitive && h.encryptor != nil {
-		encrypted, err := h.encryptor.Encrypt(req.Value)
-		if err != nil {
-			respond.Error(w, http.StatusInternalServerError, "failed to encrypt value")
-			return
-		}
-		value = encrypted
-	}
-
-	v, err := h.queries.CreateWorkspaceVariable(r.Context(), repository.CreateWorkspaceVariableParams{
-		ID:          ulid.Make().String(),
-		WorkspaceID: workspaceID,
-		OrgID:       userCtx.OrgID,
-		Key:         req.Key,
-		Value:       value,
-		Sensitive:   req.Sensitive,
-		Category:    req.Category,
-		Description: req.Description,
-	})
+	v, err := h.variableSvc.CreateWorkspaceVariable(r.Context(), userCtx.OrgID, workspaceID, variableInputFrom(req), actorFrom(r))
 	if err != nil {
-		respond.Error(w, http.StatusInternalServerError, "failed to create variable")
+		respond.FromError(w, r, err)
 		return
 	}
-
-	ip, ua := auditContext(r)
-	auditVar := v
-	auditVar.Value = "***" // never log variable values
-	h.auditSvc.Log(r.Context(), service.AuditEntry{
-		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
-		Action: "variable.create", EntityType: "variable", EntityID: v.ID,
-		After: workspaceVariableResponse(auditVar), IPAddress: ip, UserAgent: ua,
-	})
-
-	if v.Sensitive {
-		v.Value = "***"
-	}
-
 	respond.JSON(w, http.StatusCreated, workspaceVariableResponse(v))
 }
 
@@ -209,71 +150,17 @@ func (h *VariableHandler) Update(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "workspaceID")
 	varID := chi.URLParam(r, "variableID")
 
-	// Fetch current state for audit log. Keyed on the workspace this request
-	// was authorized against, so a variable id from another workspace is not
-	// found rather than editable.
-	before, err := h.queries.GetWorkspaceVariable(r.Context(), repository.GetWorkspaceVariableParams{
-		ID: varID, WorkspaceID: workspaceID, OrgID: userCtx.OrgID,
-	})
-	if err != nil {
-		respond.Error(w, http.StatusNotFound, "variable not found")
-		return
-	}
-
 	var req CreateVariableRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respond.Error(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if len(req.Key) > 256 {
-		respond.Error(w, http.StatusBadRequest, "key must be at most 256 characters")
-		return
-	}
-	if len(req.Value) > 65536 {
-		respond.Error(w, http.StatusBadRequest, "value must be at most 64KB")
-		return
-	}
-	if req.Category != "" && req.Category != "terraform" && req.Category != "env" {
-		respond.Error(w, http.StatusBadRequest, "category must be 'terraform' or 'env'")
-		return
-	}
-
-	value := req.Value
-	if req.Sensitive && h.encryptor != nil {
-		encrypted, err := h.encryptor.Encrypt(req.Value)
-		if err != nil {
-			respond.Error(w, http.StatusInternalServerError, "failed to encrypt value")
-			return
-		}
-		value = encrypted
-	}
-
-	v, err := h.queries.UpdateWorkspaceVariable(r.Context(), repository.UpdateWorkspaceVariableParams{
-		ID: varID, WorkspaceID: workspaceID, OrgID: userCtx.OrgID,
-		Value: value, Sensitive: req.Sensitive, Description: req.Description, Category: req.Category,
-	})
+	v, err := h.variableSvc.UpdateWorkspaceVariable(r.Context(), userCtx.OrgID, workspaceID, varID, variableInputFrom(req), actorFrom(r))
 	if err != nil {
 		respond.FromError(w, r, err)
 		return
 	}
-
-	ip, ua := auditContext(r)
-	auditBefore := before
-	auditBefore.Value = "***"
-	auditVar := v
-	auditVar.Value = "***"
-	h.auditSvc.Log(r.Context(), service.AuditEntry{
-		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
-		Action: "variable.update", EntityType: "variable", EntityID: varID,
-		Before: workspaceVariableResponse(auditBefore), After: workspaceVariableResponse(auditVar),
-		IPAddress: ip, UserAgent: ua,
-	})
-
-	if v.Sensitive {
-		v.Value = "***"
-	}
-
 	respond.JSON(w, http.StatusOK, workspaceVariableResponse(v))
 }
 
@@ -282,23 +169,10 @@ func (h *VariableHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "workspaceID")
 	varID := chi.URLParam(r, "variableID")
 
-	// The delete returns the row it removed, so a variable id belonging to
-	// another workspace comes back as pgx.ErrNoRows → 404 instead of reporting
-	// a success that deleted nothing.
-	if _, err := h.queries.DeleteWorkspaceVariable(r.Context(), repository.DeleteWorkspaceVariableParams{
-		ID: varID, WorkspaceID: workspaceID, OrgID: userCtx.OrgID,
-	}); err != nil {
+	if err := h.variableSvc.DeleteWorkspaceVariable(r.Context(), userCtx.OrgID, workspaceID, varID, actorFrom(r)); err != nil {
 		respond.FromError(w, r, err)
 		return
 	}
-
-	ip, ua := auditContext(r)
-	h.auditSvc.Log(r.Context(), service.AuditEntry{
-		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
-		Action: "variable.delete", EntityType: "variable", EntityID: varID,
-		IPAddress: ip, UserAgent: ua,
-	})
-
 	respond.NoContent(w)
 }
 
@@ -353,81 +227,22 @@ func (h *VariableHandler) BulkCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(req.Variables) == 0 {
-		respond.Error(w, http.StatusBadRequest, "variables array is required")
+	ins := make([]service.VariableInput, len(req.Variables))
+	for i, rv := range req.Variables {
+		ins[i] = variableInputFrom(rv)
+	}
+
+	created, err := h.variableSvc.BulkCreateWorkspaceVariables(r.Context(), userCtx.OrgID, workspaceID, ins, actorFrom(r))
+	if err != nil {
+		respond.FromError(w, r, err)
 		return
 	}
-	if len(req.Variables) > 50 {
-		respond.Error(w, http.StatusBadRequest, "maximum 50 variables per batch")
-		return
+
+	data := make([]WorkspaceVariableResponse, len(created))
+	for i, v := range created {
+		data[i] = workspaceVariableResponse(v)
 	}
-
-	// Check for duplicate keys within the batch
-	seen := make(map[string]bool, len(req.Variables))
-	for _, v := range req.Variables {
-		if v.Key == "" {
-			respond.Error(w, http.StatusBadRequest, "all variables must have a key")
-			return
-		}
-		if seen[v.Key] {
-			respond.Error(w, http.StatusBadRequest, "duplicate key: "+v.Key)
-			return
-		}
-		seen[v.Key] = true
-	}
-
-	created := make([]WorkspaceVariableResponse, 0, len(req.Variables))
-	ip, ua := auditContext(r)
-
-	for _, rv := range req.Variables {
-		if rv.Category == "" {
-			rv.Category = "terraform"
-		}
-		if rv.Category != "terraform" && rv.Category != "env" {
-			respond.Error(w, http.StatusBadRequest, "category must be 'terraform' or 'env' for key: "+rv.Key)
-			return
-		}
-
-		value := rv.Value
-		if rv.Sensitive && h.encryptor != nil {
-			encrypted, err := h.encryptor.Encrypt(rv.Value)
-			if err != nil {
-				respond.Error(w, http.StatusInternalServerError, "failed to encrypt value")
-				return
-			}
-			value = encrypted
-		}
-
-		v, err := h.queries.CreateWorkspaceVariable(r.Context(), repository.CreateWorkspaceVariableParams{
-			ID:          ulid.Make().String(),
-			WorkspaceID: workspaceID,
-			OrgID:       userCtx.OrgID,
-			Key:         rv.Key,
-			Value:       value,
-			Sensitive:   rv.Sensitive,
-			Category:    rv.Category,
-			Description: rv.Description,
-		})
-		if err != nil {
-			respond.Error(w, http.StatusInternalServerError, "failed to create variable: "+rv.Key)
-			return
-		}
-
-		auditVar := v
-		auditVar.Value = "***"
-		h.auditSvc.Log(r.Context(), service.AuditEntry{
-			OrgID: userCtx.OrgID, UserID: userCtx.UserID,
-			Action: "variable.create", EntityType: "variable", EntityID: v.ID,
-			After: workspaceVariableResponse(auditVar), IPAddress: ip, UserAgent: ua,
-		})
-
-		if v.Sensitive {
-			v.Value = "***"
-		}
-		created = append(created, workspaceVariableResponse(v))
-	}
-
-	respond.JSON(w, http.StatusCreated, created)
+	respond.JSON(w, http.StatusCreated, data)
 }
 
 type ImportOutputsRequest struct {
@@ -579,41 +394,11 @@ func (h *VariableHandler) RevealValue(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "workspaceID")
 	varID := chi.URLParam(r, "variableID")
 
-	// Keyed on the workspace this request was authorized against: the caller
-	// cleared the bar on THIS workspace, so this workspace's variables are the
-	// only ones it can decrypt.
-	v, err := h.queries.GetWorkspaceVariable(r.Context(), repository.GetWorkspaceVariableParams{
-		ID: varID, WorkspaceID: workspaceID, OrgID: userCtx.OrgID,
-	})
+	value, err := h.variableSvc.RevealWorkspaceVariable(r.Context(), userCtx.OrgID, workspaceID, varID, actorFrom(r))
 	if err != nil {
-		respond.Error(w, http.StatusNotFound, "variable not found")
+		respond.FromError(w, r, err)
 		return
 	}
-
-	value := v.Value
-	if v.Sensitive && h.encryptor != nil {
-		decrypted, err := h.encryptor.Decrypt(v.Value)
-		if err != nil {
-			respond.Error(w, http.StatusInternalServerError, "failed to decrypt variable")
-			return
-		}
-		value = decrypted
-	}
-
-	ip, ua := auditContext(r)
-	// The audit row has to land before the plaintext does. AuditService.Log
-	// is best-effort by contract and explicitly not for credential
-	// operations, so a failed write here used to be logged while the secret
-	// was returned anyway — a disclosure with no record of it.
-	if err := h.auditSvc.LogDisclosure(r.Context(), service.AuditEntry{
-		OrgID: userCtx.OrgID, UserID: userCtx.UserID,
-		Action: "variable.reveal", EntityType: "variable", EntityID: varID,
-		IPAddress: ip, UserAgent: ua,
-	}); err != nil {
-		respond.ErrorWithRequest(w, r, http.StatusInternalServerError, "failed to record the disclosure; value withheld")
-		return
-	}
-
 	respond.JSON(w, http.StatusOK, map[string]string{"value": value})
 }
 
@@ -632,70 +417,20 @@ func (h *VariableHandler) Effective(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "workspaceID")
 	pipelineID := r.URL.Query().Get("pipeline_id")
 
-	merged := make(map[string]EffectiveVariableResponse) // key: "key|category"
-
-	// Every layer is required. A read that fails is not an empty layer: dropping
-	// it returns a smaller effective set than the run will actually use, with a
-	// 200 and nothing to say a layer is missing — and this view is what an
-	// operator reads before approving a production apply.
-
-	// Layer 1: org variables (lowest precedence)
-	orgVars, err := h.queries.ListOrgVariables(r.Context(), userCtx.OrgID)
+	vars, err := h.variableSvc.EffectiveVariables(r.Context(), userCtx.OrgID, workspaceID, pipelineID)
 	if err != nil {
-		respond.FromError(w, r, fmt.Errorf("list org variables: %w", err))
+		respond.FromError(w, r, err)
 		return
 	}
-	for _, v := range orgVars {
-		val := v.Value
-		if v.Sensitive {
-			val = "***"
-		}
-		merged[v.Key+"|"+v.Category] = EffectiveVariableResponse{
-			Key: v.Key, Value: val, Sensitive: v.Sensitive,
+
+	result := make([]EffectiveVariableResponse, len(vars))
+	for i, v := range vars {
+		result[i] = EffectiveVariableResponse{
+			Key: v.Key, Value: v.Value, Sensitive: v.Sensitive,
 			Category: v.Category, Description: v.Description,
-			Source: "org", SourceID: v.ID,
+			Source: v.Source, SourceID: v.SourceID,
 		}
 	}
-
-	// Layer 2: pipeline variables (if pipeline_id given)
-	if pipelineID != "" {
-		pipelineVars, err := h.queries.ListPipelineVariables(r.Context(), repository.ListPipelineVariablesParams{
-			PipelineID: pipelineID, OrgID: userCtx.OrgID,
-		})
-		if err != nil {
-			respond.FromError(w, r, fmt.Errorf("list pipeline variables: %w", err))
-			return
-		}
-		for _, v := range pipelineVars {
-			val := v.Value
-			if v.Sensitive {
-				val = "***"
-			}
-			mergeEffectiveVar(merged, v.Key, val, v.Sensitive, v.Category, v.Description, "pipeline", v.ID)
-		}
-	}
-
-	// Layer 3: workspace variables (highest precedence)
-	wsVars, err := h.queries.ListWorkspaceVariables(r.Context(), repository.ListWorkspaceVariablesParams{
-		WorkspaceID: workspaceID, OrgID: userCtx.OrgID,
-	})
-	if err != nil {
-		respond.FromError(w, r, fmt.Errorf("list workspace variables: %w", err))
-		return
-	}
-	for _, v := range wsVars {
-		val := v.Value
-		if v.Sensitive {
-			val = "***"
-		}
-		mergeEffectiveVar(merged, v.Key, val, v.Sensitive, v.Category, v.Description, "workspace", v.ID)
-	}
-
-	result := make([]EffectiveVariableResponse, 0, len(merged))
-	for _, v := range merged {
-		result = append(result, v)
-	}
-
 	respond.JSON(w, http.StatusOK, result)
 }
 

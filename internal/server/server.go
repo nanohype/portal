@@ -185,6 +185,7 @@ func (s *Server) setupRouter() {
 	}
 
 	auditSvc := service.NewAuditService(queries)
+	variableSvc := service.NewVariableService(queries, encryptor, auditSvc)
 	s.runSvc = service.NewRunService(queries, s.db, streamer)
 
 	userSvc := service.NewUserService(queries)
@@ -209,7 +210,7 @@ func (s *Server) setupRouter() {
 	}
 	runHandler := handler.NewRunHandler(s.runSvc, workspaceSvc, streamer, auditSvc, wsOrigins, store)
 	discoverySvc := service.NewDiscoveryService(queries, store)
-	variableHandler := handler.NewVariableHandler(queries, encryptor, auditSvc, workspaceSvc, discoverySvc, s.authz)
+	variableHandler := handler.NewVariableHandler(queries, encryptor, auditSvc, variableSvc, workspaceSvc, discoverySvc, s.authz)
 	teamSvc := service.NewTeamService(queries)
 	teamHandler := handler.NewTeamHandler(teamSvc, auditSvc)
 	stateSvc := service.NewStateService(queries, store)
@@ -219,8 +220,8 @@ func (s *Server) setupRouter() {
 	auditHandler := handler.NewAuditHandler(queries)
 	healthHandler := handler.NewHealthHandler(s.db, s.cfg.Environment)
 	userHandler := handler.NewUserHandler(userSvc, auditSvc)
-	orgVarHandler := handler.NewOrgVariableHandler(queries, encryptor, auditSvc)
-	pipelineVarHandler := handler.NewPipelineVariableHandler(queries, encryptor, auditSvc)
+	orgVarHandler := handler.NewOrgVariableHandler(variableSvc)
+	pipelineVarHandler := handler.NewPipelineVariableHandler(variableSvc)
 	s.pipelineSvc = service.NewPipelineService(queries, s.db, s.runSvc)
 	pipelineHandler := handler.NewPipelineHandler(s.pipelineSvc, auditSvc)
 	webhookHandler := handler.NewWebhookHandler(queries, s.runSvc, auditSvc, s.cfg.WebhookSecret)
