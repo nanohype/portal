@@ -151,10 +151,11 @@ func (h *PipelineVariableHandler) Create(w http.ResponseWriter, r *http.Request)
 
 func (h *PipelineVariableHandler) Update(w http.ResponseWriter, r *http.Request) {
 	userCtx := auth.GetUser(r.Context())
+	pipelineID := chi.URLParam(r, "pipelineID")
 	varID := chi.URLParam(r, "variableID")
 
 	before, err := h.queries.GetPipelineVariable(r.Context(), repository.GetPipelineVariableParams{
-		ID: varID, OrgID: userCtx.OrgID,
+		ID: varID, PipelineID: pipelineID, OrgID: userCtx.OrgID,
 	})
 	if err != nil {
 		respond.Error(w, http.StatusNotFound, "variable not found")
@@ -191,7 +192,7 @@ func (h *PipelineVariableHandler) Update(w http.ResponseWriter, r *http.Request)
 	}
 
 	v, err := h.queries.UpdatePipelineVariable(r.Context(), repository.UpdatePipelineVariableParams{
-		ID: varID, OrgID: userCtx.OrgID, Value: value, Sensitive: req.Sensitive, Description: req.Description, Category: req.Category,
+		ID: varID, PipelineID: pipelineID, OrgID: userCtx.OrgID, Value: value, Sensitive: req.Sensitive, Description: req.Description, Category: req.Category,
 	})
 	if err != nil {
 		respond.Error(w, http.StatusInternalServerError, "failed to update pipeline variable")
@@ -219,12 +220,13 @@ func (h *PipelineVariableHandler) Update(w http.ResponseWriter, r *http.Request)
 
 func (h *PipelineVariableHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	userCtx := auth.GetUser(r.Context())
+	pipelineID := chi.URLParam(r, "pipelineID")
 	varID := chi.URLParam(r, "variableID")
 
-	if err := h.queries.DeletePipelineVariable(r.Context(), repository.DeletePipelineVariableParams{
-		ID: varID, OrgID: userCtx.OrgID,
+	if _, err := h.queries.DeletePipelineVariable(r.Context(), repository.DeletePipelineVariableParams{
+		ID: varID, PipelineID: pipelineID, OrgID: userCtx.OrgID,
 	}); err != nil {
-		respond.Error(w, http.StatusInternalServerError, "failed to delete pipeline variable")
+		respond.FromError(w, r, err)
 		return
 	}
 
@@ -240,10 +242,11 @@ func (h *PipelineVariableHandler) Delete(w http.ResponseWriter, r *http.Request)
 
 func (h *PipelineVariableHandler) RevealValue(w http.ResponseWriter, r *http.Request) {
 	userCtx := auth.GetUser(r.Context())
+	pipelineID := chi.URLParam(r, "pipelineID")
 	varID := chi.URLParam(r, "variableID")
 
 	v, err := h.queries.GetPipelineVariable(r.Context(), repository.GetPipelineVariableParams{
-		ID: varID, OrgID: userCtx.OrgID,
+		ID: varID, PipelineID: pipelineID, OrgID: userCtx.OrgID,
 	})
 	if err != nil {
 		respond.Error(w, http.StatusNotFound, "variable not found")

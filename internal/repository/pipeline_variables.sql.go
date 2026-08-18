@@ -40,14 +40,15 @@ func (q *Queries) ListPipelineVariables(ctx context.Context, arg ListPipelineVar
 }
 
 type GetPipelineVariableParams struct {
-	ID    string
-	OrgID string
+	ID         string
+	PipelineID string
+	OrgID      string
 }
 
 func (q *Queries) GetPipelineVariable(ctx context.Context, arg GetPipelineVariableParams) (PipelineVariable, error) {
 	row := q.db.QueryRow(ctx,
-		`SELECT `+pipelineVarColumns+` FROM pipeline_variables WHERE id = $1 AND org_id = $2`,
-		arg.ID, arg.OrgID,
+		`SELECT `+pipelineVarColumns+` FROM pipeline_variables WHERE id = $1 AND pipeline_id = $2 AND org_id = $3`,
+		arg.ID, arg.PipelineID, arg.OrgID,
 	)
 	return scanPipelineVariable(row)
 }
@@ -75,6 +76,7 @@ func (q *Queries) CreatePipelineVariable(ctx context.Context, arg CreatePipeline
 
 type UpdatePipelineVariableParams struct {
 	ID          string
+	PipelineID  string
 	OrgID       string
 	Value       string
 	Sensitive   bool
@@ -84,23 +86,28 @@ type UpdatePipelineVariableParams struct {
 
 func (q *Queries) UpdatePipelineVariable(ctx context.Context, arg UpdatePipelineVariableParams) (PipelineVariable, error) {
 	row := q.db.QueryRow(ctx,
-		`UPDATE pipeline_variables SET value = $3, sensitive = $4, description = $5, category = COALESCE(NULLIF($6, ''), category), updated_at = NOW()
-		WHERE id = $1 AND org_id = $2
+		`UPDATE pipeline_variables SET value = $4, sensitive = $5, description = $6, category = COALESCE(NULLIF($7, ''), category), updated_at = NOW()
+		WHERE id = $1 AND pipeline_id = $2 AND org_id = $3
 		RETURNING `+pipelineVarColumns,
-		arg.ID, arg.OrgID, arg.Value, arg.Sensitive, arg.Description, arg.Category,
+		arg.ID, arg.PipelineID, arg.OrgID, arg.Value, arg.Sensitive, arg.Description, arg.Category,
 	)
 	return scanPipelineVariable(row)
 }
 
 type DeletePipelineVariableParams struct {
-	ID    string
-	OrgID string
+	ID         string
+	PipelineID string
+	OrgID      string
 }
 
-func (q *Queries) DeletePipelineVariable(ctx context.Context, arg DeletePipelineVariableParams) error {
-	_, err := q.db.Exec(ctx,
-		`DELETE FROM pipeline_variables WHERE id = $1 AND org_id = $2`,
-		arg.ID, arg.OrgID,
+// DeletePipelineVariable removes one variable of one pipeline and returns the row
+// it deleted, so a delete that matched nothing is pgx.ErrNoRows rather than a
+// silent success. Without that, deleting another pipeline's variable id and
+// deleting nothing at all would look identical to the caller.
+func (q *Queries) DeletePipelineVariable(ctx context.Context, arg DeletePipelineVariableParams) (PipelineVariable, error) {
+	row := q.db.QueryRow(ctx,
+		`DELETE FROM pipeline_variables WHERE id = $1 AND pipeline_id = $2 AND org_id = $3 RETURNING `+pipelineVarColumns,
+		arg.ID, arg.PipelineID, arg.OrgID,
 	)
-	return err
+	return scanPipelineVariable(row)
 }

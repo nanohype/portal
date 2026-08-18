@@ -702,6 +702,87 @@ func TestWorkspaceVariableIsWorkspaceScoped(t *testing.T) {
 	}
 }
 
+func seedPipeline(t *testing.T, ctx context.Context, orgID, userID string) string {
+	t.Helper()
+	plID := id()
+	// Name off the full ULID: pipelines are unique on (org_id, name), and a ULID
+	// prefix is the shared timestamp, so two pipelines seeded in the same org in
+	// the same millisecond would collide.
+	exec(t, ctx, `INSERT INTO pipelines (id,org_id,name,created_by) VALUES ($1,$2,$3,$4)`, plID, orgID, "pl-"+plID, userID)
+	return plID
+}
+
+func seedPipelineVariable(t *testing.T, ctx context.Context, plID, orgID, key string) string {
+	t.Helper()
+	varID := id()
+	exec(t, ctx, `INSERT INTO pipeline_variables (id,pipeline_id,org_id,key,value,sensitive,category)
+		VALUES ($1,$2,$3,$4,'secret-value',true,'env')`, varID, plID, orgID, key)
+	return varID
+}
+
+// The pipeline analogue of TestWorkspaceVariableIsWorkspaceScoped. The route
+// carries {pipelineID}, so a variable reached through a pipeline that does not
+// own it must miss even though both pipelines sit in the same org — org scoping
+// alone let one pipeline read, reveal, overwrite and delete another's secret.
+func TestPipelineVariableIsPipelineScoped(t *testing.T) {
+	requireDB(t)
+	ctx := context.Background()
+	orgID, userID := seedOrg(t, ctx, "plvarscope")
+	victim := seedPipeline(t, ctx, orgID, userID)
+	attacker := seedPipeline(t, ctx, orgID, userID)
+	varID := seedPipelineVariable(t, ctx, victim, orgID, "aws_secret_access_key")
+
+	// Reading through the owning pipeline works.
+	if _, err := testQueries.GetPipelineVariable(ctx, repository.GetPipelineVariableParams{
+		ID: varID, PipelineID: victim, OrgID: orgID,
+	}); err != nil {
+		t.Fatalf("owning pipeline should read its own variable, got: %v", err)
+	}
+
+	// Reading the same variable id through another pipeline in the same org must
+	// miss — this is the read that backed the reveal endpoint.
+	if _, err := testQueries.GetPipelineVariable(ctx, repository.GetPipelineVariableParams{
+		ID: varID, PipelineID: attacker, OrgID: orgID,
+	}); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("cross-pipeline variable read must return no rows, got: %v", err)
+	}
+
+	// Writing through another pipeline must change nothing.
+	if _, err := testQueries.UpdatePipelineVariable(ctx, repository.UpdatePipelineVariableParams{
+		ID: varID, PipelineID: attacker, OrgID: orgID, Value: "poisoned", Category: "env",
+	}); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("cross-pipeline variable update must affect no row, got: %v", err)
+	}
+	after, err := testQueries.GetPipelineVariable(ctx, repository.GetPipelineVariableParams{
+		ID: varID, PipelineID: victim, OrgID: orgID,
+	})
+	if err != nil {
+		t.Fatalf("re-read after blocked update: %v", err)
+	}
+	if after.Value != "secret-value" {
+		t.Fatalf("variable value = %q, want it untouched by the cross-pipeline write", after.Value)
+	}
+
+	// Deleting through another pipeline must miss and leave the row in place.
+	if _, err := testQueries.DeletePipelineVariable(ctx, repository.DeletePipelineVariableParams{
+		ID: varID, PipelineID: attacker, OrgID: orgID,
+	}); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("cross-pipeline variable delete must affect no row, got: %v", err)
+	}
+	if _, err := testQueries.GetPipelineVariable(ctx, repository.GetPipelineVariableParams{
+		ID: varID, PipelineID: victim, OrgID: orgID,
+	}); err != nil {
+		t.Fatalf("variable should still exist after a blocked delete, got: %v", err)
+	}
+
+	// The legitimate delete still works.
+	if _, err := testQueries.DeletePipelineVariable(ctx, repository.DeletePipelineVariableParams{
+		ID: varID, PipelineID: victim, OrgID: orgID,
+	}); err != nil {
+		t.Fatalf("owning pipeline should delete its own variable, got: %v", err)
+	}
+}
+
 func TestStateVersionIsWorkspaceScoped(t *testing.T) {
 	requireDB(t)
 	ctx := context.Background()
