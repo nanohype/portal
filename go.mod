@@ -5,7 +5,7 @@ go 1.26.0
 // Pin the toolchain to a release that carries the std-lib security fixes
 // (GO-2026-5037/5038 + net/textproto, GO-2026-5856 crypto/tls ECH) — keeps
 // `govulncheck ./...` green in CI.
-toolchain go1.26.5
+toolchain go1.26.6
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.43.4
