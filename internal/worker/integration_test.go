@@ -20,7 +20,7 @@ import (
 	"testing"
 
 	"github.com/golang-migrate/migrate/v4"
-	_ "github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -28,6 +28,7 @@ import (
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 	"github.com/riverqueue/river/rivermigrate"
 
+	"github.com/nanohype/portal/internal/config"
 	"github.com/nanohype/portal/internal/repository"
 )
 
@@ -72,7 +73,11 @@ func TestMain(m *testing.M) {
 
 	_, thisFile, _, _ := runtime.Caller(0)
 	sourceURL := "file://" + filepath.Join(filepath.Dir(thisFile), "..", "..", "migrations")
-	mig, err := migrate.New(sourceURL, dbURL)
+	migrateDSN, err := config.MigrateURL(dbURL)
+	if err != nil {
+		panic("migrate dsn: " + err.Error())
+	}
+	mig, err := migrate.New(sourceURL, migrateDSN)
 	if err != nil {
 		panic("migrate init: " + err.Error())
 	}
