@@ -163,6 +163,25 @@ type Config struct {
 	ClusterHealthInterval time.Duration `env:"CLUSTER_HEALTH_INTERVAL" envDefault:"120s"`
 }
 
+// DefaultDatabaseURL is the development DATABASE_URL. It is duplicated in the
+// struct tag above because Go struct tags must be literals; TestDefaultDatabaseURLMatchesTheTag
+// fails if the two drift.
+const DefaultDatabaseURL = "postgres://portal:portal@localhost:5432/portal?sslmode=disable"
+
+// ValidateDatabase checks the database configuration is safe for the target
+// environment.
+//
+// Separate from Validate because cmd/migrate needs the database half without the
+// auth/webhook/object-store half: a migration Job is handed a DATABASE_URL and
+// nothing else, and refusing to run it over a missing GITHUB_CLIENT_ID would
+// block migrating a perfectly good production database.
+func (c *Config) ValidateDatabase() error {
+	if c.Environment != "development" && c.DatabaseURL == DefaultDatabaseURL {
+		return fmt.Errorf("DATABASE_URL must be set in non-development environments: the default points at a local development database")
+	}
+	return nil
+}
+
 // Validate checks that the configuration is safe for the target environment.
 func (c *Config) Validate() error {
 	if c.Environment != "development" {
@@ -191,7 +210,7 @@ func (c *Config) Validate() error {
 	if c.EncryptionKey != "" && c.EncryptionKey != "dev-encryption-key-32bytes!!!!!!" && len(c.EncryptionKey) != 32 {
 		return fmt.Errorf("ENCRYPTION_KEY must be exactly 32 bytes, got %d", len(c.EncryptionKey))
 	}
-	return nil
+	return c.ValidateDatabase()
 }
 
 // SlogLevel returns the slog.Level corresponding to the configured log level.
