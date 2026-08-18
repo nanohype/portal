@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -40,10 +42,13 @@ type ClusterOrderService struct {
 	db          *pgxpool.Pool
 	riverClient *river.Client[pgx.Tx]
 	records     clusterRecordLookup
+	// allowedRegions is the deployment's region policy. Empty means any region,
+	// which is the Cluster XRD's own contract — see assertRegionAllowed.
+	allowedRegions []string
 }
 
-func NewClusterOrderService(queries *repository.Queries, db *pgxpool.Pool) *ClusterOrderService {
-	return &ClusterOrderService{queries: queries, db: db, records: queries}
+func NewClusterOrderService(queries *repository.Queries, db *pgxpool.Pool, allowedRegions []string) *ClusterOrderService {
+	return &ClusterOrderService{queries: queries, db: db, records: queries, allowedRegions: allowedRegions}
 }
 
 func (s *ClusterOrderService) SetRiverClient(client *river.Client[pgx.Tx]) {
@@ -98,6 +103,9 @@ func (s *ClusterOrderService) withAccountWiring(ctx context.Context, orgID strin
 		}
 		return in, fmt.Errorf("resolve ordering account: %w", err)
 	}
+	if err := s.assertRegionAllowed(ctx, in.Region, acct); err != nil {
+		return in, err
+	}
 	return in.
 		WithPortalWiring(acct.AssumeRoleARN, "").
 		WithAccountSubstrate(
@@ -106,6 +114,35 @@ func (s *ClusterOrderService) withAccountWiring(ctx context.Context, orgID strin
 			deref(acct.ClusterPermissionsBoundaryARN),
 			deref(acct.OperatorPermissionsBoundaryARN),
 		), nil
+}
+
+// assertRegionAllowed enforces the deployment's region policy against the vend
+// target.
+//
+// Empty allowedRegions means any region, and that is the correct default: the
+// Cluster XRD documents spec.region as "any region is valid", decoupling it from
+// the state backend on purpose. Portal is a product, so an estate constraint —
+// nanohype's accounts sit under an SCP that denies every region but us-east-1 —
+// belongs in that estate's deployment config via CLUSTER_ALLOWED_REGIONS, not
+// baked into the code an adopter runs.
+//
+// A region that disagrees with the resolved account's default_region is not an
+// error; an account may legitimately vend into more than one region. It is
+// logged, because the likeliest cause is a typo and the alternative signal is a
+// provider error twenty minutes into the vend.
+func (s *ClusterOrderService) assertRegionAllowed(ctx context.Context, region string, acct repository.Account) error {
+	if len(s.allowedRegions) > 0 && !slices.Contains(s.allowedRegions, region) {
+		return apperr.Validation(fmt.Sprintf(
+			"region %s is not permitted by this portal (allowed: %s)",
+			region, strings.Join(s.allowedRegions, ", ")))
+	}
+	if acct.DefaultRegion != "" && acct.DefaultRegion != region {
+		slog.WarnContext(ctx, "cluster order region differs from the account default",
+			"region", region,
+			"account_default_region", acct.DefaultRegion,
+			"aws_account_id", acct.AWSAccountID)
+	}
+	return nil
 }
 
 // deref reads an optional column as the empty string, which is what

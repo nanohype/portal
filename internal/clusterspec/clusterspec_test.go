@@ -41,6 +41,59 @@ func TestRender_MinimalDefaults(t *testing.T) {
 	}
 }
 
+// The four labels resource-tagging lists under required_by_surface.k8s. They are
+// a projection of values the spec already carries, so the test pins both the key
+// set and the projection: a Cluster that renders spec.environment=production with
+// a label saying development is worse than no label at all.
+func TestRender_CarriesTheRequiredLabels(t *testing.T) {
+	in := Input{Name: "platform", Account: "111111111111", Region: "us-west-2", Team: "eng", Environment: "production"}
+	out, err := in.Render()
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	var cr clusterCR
+	if err := yaml.Unmarshal([]byte(out), &cr); err != nil {
+		t.Fatalf("rendered output is not valid YAML: %v\n%s", err, out)
+	}
+	want := map[string]string{
+		"app.kubernetes.io/managed-by":      "eks-fleet",
+		"app.kubernetes.io/component":       "cluster",
+		"platform.nanohype.dev/environment": "production",
+		"platform.nanohype.dev/team":        "eng",
+	}
+	for k, v := range want {
+		if got := cr.Metadata.Labels[k]; got != v {
+			t.Errorf("label %s = %q, want %q", k, got, v)
+		}
+	}
+	if len(cr.Metadata.Labels) != len(want) {
+		t.Errorf("labels = %v, want exactly the %d required keys", cr.Metadata.Labels, len(want))
+	}
+}
+
+// environment defaults to development when the order leaves it unset, and the
+// label has to follow EffectiveEnvironment rather than the raw field — otherwise
+// every defaulted order renders an empty label value, which the API server
+// rejects outright.
+func TestRender_EnvironmentLabelFollowsTheEffectiveEnvironment(t *testing.T) {
+	in := Input{Name: "platform", Account: "111111111111", Region: "us-west-2", Team: "platform"}
+	out, err := in.Render()
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	var cr clusterCR
+	if err := yaml.Unmarshal([]byte(out), &cr); err != nil {
+		t.Fatalf("rendered output is not valid YAML: %v\n%s", err, out)
+	}
+	if got := cr.Metadata.Labels["platform.nanohype.dev/environment"]; got != "development" {
+		t.Errorf("environment label = %q, want the defaulted development", got)
+	}
+	if cr.Spec.Environment != cr.Metadata.Labels["platform.nanohype.dev/environment"] {
+		t.Errorf("label %q disagrees with spec.environment %q",
+			cr.Metadata.Labels["platform.nanohype.dev/environment"], cr.Spec.Environment)
+	}
+}
+
 func TestRender_FullSpec(t *testing.T) {
 	yes := true
 	in := Input{
