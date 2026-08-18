@@ -25,7 +25,7 @@ To use GitHub sign-in locally, set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DATABASE_URL` | `postgres://portal:portal@localhost:5432/portal?sslmode=disable` | Postgres connection string |
+| `DATABASE_URL` | `postgres://portal:portal@localhost:5432/portal?sslmode=disable` | Postgres connection string. **Required in non-development environments** — the default names a local development database, and every binary refuses to start on it when `ENVIRONMENT` is anything other than `development`. `cmd/migrate` logs the host and database it is about to migrate (credentials stripped) on every run, because the default resolves to whichever Postgres holds `localhost:5432` and a migration that succeeds against the wrong database is worse than one that fails against the right one |
 | `DB_MAX_CONNS` | `25` | Maximum open connections |
 | `DB_MIN_CONNS` | `5` | Minimum idle connections |
 | `TEST_DATABASE_URL` | `postgres://portal:portal@localhost:5432/postgres?sslmode=disable` | Test-only. Admin DSN the repository/service integration tests use to create throwaway databases; when the server is unreachable those tests skip. |
