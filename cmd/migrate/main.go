@@ -34,6 +34,19 @@ func main() {
 		os.Exit(1)
 	}
 
+	// The only binary that writes schema was also the only one that never
+	// validated its config. A migration Job gets DATABASE_URL and little else,
+	// so this is the database half of Validate rather than the whole thing.
+	if err := cfg.ValidateDatabase(); err != nil {
+		logger.Error("invalid database configuration", "error", err)
+		os.Exit(1)
+	}
+	// Say which database, every time. On a machine with more than one project
+	// the default DATABASE_URL resolves to whatever holds localhost:5432, and a
+	// migration that succeeds against the wrong database is worse than one that
+	// fails against the right one.
+	logger.Info("migrating", "target", config.RedactedTarget(cfg.DatabaseURL), "direction", *direction)
+
 	// Run application migrations (golang-migrate)
 	migrateDSN, err := config.MigrateURL(cfg.DatabaseURL)
 	if err != nil {
