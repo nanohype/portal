@@ -94,6 +94,21 @@ func startedStatusFor(operation string) string {
 	}
 }
 
+// attemptOf reads a job's attempt number without assuming it has one.
+//
+// river.Job embeds *rivertype.JobRow, a pointer, so job.Attempt dereferences it.
+// River always populates it in production, but a caller constructing a Job from
+// Args alone — which every test in this package does — leaves it nil, and
+// reading Attempt panics. Returning 1 for that case is the honest default: no
+// attempt information means treat this as the first attempt, which is how the
+// worker behaved before the retry guard existed.
+func attemptOf[T river.JobArgs](job *river.Job[T]) int {
+	if job == nil || job.JobRow == nil {
+		return 1
+	}
+	return job.Attempt
+}
+
 // refusesRetry reports whether a job attempt must not re-execute, given the run
 // status recorded before this attempt started.
 //
@@ -134,8 +149,8 @@ func (w *RunJobWorker) Work(ctx context.Context, job *river.Job[RunJobArgs]) err
 	//
 	// Refusing here costs a re-run someone triggers deliberately. Not refusing
 	// costs a second destroy.
-	if job.Attempt > 1 {
-		if prior, err := w.queries.GetRun(ctx, repository.GetRunParams{ID: args.RunID, OrgID: args.OrgID}); err == nil && refusesRetry(job.Attempt, prior.Status) {
+	if attempt := attemptOf(job); attempt > 1 {
+		if prior, err := w.queries.GetRun(ctx, repository.GetRunParams{ID: args.RunID, OrgID: args.OrgID}); err == nil && refusesRetry(attempt, prior.Status) {
 			return w.failRun(ctx, args, logger, fmt.Errorf(
 				"refusing to retry %s: a previous attempt was already executing and may have changed infrastructure. "+
 					"Inspect the run log and the workspace state, then start a new run if the operation still needs to happen",

@@ -1,6 +1,10 @@
 package worker
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/riverqueue/river"
+)
 
 // The failure this guards: UpdateRunFinished fails after tofu has already run,
 // River retries the job from the top, and nothing stops a second destroy. The
@@ -77,4 +81,29 @@ func TestApplyingIsTheStatusForMutatingOperations(t *testing.T) {
 			t.Errorf("a retried %q must not be refused — it writes nothing", op)
 		}
 	}
+}
+
+// river.Job embeds *rivertype.JobRow — a pointer — so reading job.Attempt on a
+// Job built from Args alone dereferences nil and panics. Every test in this
+// package constructs jobs that way, and so the retry guard took down an
+// unrelated test the first time it shipped. Production always populates JobRow;
+// this is about not assuming it.
+func TestAttemptOf(t *testing.T) {
+	t.Run("a job with no JobRow reads as the first attempt", func(t *testing.T) {
+		job := &river.Job[RunJobArgs]{Args: RunJobArgs{RunID: "r1"}}
+		if got := attemptOf(job); got != 1 {
+			t.Errorf("attemptOf = %d, want 1 when JobRow is absent", got)
+		}
+		// The consequence that matters: no attempt information must not be
+		// mistaken for a retry, or a first run would refuse itself.
+		if refusesRetry(attemptOf(job), "applying") {
+			t.Error("a first attempt must never be refused")
+		}
+	})
+
+	t.Run("a nil job does not panic", func(t *testing.T) {
+		if got := attemptOf[RunJobArgs](nil); got != 1 {
+			t.Errorf("attemptOf(nil) = %d, want 1", got)
+		}
+	})
 }
