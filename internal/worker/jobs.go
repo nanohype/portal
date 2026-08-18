@@ -81,6 +81,46 @@ func (w *RunJobWorker) SetRiverClient(client *river.Client[pgx.Tx], db *pgxpool.
 	w.db = db
 }
 
+// startedStatusFor is the status a run carries while this worker is executing it.
+// The mutating operations share "applying", which is what lets refusesRetry key
+// on the status alone instead of a second list of operations that could drift
+// from this one.
+func startedStatusFor(operation string) string {
+	switch operation {
+	case "apply", "destroy", "import", "test":
+		return "applying"
+	default:
+		return "planning"
+	}
+}
+
+// attemptOf reads a job's attempt number without assuming it has one.
+//
+// river.Job embeds *rivertype.JobRow, a pointer, so job.Attempt dereferences it.
+// River always populates it in production, but a caller constructing a Job from
+// Args alone — which every test in this package does — leaves it nil, and
+// reading Attempt panics. Returning 1 for that case is the honest default: no
+// attempt information means treat this as the first attempt, which is how the
+// worker behaved before the retry guard existed.
+func attemptOf[T river.JobArgs](job *river.Job[T]) int {
+	if job == nil || job.JobRow == nil {
+		return 1
+	}
+	return job.Attempt
+}
+
+// refusesRetry reports whether a job attempt must not re-execute, given the run
+// status recorded before this attempt started.
+//
+// "applying" is the status this worker sets for exactly the mutating operations
+// (apply, destroy, import, test), so seeing it on a retry means a previous
+// attempt reached execution and may have changed infrastructure. "planning"
+// stays retryable because a plan writes nothing, and "pending"/"queued" mean the
+// first attempt never got past UpdateRunStarted.
+func refusesRetry(attempt int, priorStatus string) bool {
+	return attempt > 1 && priorStatus == "applying"
+}
+
 func (w *RunJobWorker) Work(ctx context.Context, job *river.Job[RunJobArgs]) error {
 	args := job.Args
 	logger := slog.With("run_id", args.RunID, "workspace_id", args.WorkspaceID, "operation", args.Operation)
@@ -91,12 +131,35 @@ func (w *RunJobWorker) Work(ctx context.Context, job *river.Job[RunJobArgs]) err
 	// here — re-setting it unconditionally would let a job that somehow outlived
 	// its claim steal the slot from whoever holds it now.
 
-	// Update run status
-	status := "planning"
-	if args.Operation == "apply" || args.Operation == "destroy" || args.Operation == "import" || args.Operation == "test" {
-		status = "applying"
+	// A retry must not re-run a mutating operation that already executed.
+	//
+	// Only two failures inside this job reach River as errors after tofu has run:
+	// the UpdateRunFinished write below, and failRun's own write when marking the
+	// run errored fails. Both leave the row exactly as the pre-execution failure
+	// path does not — at "applying" — because the write that would have moved it
+	// off "applying" is the one that failed. A worker killed mid-apply lands in
+	// the same state via River's rescue path.
+	//
+	// So the prior status discriminates precisely: "pending"/"queued" means the
+	// first attempt never got past UpdateRunStarted and re-running is safe, while
+	// "applying" means a previous attempt reached execution. "applying" is set
+	// for exactly the mutating operations (apply, destroy, import, test), so the
+	// status alone carries the distinction and no operation list can drift from
+	// it. "planning" is left retryable — a plan writes nothing.
+	//
+	// Refusing here costs a re-run someone triggers deliberately. Not refusing
+	// costs a second destroy.
+	if attempt := attemptOf(job); attempt > 1 {
+		if prior, err := w.queries.GetRun(ctx, repository.GetRunParams{ID: args.RunID, OrgID: args.OrgID}); err == nil && refusesRetry(attempt, prior.Status) {
+			return w.failRun(ctx, args, logger, fmt.Errorf(
+				"refusing to retry %s: a previous attempt was already executing and may have changed infrastructure. "+
+					"Inspect the run log and the workspace state, then start a new run if the operation still needs to happen",
+				args.Operation), "")
+		}
 	}
-	run, err := w.queries.UpdateRunStarted(ctx, repository.UpdateRunStartedParams{ID: args.RunID, Status: status})
+
+	// Update run status
+	run, err := w.queries.UpdateRunStarted(ctx, repository.UpdateRunStartedParams{ID: args.RunID, Status: startedStatusFor(args.Operation)})
 	if err != nil {
 		return fmt.Errorf("failed to update run started: %w", err)
 	}
