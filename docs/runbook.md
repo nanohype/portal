@@ -54,7 +54,7 @@ Watcher loops (`loop` label): `job-stats` (15s), `slot-reaper` (5m),
 | `rate(portal_worker_job_errors_total[10m]) > 0` sustained | 10m | [Failing jobs](#failing-or-discarded-jobs) |
 | `portal_worker_jobs{state="discarded"}` increasing | any | [Failing jobs](#failing-or-discarded-jobs) — retries are exhausted |
 | `portal_worker_jobs{state="available"}` climbing, `running` flat | 10m | worker under-concurrency or wedged — see [Worker not picking up jobs](#worker-not-picking-up-jobs) |
-| 5xx rate on `portal_http_request_duration_seconds` | route-dependent | [API errors](#api-5xxs) |
+| 5xx rate on `portal_http_request_duration_seconds` | route-dependent | [API 5xxs](#api-5xxs) |
 | `/readyz` failing on both server and worker | 2m | [Postgres outage](#postgres-outage) |
 
 ## Failure modes
@@ -110,6 +110,37 @@ and ready (`/readyz` — it needs Postgres; River polls the DB), then check
 `WORKER_CONCURRENCY` (default 10, bounds simultaneous tofu runs) against what's
 queued. All job state is in Postgres — killing a wedged worker pod loses
 nothing; retries resume on the replacement.
+
+### API 5xxs
+
+The `portal_http_request_duration_seconds` alert is route-labelled, so start by
+reading which route is failing — a 5xx confined to one route is a handler
+problem, a 5xx across every route is usually the database (see
+[Postgres outage](#postgres-outage)).
+
+Every 500 that reaches a client through `respond.FromError` is logged first, at
+`ERROR`, with the chi request id attached:
+
+```
+"unhandled handler error"    error=<cause> request_id=<id>
+"internal error (apperr)"    error=<cause> request_id=<id>
+```
+
+Those two lines carry the cause; the response body deliberately does not. So the
+fastest path is to grep the server logs for `request_id` and read `error`.
+
+If the client can quote a `request_id` from the response envelope, use it —
+`respond.ErrorWithRequest` puts it there. Note it is not on every 500: handlers
+that call `respond.Error` directly emit the same status with no id, so an
+absent id narrows nothing and is not itself a signal.
+
+Common causes, in the order they are worth checking:
+
+- **Database** — connection exhaustion or an outage. `/readyz` fails too, and the
+  errors are spread across routes rather than concentrated.
+- **Object store** — see [S3 errors on runs](#s3-errors-on-runs); these
+  concentrate on the run, state and config-archive routes.
+- **A single handler** — one route, cause named directly in the logged `error`.
 
 ### Postgres outage
 
