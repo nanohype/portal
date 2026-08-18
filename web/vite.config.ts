@@ -16,6 +16,19 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
+    // Vitest defaults to 5s, which this suite exceeds under load: jsdom render
+    // plus v8 coverage instrumentation on a contended runner pushes a findBy /
+    // waitFor past the ceiling, and the whole suite's verdict then depends on
+    // how busy the machine is rather than on the code. 15s is headroom for a
+    // slow-but-correct wait while still failing a genuinely hung test in a
+    // reasonable time.
+    //
+    // This is headroom, not a fix for a racing assertion — a getBy* throws
+    // immediately and never consults the timeout, so a query that outruns its
+    // render has to become findBy* instead. Raising this would have hidden
+    // nothing there.
+    testTimeout: 15_000,
+    hookTimeout: 15_000,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],
