@@ -345,11 +345,21 @@ func (e *KubernetesExecutor) buildPod(name string, params ExecuteParams, payload
 				EmptyDir: &corev1.EmptyDirVolumeSource{},
 			},
 		},
+		{
+			// tofu, git and the providers they shell out to all write to TMPDIR.
+			// With a read-only root filesystem there is nowhere to put that, so
+			// /tmp is its own emptyDir rather than the image's writable layer.
+			Name: "tmp",
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
+			},
+		},
 	}
 
 	volumeMounts := []corev1.VolumeMount{
 		{Name: "config", MountPath: "/config", ReadOnly: true},
 		{Name: "work", MountPath: "/work"},
+		{Name: "tmp", MountPath: "/tmp"},
 	}
 
 	// Cap wall-clock so a stranded pod (worker killed before deferred delete)
@@ -371,13 +381,41 @@ func (e *KubernetesExecutor) buildPod(name string, params ExecuteParams, payload
 		Spec: corev1.PodSpec{
 			RestartPolicy:         corev1.RestartPolicyNever,
 			ActiveDeadlineSeconds: &activeDeadline,
+			// This pod runs tofu against a user-supplied config, where a
+			// local-exec provisioner is arbitrary code by design. It is the least
+			// trusted thing portal starts, so it is held to the same restricted
+			// bar as portal's own workloads rather than a looser one.
+			//
+			// fsGroup matters as much as the rest: the work and tmp volumes are
+			// emptyDirs owned by root, and a container forced to a non-root UID
+			// cannot write to them without a group it belongs to.
+			SecurityContext: &corev1.PodSecurityContext{
+				RunAsNonRoot: boolPtr(true),
+				RunAsUser:    int64Ptr(1000),
+				RunAsGroup:   int64Ptr(1000),
+				FSGroup:      int64Ptr(1000),
+				SeccompProfile: &corev1.SeccompProfile{
+					Type: corev1.SeccompProfileTypeRuntimeDefault,
+				},
+			},
 			Containers: []corev1.Container{
 				{
-					Name:         "tofu",
-					Image:        e.resolveImage(params.TofuVersion),
-					Command:      []string{"/bin/sh", "/config/run.sh"},
-					Env:          payload.env,
+					Name:    "tofu",
+					Image:   e.resolveImage(params.TofuVersion),
+					Command: []string{"/bin/sh", "/config/run.sh"},
+					// HOME first, so a workspace variable that sets it still wins
+					// (kubelet takes the last value for a duplicated key). The
+					// default matters because the container runs as a UID with no
+					// passwd entry: HOME would otherwise resolve to "/", which is
+					// read-only here, and anything tofu or git writes beside the
+					// working tree fails on a path nobody configured.
+					Env:          append([]corev1.EnvVar{{Name: "HOME", Value: "/work"}}, payload.env...),
 					VolumeMounts: volumeMounts,
+					SecurityContext: &corev1.SecurityContext{
+						AllowPrivilegeEscalation: boolPtr(false),
+						ReadOnlyRootFilesystem:   boolPtr(true),
+						Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
+					},
 					Resources: corev1.ResourceRequirements{
 						Requests: corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("250m"),
