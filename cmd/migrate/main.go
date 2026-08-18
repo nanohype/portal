@@ -9,7 +9,7 @@ import (
 
 	"github.com/caarlos0/env/v11"
 	"github.com/golang-migrate/migrate/v4"
-	_ "github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -35,7 +35,12 @@ func main() {
 	}
 
 	// Run application migrations (golang-migrate)
-	m, err := migrate.New(*migrationsPath, cfg.DatabaseURL)
+	migrateDSN, err := config.MigrateURL(cfg.DatabaseURL)
+	if err != nil {
+		logger.Error("failed to build migration DSN", "error", err)
+		os.Exit(1)
+	}
+	m, err := migrate.New(*migrationsPath, migrateDSN)
 	if err != nil {
 		logger.Error("failed to create migrator", "error", err)
 		os.Exit(1)
