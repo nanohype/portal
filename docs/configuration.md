@@ -137,6 +137,7 @@ The cluster vend path templates the eks-fleet `Cluster` CR directly (no chart) a
 |----------|---------|-------------|
 | `GITOPS_CLUSTERS_REPO_URL` | _(empty)_ | Clusters GitOps repo. Empty disables the cluster vend path |
 | `GITOPS_CLUSTERS_REPO_REF` | `main` | Branch/ref to commit cluster changes to |
+| `CLUSTER_ALLOWED_REGIONS` | _(empty)_ | Comma-separated AWS regions a cluster may be vended into. Empty means any region, matching the `Cluster` XRD, which documents `spec.region` as "any region is valid" and decouples it from the state backend. This is deployment policy: an estate whose accounts sit under a region-locking SCP sets it to that region (nanohype's is `us-east-1`); an adopter sets their own or leaves it open. An order outside the set is refused at the order desk with a 400 naming the allowed regions, rather than failing partway into a vend |
 | `FLEET_HUB_ROLE_ARN` | _(empty)_ | The hub's Crossplane role ARN (`eks-fleet-crossplane`). On a cross-account vend (the `Cluster` sets `vendRoleArn`) the worker stamps it onto `spec.bootstrapAccessRoleArn` so cluster-stack grants the hub a cluster-admin EKS access entry and the bootstrap Workspace's get-token can reach the spoke API. Empty = same-account only (no stamping) |
 
 ## ArgoCD cluster-registry sync

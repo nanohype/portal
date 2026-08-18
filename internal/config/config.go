@@ -124,6 +124,14 @@ type Config struct {
 	ClustersRepoURL string `env:"GITOPS_CLUSTERS_REPO_URL"`
 	ClustersRepoRef string `env:"GITOPS_CLUSTERS_REPO_REF" envDefault:"main"`
 
+	// ClusterAllowedRegions restricts which AWS regions a cluster may be vended
+	// into. Empty (the default) means any region, matching the Cluster XRD,
+	// which documents spec.region as "any region is valid" and decouples it from
+	// the state backend. This is deployment policy, not product behavior: an
+	// estate whose accounts sit under a region-locking SCP sets it to that
+	// region, an adopter sets their own or leaves it open.
+	ClusterAllowedRegions []string `env:"CLUSTER_ALLOWED_REGIONS"`
+
 	// FleetHubRoleArn is the hub's Crossplane role ARN (eks-fleet-crossplane).
 	// On a cross-account vend (the Cluster sets vendRoleArn) the worker stamps it
 	// onto spec.bootstrapAccessRoleArn so cluster-stack grants the hub a

@@ -39,6 +39,26 @@ const (
 	defaultSystemDesiredSize = 2
 )
 
+// The four labels resource-tagging lists under required_by_surface.k8s. Every
+// value is already carried by the spec, so this is a projection of what the CR
+// says rather than new input: component is what the resource is, environment
+// and team come from the order.
+//
+// managedBy is eks-fleet because eks-fleet's Crossplane composition owns this
+// resource's lifecycle. The standard's `meaning` names opentofu and
+// eks-agent-platform as its two examples; neither reconciles a Cluster, and the
+// label exists to answer "who do I go to when this drifts", so naming the wrong
+// operator would be worse than naming one the taxonomy has not enumerated yet.
+const (
+	labelManagedBy   = "app.kubernetes.io/managed-by"
+	labelComponent   = "app.kubernetes.io/component"
+	labelEnvironment = "platform.nanohype.dev/environment"
+	labelTeam        = "platform.nanohype.dev/team"
+
+	managedBy        = "eks-fleet"
+	componentCluster = "cluster"
+)
+
 // k8sName is the RFC 1123 label/subdomain shape Kubernetes requires for the
 // Cluster's metadata.name and namespace.
 var (
@@ -167,7 +187,7 @@ func (in Input) Validate() error {
 	case !k8sName.MatchString(in.Name):
 		return fmt.Errorf("name %q must be a lowercase RFC-1123 label", in.Name)
 	case len(in.Name) > 12:
-		return fmt.Errorf("name %q must be <= 12 chars: the derived <environment>-<name> feeds cluster-scoped S3/IAM names; the tightest (agent-iam's account+region-qualified model-artifacts bucket) fits within S3's 63-char limit in us-west-2", in.Name)
+		return fmt.Errorf("name %q must be <= 12 chars: the derived <environment>-<name> feeds cluster-scoped S3/IAM names; the tightest (agent-iam's account+region-qualified model-artifacts bucket) fits within S3's 63-char limit", in.Name)
 	case !awsAcct.MatchString(in.Account):
 		return fmt.Errorf("account %q must be a 12-digit AWS account id", in.Account)
 	case !awsRegn.MatchString(in.Region):
@@ -435,8 +455,9 @@ type clusterCR struct {
 }
 
 type crMetadata struct {
-	Name      string `json:"name"`
-	Namespace string `json:"namespace"`
+	Name      string            `json:"name"`
+	Namespace string            `json:"namespace"`
+	Labels    map[string]string `json:"labels,omitempty"`
 }
 
 type crSpec struct {
@@ -508,7 +529,16 @@ func (in Input) Render() (string, error) {
 	cr := clusterCR{
 		APIVersion: apiVersion,
 		Kind:       kind,
-		Metadata:   crMetadata{Name: in.Name, Namespace: in.Team},
+		Metadata: crMetadata{
+			Name:      in.Name,
+			Namespace: in.Team,
+			Labels: map[string]string{
+				labelManagedBy:   managedBy,
+				labelComponent:   componentCluster,
+				labelEnvironment: in.EffectiveEnvironment(),
+				labelTeam:        in.Team,
+			},
+		},
 		Spec: crSpec{
 			Account:                        in.Account,
 			Region:                         in.Region,
