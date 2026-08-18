@@ -122,6 +122,51 @@ func TestAuditServiceLog(t *testing.T) {
 // TestAuditServiceLogTx pins the difference that matters between the two entry
 // points: LogTx returns the error so the surrounding transaction can abort, and
 // its row is rolled back with that transaction rather than surviving it.
+// LogDisclosure is the audit ledger's read-side counterpart: it records that a
+// secret was released and returns the error so the caller can refuse to release
+// it. The handlers exercise the refusal against a stub, which leaves the real
+// method uncovered — and audit.go is pinned at 100% precisely because an
+// uncovered branch in the ledger is one nobody notices is missing.
+func TestAuditServiceLogDisclosure(t *testing.T) {
+	requireDB(t)
+	ctx := context.Background()
+	orgID, userID := seedOrg(t, ctx, "disclosure")
+	svc := service.NewAuditService(testQueries)
+
+	t.Run("records the disclosure and reports success", func(t *testing.T) {
+		entity := id()
+		if err := svc.LogDisclosure(ctx, service.AuditEntry{
+			OrgID: orgID, UserID: userID,
+			Action: "variable.reveal", EntityType: "variable", EntityID: entity,
+			IPAddress: "203.0.113.9", UserAgent: "portal-test",
+		}); err != nil {
+			t.Fatalf("LogDisclosure: %v", err)
+		}
+
+		rows := auditRows(t, ctx, entity)
+		if len(rows) != 1 {
+			t.Fatalf("expected one audit row, got %d", len(rows))
+		}
+		if rows[0].Action != "variable.reveal" {
+			t.Errorf("action: got %q, want variable.reveal", rows[0].Action)
+		}
+	})
+
+	t.Run("returns the error instead of swallowing it", func(t *testing.T) {
+		// The whole point of the method: Log would have logged this and let the
+		// caller answer with the secret anyway. A row referencing an org that
+		// does not exist violates the foreign key, which is the cheapest real
+		// write failure to provoke.
+		err := svc.LogDisclosure(ctx, service.AuditEntry{
+			OrgID: "org-that-does-not-exist", UserID: userID,
+			Action: "variable.reveal", EntityType: "variable", EntityID: id(),
+		})
+		if err == nil {
+			t.Fatal("a failed disclosure write must be reported, not swallowed")
+		}
+	})
+}
+
 func TestAuditServiceLogTx(t *testing.T) {
 	requireDB(t)
 	ctx := context.Background()
