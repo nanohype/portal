@@ -40,8 +40,23 @@ module="github.com/nanohype/portal"
 # pollute the profile and trip the "reports coverage but has no floor" check.
 packages=$(go list ./... | grep -v '/node_modules/')
 
-out=$(go test $packages -coverprofile="$profile" -covermode=atomic -count=1)
+# Capture the suite's own exit code rather than letting `set -e` take it. The
+# assignment below fails when the suite fails, and under `set -e` that aborts the
+# script *before* the echo — so a panic or a failed assertion produced a gate that
+# printed nothing at all and exited 1, which reads like a broken gate rather than
+# a broken test. stderr is folded in for the same reason: a panic writes there.
+set +e
+out=$(go test $packages -coverprofile="$profile" -covermode=atomic -count=1 2>&1)
+test_rc=$?
+set -e
 echo "$out"
+
+if [ "$test_rc" -ne 0 ]; then
+	echo
+	echo "== the test suite failed (exit ${test_rc}) — coverage floors were not evaluated =="
+	echo "   The failure is above. Floors are only meaningful over a suite that ran."
+	exit "$test_rc"
+fi
 
 total=$(go tool cover -func="$profile" | awk '/^total:/ {gsub(/%/,"",$3); print $3}')
 echo "== total coverage: ${total}% =="

@@ -131,8 +131,13 @@ jobs:
 
       - name: Install kubeconform
         run: |
-          curl -sSfL https://github.com/yannh/kubeconform/releases/download/v0.7.0/kubeconform-linux-amd64.tar.gz \
-            | sudo tar -xz -C /usr/local/bin kubeconform
+          # Retried, and downloaded to a file rather than piped: --retry restarts
+          # the request body, so a retry mid-stream would feed tar the front of a
+          # second copy on top of a partial first one. Fetch, then extract.
+          curl -sSfL --retry 3 --retry-delay 2 --retry-all-errors \
+            -o /tmp/kubeconform.tar.gz \
+            https://github.com/yannh/kubeconform/releases/download/v0.7.0/kubeconform-linux-amd64.tar.gz
+          sudo tar -xzf /tmp/kubeconform.tar.gz -C /usr/local/bin kubeconform
 
       - name: Helm lint
         run: helm lint deploy/helm/portal
