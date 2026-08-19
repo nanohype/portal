@@ -77,6 +77,17 @@ const commitMarker = "===PORTAL_COMMIT==="
 // truncating everything after it.
 var commitMarkerRe = regexp.MustCompile(`(?m)^` + commitMarker + `([0-9a-fA-F]{7,64})\r?\n?`)
 
+// runObjectName derives the metadata.name shared by a run's ConfigMap, Secret
+// and Pod. The apiserver requires RFC-1123: lowercase alphanumerics and dashes.
+// A run id is a ULID, whose Crockford base32 alphabet is uppercase, so the id
+// cannot be used unaltered — the first create is rejected and no run reaches
+// tofu. Lowercasing is injective over that alphabet, so two run ids cannot
+// collide into one name. The id keeps its own case in the portal/run-id label,
+// where uppercase is legal and correlation depends on matching it as issued.
+func runObjectName(runID string) string {
+	return "portal-run-" + strings.ToLower(runID)
+}
+
 func (e *KubernetesExecutor) Execute(ctx context.Context, params ExecuteParams) (*ExecuteResult, error) {
 	logger := slog.With("run_id", params.RunID, "operation", params.Operation)
 
@@ -88,7 +99,7 @@ func (e *KubernetesExecutor) Execute(ctx context.Context, params ExecuteParams) 
 		return nil, fmt.Errorf("refusing to check out %q: not a git commit id", params.CommitSHA)
 	}
 
-	podName := fmt.Sprintf("portal-run-%s", params.RunID)
+	podName := runObjectName(params.RunID)
 
 	// Build OpenTofu command script
 	script := e.buildScript(params)
