@@ -74,7 +74,19 @@ Three processes: **server** (HTTP API), **worker** (runs tofu commands), **web**
 
 - **Router**: chi (`internal/server/server.go` — all routes defined here)
 - **Handlers**: `internal/handler/` — one file per domain (auth, workspace, run, pipeline, pipeline_variables, org_variables, variables, teams, user, account, cluster, cluster_order, tenant, template, ops, state, audit, webhook, approvals, health). Handlers are transport-only: parse, call a service, map to a `*Response` DTO, respond
-- **Services**: `internal/service/` — the business logic layer, one per domain (workspace, run, pipeline, state, approval, audit, user, team, account, cluster, cluster_order, cluster_health, cluster_provision_watch, tenant, template, discovery, ops_feed, argocd_sync). Every domain goes handler → service → repository
+- **Services**: `internal/service/` — the business logic layer, one per domain (workspace, run, pipeline, variable, state, approval, audit, user, team, account, cluster, cluster_order, cluster_health, cluster_provision_watch, tenant, template, discovery, ops_feed, argocd_sync).
+
+  **Every domain with logic goes handler → service → repository.** Logic means a decision: encryption, redaction, an authorization check, an audit entry, validation beyond "is this JSON", or anything ordering two writes. If a handler would make one of those calls, it belongs in a service, because a decision written in the transport layer cannot be reused by the worker and cannot be tested without an HTTP request.
+
+  A pure passthrough — a handler that parses a path parameter, runs one query, and maps the row — may call the repository directly. Wrapping those in a service that only forwards adds a file that does nothing and tells the next reader there is logic in it. The complete current set is four, and it is deliberately short:
+
+  | call site | query |
+  |---|---|
+  | `handler/audit.go` | `ListAuditLogs` |
+  | `handler/webhook.go` | `FindWorkspacesByRepo`, `HasRecentRunForCommit` |
+  | `handler/workspace.go` | `SetWorkspaceConfigVersion` |
+
+  Adding to that table needs a reason; the moment one of those grows a decision it becomes a service.
 - **Config**: `internal/config/` — env-var config with dev defaults
 - **The run vocabulary has one source of truth**: the Postgres `run_status` / `run_operation` / `user_role` enums in `migrations/`, mirrored into `api/openapi.yaml`, generated into `web/src/api/types.ts`, and validated at the handler. There is no Go enum layer — the repository row structs carry these as `string`, and CI's contract-drift check keeps the chain honest. Add a value to the migration first; everything downstream follows from it
 - **Repository**: `internal/repository/` — hand-written pgx queries in `*.sql.go` (sqlc-style: typed Params structs + `scanX` helpers, but NOT generated — edit them directly; there is no sqlc/codegen step). Row structs carry no json tags — serialization happens once, at the handler layer
