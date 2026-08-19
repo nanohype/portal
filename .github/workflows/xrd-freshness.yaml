@@ -37,11 +37,22 @@ jobs:
         id: freshness
         run: |
           set -uo pipefail
-          # Redirect to a file and read $? from the script itself. Reading an exit
-          # code off the end of a pipeline reports the LAST command's status, which
-          # is how a check ends up reporting `tee` succeeded.
-          scripts/xrd.sh freshness > freshness.log 2>&1
-          code=$?
+          # Two ways to lose this exit code, and both have to be closed.
+          #
+          # Reading it off the end of a pipeline reports the LAST command's status,
+          # which is how a check ends up reporting that `tee` succeeded. Hence the
+          # redirect to a file rather than a pipe.
+          #
+          # The second is errexit. GitHub invokes a `run:` block as `bash -e {0}`,
+          # so errexit is on before the first line of this script and `set -uo
+          # pipefail` does not turn it off. A bare invocation exiting 2 dies here,
+          # before `code=$?` on the next line runs, leaving
+          # `steps.freshness.outputs.code` unset and skipping every step below —
+          # including the one that files the drift issue. The `|| code=$?` form is
+          # exempt from errexit because the command sits on the left of a `||`
+          # list, so a 2 is captured rather than fatal.
+          code=0
+          scripts/xrd.sh freshness > freshness.log 2>&1 || code=$?
           cat freshness.log
           echo "code=${code}" >> "$GITHUB_OUTPUT"
           {
