@@ -436,14 +436,31 @@ spec:
                             cleared. Defaults on.
                           type: boolean
                         engineVersion:
-                          default: "16.6"
+                          default: "16"
                           description: |-
-                            EngineVersion of Aurora PostgreSQL. Auto-pause (minACU "0") needs 16.3 or
-                            later, which the rule on this type enforces against the major version —
-                            the minor is not machine-checkable here, so 16.0–16.2 is admitted and
-                            fails at apply rather than at admission.
+                            EngineVersion of Aurora PostgreSQL, as a major line ("16") or a full
+                            version ("16.14").
+
+                            The major line is the default and the one to reach for. RDS resolves it to
+                            the newest minor the region offers, so there is no patch number left to go
+                            stale — and a stale one is not a theoretical cost. Pinned at "16.6", every
+                            apply of a relational datastore failed with `Cannot find version 16.6 for
+                            aurora-postgresql` once AWS withdrew it, after the VPC and the EKS cluster
+                            were already built and billing. A withdrawn version is a fact about the
+                            region rather than a change to any manifest, so nothing in CI can see it
+                            coming.
+
+                            Pin a full version only to hold a tenant on one deliberately, and expect
+                            to move it when AWS retires that version too.
+
+                            Auto-pause (minACU "0") needs 16.3 or later, which the rule on this type
+                            enforces against the major. A major-only value satisfies it: every 16.x
+                            AWS still offers is past the floor, so "whatever is current" cannot
+                            resolve below it. A full version below the floor on the same major —
+                            16.0 to 16.2 — is still admitted and still fails at apply, because the
+                            minor is not machine-checkable here.
                           maxLength: 10
-                          pattern: ^[0-9]+\.[0-9]+$
+                          pattern: ^[0-9]+(\.[0-9]+)?$
                           type: string
                         maxACU:
                           default: "8"
@@ -640,7 +657,7 @@ spec:
                     - vcluster: the same host-side containment PLUS a per-Platform virtual
                       cluster, so tenant code that talks to the Kubernetes API talks to its own
                       API server, not the host's (API-server-level isolation — NOT kernel/node
-                      isolation; see docs/adr/0009-vcluster-isolation-tier.md and SECURITY.md).
+                      isolation; see docs/adr/0008-vcluster-isolation-tier.md and SECURITY.md).
 
                   Immutable: switching tiers on a live Platform is a migration (it would strand
                   the virtual cluster and its synced host objects), so the tier is fixed at
