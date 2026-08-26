@@ -340,7 +340,9 @@ func main() {
 		logger.Info("tenant manifest validation enabled", "crd_schemas_ref", manifestValidator.Ref()[:12])
 
 		tenantApplyWorker = worker.NewTenantApplyJobWorker(worker.TenantApplyDeps{
-			Queries: queries,
+			LoadCluster: func(ctx context.Context, id, orgID string) (repository.Cluster, error) {
+				return queries.GetCluster(ctx, repository.GetClusterParams{ID: id, OrgID: orgID})
+			},
 			LoadOp: func(ctx context.Context, id, orgID string) (repository.TenantOperation, error) {
 				return tenantSvc.GetOperation(ctx, id, orgID)
 			},
@@ -366,7 +368,9 @@ func main() {
 		// be stuck in pending. Better to surface "not configured" on the
 		// row itself so the UI shows what's wrong.
 		stub := worker.NewTenantApplyJobWorker(worker.TenantApplyDeps{
-			Queries: queries,
+			LoadCluster: func(ctx context.Context, id, orgID string) (repository.Cluster, error) {
+				return queries.GetCluster(ctx, repository.GetClusterParams{ID: id, OrgID: orgID})
+			},
 			LoadOp: func(ctx context.Context, id, orgID string) (repository.TenantOperation, error) {
 				return tenantSvc.GetOperation(ctx, id, orgID)
 			},

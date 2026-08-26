@@ -43,6 +43,12 @@ func (TenantApplyJobArgs) InsertOpts() river.InsertOpts {
 type TenantOperationLoader func(ctx context.Context, id, orgID string) (repository.TenantOperation, error)
 type TenantOperationCompleter func(ctx context.Context, id, orgID, status, sha, errMsg string) error
 
+// ClusterLoader resolves the cluster an operation targets. A function type for
+// the same reason as the two above: it is the last thing on this path that
+// needed a live database, and the manifest check below cannot be asserted
+// without standing the whole write path up.
+type ClusterLoader func(ctx context.Context, id, orgID string) (repository.Cluster, error)
+
 // ChartRenderer abstracts the helm render call. The caller's adapter loads
 // the named chart from the cache and renders against the supplied values.
 // ctx is the job context so a chart pull cannot outlive the job deadline
@@ -51,7 +57,7 @@ type ChartRenderer func(ctx context.Context, chartName, releaseName, namespace s
 
 type TenantApplyJobWorker struct {
 	river.WorkerDefaults[TenantApplyJobArgs]
-	queries     *repository.Queries
+	loadCluster ClusterLoader
 	loadOp      TenantOperationLoader
 	completeOp  TenantOperationCompleter
 	render      ChartRenderer
@@ -69,7 +75,7 @@ type TenantApplyJobWorker struct {
 // concurrent operations would step on each other's commits). All workers
 // share the single mutex so creates + deletes interleave safely.
 type TenantApplyDeps struct {
-	Queries     *repository.Queries
+	LoadCluster ClusterLoader
 	LoadOp      TenantOperationLoader
 	CompleteOp  TenantOperationCompleter
 	Render      ChartRenderer
@@ -90,7 +96,7 @@ func NewTenantApplyJobWorker(d TenantApplyDeps) *TenantApplyJobWorker {
 		ref = "main"
 	}
 	return &TenantApplyJobWorker{
-		queries:     d.Queries,
+		loadCluster: d.LoadCluster,
 		loadOp:      d.LoadOp,
 		completeOp:  d.CompleteOp,
 		render:      d.Render,
@@ -128,9 +134,7 @@ func (w *TenantApplyJobWorker) Work(ctx context.Context, job *river.Job[TenantAp
 		return fmt.Errorf("load operation: %w", err)
 	}
 
-	cluster, err := w.queries.GetCluster(ctx, repository.GetClusterParams{
-		ID: op.ClusterID, OrgID: op.OrgID,
-	})
+	cluster, err := w.loadCluster(ctx, op.ClusterID, op.OrgID)
 	if err != nil {
 		return w.fail(ctx, op.ID, op.OrgID, logger, fmt.Errorf("load cluster: %w", err))
 	}
@@ -158,6 +162,9 @@ func (w *TenantApplyJobWorker) Work(ctx context.Context, job *river.Job[TenantAp
 		manifest, err := w.render(ctx, "tenant", op.TenantName, op.TenantName, values)
 		if err != nil {
 			return w.fail(ctx, op.ID, op.OrgID, logger, fmt.Errorf("render chart: %w", err))
+		}
+		if err := w.validateRendered(manifest, op.TenantName); err != nil {
+			return w.fail(ctx, op.ID, op.OrgID, logger, err)
 		}
 		if err := w.tenantsRepo.WriteFile(relPath, []byte(manifest)); err != nil {
 			return w.fail(ctx, op.ID, op.OrgID, logger, fmt.Errorf("write manifest: %w", err))
@@ -206,6 +213,30 @@ func (w *TenantApplyJobWorker) Work(ctx context.Context, job *river.Job[TenantAp
 		return fmt.Errorf("complete operation: %w", err)
 	}
 	logger.Info("tenant apply succeeded", "operation", op.Operation, "tenant", op.TenantName, "sha", sha)
+	return nil
+}
+
+// validateRendered holds a rendered manifest against the vendored CRD schemas
+// before anything writes it. This is the last point on the path where a bad
+// manifest can be refused rather than reported: past the commit it is ArgoCD
+// that discovers the apiserver will not take it, and the rejection surfaces to
+// whoever watches ArgoCD instead of to the operator who filled in the form.
+//
+// A missing validator fails the operation. Skipping the check would leave the
+// write path reporting success for manifests nothing has looked at, which is
+// indistinguishable from a working check for as long as every manifest happens
+// to be valid.
+//
+// Expect carries only Platform, because the operation row names the workload
+// and not the owning team; crossRefs skips an empty field, so asserting the
+// team here would assert a value portal does not have.
+func (w *TenantApplyJobWorker) validateRendered(manifest, tenantName string) error {
+	if w.manifests == nil {
+		return fmt.Errorf("no CRD schema validator is configured, so this manifest cannot be checked before it is committed")
+	}
+	if err := w.manifests.Validate([]byte(manifest), tenantmanifest.Expect{Platform: tenantName}); err != nil {
+		return fmt.Errorf("rendered manifest rejected before commit: %w", err)
+	}
 	return nil
 }
 
