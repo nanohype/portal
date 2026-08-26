@@ -108,7 +108,7 @@ Distributed tracing is opt-in (off by default). When enabled, server and worker 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `EXECUTOR_TYPE` | `local` | `local` runs tofu on the worker host. `kubernetes` runs tofu in ephemeral pods. |
+| `EXECUTOR_TYPE` | `local` | `kubernetes` runs each command in an ephemeral pod running the executor image, which carries tofu and terragrunt; the chart defaults to it. `local` runs them in the worker process and is development-only — the worker image ships neither binary, so the server refuses to start with it outside `ENVIRONMENT=development`. |
 | `EXECUTOR_NAMESPACE` | `portal` | Kubernetes namespace for executor pods (K8s executor only) |
 | `EXECUTOR_IMAGE` | `portal-executor:tofu-1.11` | Default container image for executor pods |
 | `EXECUTOR_IMAGE_PREFIX` | `portal-executor` | Image name prefix. When a workspace specifies a tofu version, the pod uses `{prefix}:tofu-{version}` as the image tag. |

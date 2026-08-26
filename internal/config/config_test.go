@@ -119,6 +119,7 @@ func TestConfigValidate(t *testing.T) {
 				WebhookSecret:      "whsec",
 				S3AccessKey:        "prod-key",
 				S3SecretKey:        "prod-secret-key",
+				ExecutorType:       "kubernetes",
 			},
 			wantErr: false,
 		},
@@ -246,5 +247,60 @@ func TestValidateAcceptsTrustedProxyCIDRs(t *testing.T) {
 	c := &Config{Environment: "development", TrustedProxyCIDRs: []string{"10.0.0.0/8", " 192.168.0.0/16 ", "2001:db8::/32"}}
 	if err := c.Validate(); err != nil {
 		t.Fatalf("valid CIDRs rejected: %v", err)
+	}
+}
+
+func prodConfig() *Config {
+	return &Config{
+		Environment: "production", JWTSecret: "a-real-secret",
+		EncryptionKey:  "0123456789abcdef0123456789abcdef",
+		GitHubClientID: "id", GitHubClientSecret: "secret",
+		AllowedGitHubOrg: "nanohype", WebhookSecret: "wh",
+		ExecutorType: "kubernetes",
+	}
+}
+
+// The local executor shells out to tofu; the worker image ships no tofu. A
+// worker that selects it outside development starts clean, accepts runs, and
+// fails every one at init — the failure is per-run and looks like the run's
+// fault, so it must be refused at startup instead.
+func TestValidateRefusesTheLocalExecutorOutsideDevelopment(t *testing.T) {
+	c := prodConfig()
+	c.ExecutorType = "local"
+	err := c.Validate()
+	if err == nil {
+		t.Fatal("EXECUTOR_TYPE=local was accepted in production")
+	}
+	if !strings.Contains(err.Error(), "EXECUTOR_TYPE") {
+		t.Errorf("error does not name the variable: %v", err)
+	}
+}
+
+// cmd/worker's switch falls through to the local executor, so an unrecognised
+// value silently selects the one that cannot run. Failing on the typo is the
+// difference between a startup error and a fleet of failing runs.
+func TestValidateRefusesAnUnknownExecutorOutsideDevelopment(t *testing.T) {
+	for _, bad := range []string{"kubernets", "k8s", "", "LOCAL"} {
+		c := prodConfig()
+		c.ExecutorType = bad
+		if err := c.Validate(); err == nil {
+			t.Errorf("EXECUTOR_TYPE=%q was accepted in production", bad)
+		}
+	}
+}
+
+// The Kubernetes executor is the one with an image that carries the binaries.
+func TestValidateAcceptsTheKubernetesExecutor(t *testing.T) {
+	if err := prodConfig().Validate(); err != nil {
+		t.Fatalf("EXECUTOR_TYPE=kubernetes rejected: %v", err)
+	}
+}
+
+// Development keeps the local executor: `task dev` puts tofu on the developer's
+// PATH, and refusing it there would break the documented dev loop.
+func TestValidateAllowsTheLocalExecutorInDevelopment(t *testing.T) {
+	c := &Config{Environment: "development", ExecutorType: "local"}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("EXECUTOR_TYPE=local rejected in development: %v", err)
 	}
 }
