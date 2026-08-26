@@ -2913,8 +2913,13 @@ components:
           items: { type: string }
         max_budget_usd: { type: integer }
         allowed_model_families:
+          description: >
+            Model families a tenant from this template may declare. Empty places
+            no restriction. The values are the Platform CRD's own enum; a
+            template holding anything else renders a manifest the apiserver
+            refuses.
           type: array
-          items: { type: string }
+          items: { $ref: "#/components/schemas/ModelFamily" }
         allowed_datastore_kinds:
           description: >
             Datastore kinds an operator may declare on a tenant from this
@@ -2937,6 +2942,14 @@ components:
          allowed_datastore_kinds, required_compliance, created_by, created_at,
          updated_at]
 
+    ModelFamily:
+      description: >
+        A model family the Platform CRD admits. Mirrors
+        Platform.spec.identity.allowedModelFamilies; internal/tenantmanifest
+        asserts this list against the vendored schema.
+      type: string
+      enum: [anthropic, amazon-nova, amazon-titan, meta, mistral, cohere, stability]
+
     CreateTemplateRequest:
       type: object
       properties:
@@ -2951,8 +2964,13 @@ components:
           items: { type: string }
         max_budget_usd: { type: integer }
         allowed_model_families:
+          description: >
+            Model families a tenant from this template may declare. Empty places
+            no restriction. The values are the Platform CRD's own enum; a
+            template holding anything else renders a manifest the apiserver
+            refuses.
           type: array
-          items: { type: string }
+          items: { $ref: "#/components/schemas/ModelFamily" }
         allowed_datastore_kinds:
           type: array
           items:
@@ -2977,8 +2995,13 @@ components:
           items: { type: string }
         max_budget_usd: { type: integer }
         allowed_model_families:
+          description: >
+            Model families a tenant from this template may declare. Empty places
+            no restriction. The values are the Platform CRD's own enum; a
+            template holding anything else renders a manifest the apiserver
+            refuses.
           type: array
-          items: { type: string }
+          items: { $ref: "#/components/schemas/ModelFamily" }
         allowed_datastore_kinds:
           type: array
           items:

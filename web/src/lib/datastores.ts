@@ -20,6 +20,15 @@ export const DATASTORE_KINDS = [
   'stream',
 ] as const satisfies readonly DatastoreKind[];
 
+// `satisfies` rejects a kind the contract does not have; it says nothing about a
+// kind the contract gains that this array omits, which would leave the picker
+// short and every check green. This fails to typecheck in that direction.
+type MissingDatastoreKinds = Exclude<DatastoreKind, (typeof DATASTORE_KINDS)[number]>;
+export const DATASTORE_KINDS_ARE_EXHAUSTIVE: [MissingDatastoreKinds] extends [never]
+  ? true
+  : ['datastore kinds the contract declares but DATASTORE_KINDS omits', MissingDatastoreKinds] =
+  true;
+
 // What each kind maps to, shown next to the picker so an operator declaring
 // "relational" knows they are asking for an Aurora cluster.
 export const KIND_IMPLEMENTATIONS: Record<DatastoreKind, string> = {

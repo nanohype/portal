@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/api/client';
 import type { Team, Template, TemplateTeamAccess } from '@/api/models';
+import { MODEL_FAMILIES, type ModelFamily } from '@/lib/model-families';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -34,7 +35,6 @@ const PERSONAS = [
   'marketing',
   'legal',
 ];
-const MODEL_FAMILIES = ['anthropic', 'amazon-nova', 'openai', 'google'];
 const COMPLIANCE_FLAGS = ['soc2', 'hipaa'];
 
 // Suggested override paths the admin can pick from when defining what
@@ -67,7 +67,7 @@ export function TemplateEditorDialog({
   const [description, setDescription] = useState('');
   const [persona, setPersona] = useState('generic');
   const [maxBudget, setMaxBudget] = useState(0);
-  const [allowedFamilies, setAllowedFamilies] = useState<Set<string>>(new Set());
+  const [allowedFamilies, setAllowedFamilies] = useState<Set<ModelFamily>>(new Set());
   // Restricting the kinds is the only cap that bounds what stateful substrate an
   // operator can declare: `datastores` is a single dotted path carrying the whole
   // list, so allowing that override allows every kind — including relational,
