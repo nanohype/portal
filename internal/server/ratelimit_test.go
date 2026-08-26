@@ -52,21 +52,3 @@ func TestRateLimiter(t *testing.T) {
 		t.Errorf("same IP different port: got status %d, want %d (should share bucket)", rr3.Code, http.StatusTooManyRequests)
 	}
 }
-
-func TestClientIP(t *testing.T) {
-	tests := []struct {
-		input string
-		want  string
-	}{
-		{"1.2.3.4:1234", "1.2.3.4"},
-		{"[::1]:8080", "::1"},
-		{"127.0.0.1:0", "127.0.0.1"},
-		{"just-an-ip", "just-an-ip"}, // fallback
-	}
-	for _, tt := range tests {
-		got := clientIP(tt.input)
-		if got != tt.want {
-			t.Errorf("clientIP(%q) = %q, want %q", tt.input, got, tt.want)
-		}
-	}
-}

@@ -20,6 +20,7 @@ To use GitHub sign-in locally, set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`
 | `ENVIRONMENT` | _(none)_ | Only `development` relaxes security (dev login + default keys allowed) and adds the localhost CORS origin. Unset or anything else → treated as production, fail closed. The Helm chart defaults `config.environment` to `production`. |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 | `SHUTDOWN_TIMEOUT` | `15s` | Graceful shutdown timeout for in-progress requests |
+| `TRUSTED_PROXY_CIDRS` | *(empty)* | Comma-separated CIDRs of the proxies in front of the server. Empty means the connection's own address is the client address and `X-Forwarded-For` is ignored. See below. |
 
 ## Database
 
@@ -176,3 +177,25 @@ When `ENVIRONMENT` is not `development` (including unset — it has no default, 
 - `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`
 - `WEBHOOK_SECRET`
 - `S3_ACCESS_KEY` and `S3_SECRET_KEY` — must not be `minioadmin`. On a hub running off IRSA, leave both **empty** so the AWS SDK default chain supplies credentials; the empty case passes validation. The check only rejects the literal `minioadmin` default.
+
+## Client addresses behind a proxy
+
+The rate limiter keys on the client address, and the audit ledger records it
+alongside every change. Both read the same value, and `TRUSTED_PROXY_CIDRS`
+decides where it comes from.
+
+Empty — the default — means the address is the one the connection came from and
+`X-Forwarded-For` is ignored. Set it to the ranges your ingress speaks from, and
+the server walks that header right-to-left past the hops you listed and takes the
+first address that is not one of them: the last address a trusted hop actually
+observed.
+
+Both mistakes are worth knowing apart. Leaving it empty behind an ingress
+attributes every request to the ingress — one shared rate-limit bucket, one
+address in the ledger — which is wrong and immediately visible. Listing a range
+that is not really in front of the server lets the caller choose their own
+rate-limit bucket and their own line in the ledger, which is wrong and not
+visible at all. The default is the first kind on purpose.
+
+A malformed entry fails startup and names itself, rather than reaching the
+middleware, which panics on one.

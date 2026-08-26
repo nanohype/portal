@@ -61,6 +61,21 @@ config:
 
   # Executor — "local" runs tofu on the worker host, "kubernetes" uses ephemeral pods
   executorType: "local"
+
+  # CIDRs of the proxies that sit in front of the server. Empty means the
+  # connection's own address is the client address and X-Forwarded-For is
+  # ignored.
+  #
+  # The rate limiter and the audit ledger both key on the result. Left empty
+  # behind an ingress, every request is attributed to the ingress — one shared
+  # rate-limit bucket and one address in the ledger — which is wrong and
+  # obvious. Filled in with a range that is not really yours, the caller
+  # supplies both, which is wrong and invisible. Set it to the ranges your
+  # ingress actually speaks from.
+  #
+  #   trustedProxyCidrs:
+  #     - "10.0.0.0/8"
+  trustedProxyCidrs: []
   executorNamespace: "portal"                  # K8s namespace for executor pods
   executorImage: ""                            # empty = ghcr.io/nanohype/portal/executor:<appVersion>
   # Repository for per-tofu-version executor images. A workspace that pins a

@@ -18,6 +18,9 @@ data:
   S3_USE_SSL: {{ .Values.objectStore.useSSL | quote }}
   S3_REGION: {{ .Values.objectStore.region | quote }}
   EXECUTOR_TYPE: {{ .Values.config.executorType | quote }}
+  {{- if .Values.config.trustedProxyCidrs }}
+  TRUSTED_PROXY_CIDRS: {{ join "," .Values.config.trustedProxyCidrs | quote }}
+  {{- end }}
   WORKER_CONCURRENCY: {{ .Values.config.workerConcurrency | quote }}
   JWT_EXPIRATION: {{ .Values.config.jwtExpiration | quote }}
   SHUTDOWN_TIMEOUT: {{ .Values.config.shutdownTimeout | quote }}

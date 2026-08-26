@@ -96,6 +96,10 @@ func (h *WebhookHandler) GitHubPush(w http.ResponseWriter, r *http.Request) {
 
 	// Trigger plan runs for each matching workspace
 	triggered := 0
+	// Same resolution the rest of the ledger uses, so a webhook entry and a UI
+	// entry mean the same thing by "ip_address".
+	webhookIP, webhookUA := auditContext(r)
+
 	for _, ws := range workspaces {
 		// Check for duplicate commit to avoid creating redundant runs
 		if event.CommitSHA != "" {
@@ -132,7 +136,7 @@ func (h *WebhookHandler) GitHubPush(w http.ResponseWriter, r *http.Request) {
 				"sender":    event.SenderName,
 				"workspace": ws.Name,
 			},
-			IPAddress: r.RemoteAddr, UserAgent: r.Header.Get("User-Agent"),
+			IPAddress: webhookIP, UserAgent: webhookUA,
 		})
 
 		logger.Info("triggered plan run", "workspace_id", ws.ID, "workspace_name", ws.Name, "run_id", run.ID)
