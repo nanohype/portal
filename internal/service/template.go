@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -193,12 +194,20 @@ func (s *TemplateService) ApplyToValues(template repository.Template, overrides 
 	}
 
 	if template.MaxBudgetUSD > 0 {
-		// budget.monthlyUsd comes through after a JSON round-trip
-		// (`deepCopy`), so the runtime type is usually float64. asFloat must
-		// accept every numeric shape a caller could plausibly pass — an
-		// in-process caller can build the map in Go with `int` literals — so
-		// no numeric type slips past the cap.
-		if got, ok := asFloat(getPath(merged, "budget.monthlyUsd")); ok {
+		// budget.monthlyUsd arrives in whatever shape the caller sent. After a
+		// JSON round-trip (`deepCopy`) a number is float64; an in-process
+		// caller can build the map with Go `int` literals; and the CRD models
+		// the field as a decimal string, so that is the shape a caller
+		// following the schema sends.
+		//
+		// A value the cap cannot read is refused rather than skipped. Reading
+		// the amount is what applying the cap means, so "I could not read it"
+		// and "it is within the cap" have to be different answers.
+		if raw := getPath(merged, "budget.monthlyUsd"); raw != nil {
+			got, ok := asFloat(raw)
+			if !ok {
+				return nil, fmt.Errorf("budget.monthlyUsd is %#v, which is not an amount the template cap can be applied to", raw)
+			}
 			if got > float64(template.MaxBudgetUSD) {
 				return nil, fmt.Errorf("budget.monthlyUsd %v exceeds template cap %d", got, template.MaxBudgetUSD)
 			}
@@ -363,13 +372,26 @@ func deepCopy(m map[string]interface{}) map[string]interface{} {
 	return out
 }
 
-// asFloat accepts any of the numeric runtime types a JSON-decoded map can
-// carry (float64 by default; int/int32/int64 if a caller built the map in
-// Go) plus json.Number for decoders configured with UseNumber. Returns
-// (value, true) on success or (0, false) for non-numeric input. Used by the
-// budget cap so a caller can't silently bypass it by handing us an int.
+// asFloat reads a USD amount out of whatever a caller put in the values map.
+//
+// Three shapes reach it. A JSON-decoded map carries float64, or json.Number
+// under a decoder configured with UseNumber. An in-process caller can build the
+// map in Go with int literals. And the CRD models the amount as a decimal
+// string — governance.nanohype.dev/BudgetPolicy declares spec.monthlyUsd as
+// `type: string` ("2500", "1500.50"), for symmetry with the spend it is
+// compared against — so a caller following the schema sends "2500", not 2500.
+//
+// Returns (0, false) for anything it cannot read as an amount, including a
+// string that is not a number. Callers must treat that as a refusal: a value
+// the cap cannot read has not been shown to be under it.
 func asFloat(v interface{}) (float64, bool) {
 	switch n := v.(type) {
+	case string:
+		f, err := strconv.ParseFloat(n, 64)
+		if err != nil {
+			return 0, false
+		}
+		return f, true
 	case float64:
 		return n, true
 	case float32:

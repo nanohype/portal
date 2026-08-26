@@ -26,7 +26,12 @@ func TestAsFloat(t *testing.T) {
 		{"int64", int64(1234), 1234, true},
 		{"json.Number numeric", json.Number("1234"), 1234, true},
 		{"json.Number decimal", json.Number("1234.5"), 1234.5, true},
-		{"string", "1234", 0, false},
+		// The CRD models the amount as a decimal string, so this is the
+		// canonical form rather than an odd one.
+		{"decimal string", "1234", 1234, true},
+		{"decimal string with fraction", "1500.50", 1500.50, true},
+		{"string that is not a number", "not-a-number", 0, false},
+		{"empty string", "", 0, false},
 		{"nil", nil, 0, false},
 		{"bool", true, 0, false},
 	}
