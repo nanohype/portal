@@ -200,6 +200,31 @@ func (c *Config) ValidateDatabase() error {
 
 // Validate checks that the configuration is safe for the target environment.
 func (c *Config) Validate() error {
+	// The local executor shells out to tofu or terragrunt, and the worker image
+	// ships neither — it is `alpine` plus ca-certificates and git, because the
+	// binaries live in the executor image the Kubernetes executor schedules.
+	// Selecting it outside development therefore produces a worker that starts
+	// clean, accepts runs, and fails every one of them at `init` with
+	// "executable file not found in $PATH".
+	//
+	// It is also what an unrecognised value becomes: cmd/worker's switch falls
+	// through to local, so a typo picks the executor that cannot run rather than
+	// failing on the typo.
+	if c.Environment != "development" {
+		switch c.ExecutorType {
+		case "kubernetes":
+		case "local":
+			return fmt.Errorf("EXECUTOR_TYPE=local is development-only: the worker image ships no tofu or terragrunt binary, so every run would fail at init. Use EXECUTOR_TYPE=kubernetes, which schedules the executor image that carries them")
+		case "":
+			// env.Parse fills this from envDefault, so empty means the Config was
+			// built in code rather than read from the environment. Refused for
+			// the same reason as "local": that is what an empty value resolves to.
+			return fmt.Errorf("EXECUTOR_TYPE is empty; outside development it must be %q (an empty value resolves to the local executor, which the worker image cannot run)", "kubernetes")
+		default:
+			return fmt.Errorf("EXECUTOR_TYPE is %q, which is neither \"kubernetes\" nor \"local\" — an unrecognised value selects the local executor, so this would silently become the one that cannot run", c.ExecutorType)
+		}
+	}
+
 	// Checked here rather than at the middleware, which panics on a bad prefix.
 	// A typo in a deployment variable should name itself at startup, not arrive
 	// as a stack trace.

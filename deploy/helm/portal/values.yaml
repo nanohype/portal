@@ -60,7 +60,14 @@ config:
   webhookSecret: ""                                   # HMAC secret for GitHub webhooks
 
   # Executor — "local" runs tofu on the worker host, "kubernetes" uses ephemeral pods
-  executorType: "local"
+  # "kubernetes" schedules each run into an ephemeral pod running the executor
+  # image, which carries tofu and terragrunt. "local" runs them in the worker
+  # process instead, and the worker image ships neither binary — it is the
+  # development mode, used by `task dev`, where they are on the developer's PATH.
+  #
+  # The server refuses to start with "local" outside ENVIRONMENT=development,
+  # rather than accepting runs it will fail at init.
+  executorType: "kubernetes"
 
   # CIDRs of the proxies that sit in front of the server. Empty means the
   # connection's own address is the client address and X-Forwarded-For is

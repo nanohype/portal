@@ -159,7 +159,7 @@ config:
   jwtSecret: "<random-string>"
   encryptionKey: "<exactly-32-bytes>"
   webhookSecret: "<random-string>"
-  executorType: "kubernetes"   # or "local"
+  executorType: "kubernetes"   # the default; "local" is development-only
   executorNamespace: "portal"
 ```
 
