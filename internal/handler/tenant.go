@@ -237,6 +237,7 @@ func (h *TenantHandler) Create(w http.ResponseWriter, r *http.Request) {
 		TemplateID:   req.TemplateID,
 		OwningTeamID: req.OwningTeamID,
 		CreatedBy:    userCtx.UserID,
+		CallerRole:   userCtx.Role,
 		Values:       req.Values,
 	}
 	in.Normalize()
@@ -248,8 +249,12 @@ func (h *TenantHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// When a template is referenced, the request `values` are operator
 	// overrides: the template service merges them with the template's defaults
 	// and enforces its caps + model-family + required-compliance rules. A
-	// failure is a clean 400 with no orphan state. Without a template, the
-	// operator (admin, expert mode) supplies the full values blob directly.
+	// failure is a clean 400 with no orphan state.
+	//
+	// Without a template the values blob is rendered as given, with none of
+	// those rules applied. EnqueueCreate holds that path at admin, so this
+	// branch being skipped is a decision the service made rather than one the
+	// request avoided.
 	if in.TemplateID != "" {
 		t, err := h.templateSvc.Get(r.Context(), in.TemplateID, userCtx.OrgID)
 		if err != nil {

@@ -16,6 +16,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/nanohype/portal/internal/apperr"
+	"github.com/nanohype/portal/internal/auth"
 	"github.com/nanohype/portal/internal/clusterspec"
 	"github.com/nanohype/portal/internal/conv"
 	"github.com/nanohype/portal/internal/repository"
@@ -187,6 +188,7 @@ type CreateTenantInput struct {
 	TemplateID   string // optional; recorded on the operation row
 	OwningTeamID string
 	CreatedBy    string
+	CallerRole   string // org role of the caller, for the uncapped-create gate
 	Values       map[string]interface{}
 }
 
@@ -360,6 +362,9 @@ func (s *TenantService) EnqueueCreate(ctx context.Context, in CreateTenantInput)
 	if err := in.Validate(); err != nil {
 		return repository.TenantOperation{}, err
 	}
+	if err := assertMayCreateUncapped(in.CallerRole, in.TemplateID); err != nil {
+		return repository.TenantOperation{}, err
+	}
 	if err := s.assertTenantNameFree(ctx, in.OrgID, in.ClusterID, in.Name); err != nil {
 		return repository.TenantOperation{}, err
 	}
@@ -377,6 +382,35 @@ func (s *TenantService) EnqueueCreate(ctx context.Context, in CreateTenantInput)
 	}
 	forcePlatformIdentity(values, in.Name)
 	return s.enqueue(ctx, in.OrgID, in.ClusterID, in.Name, "create", in.TemplateID, in.CreatedBy, values)
+}
+
+// assertMayCreateUncapped refuses a create that names no template unless the
+// caller holds admin.
+//
+// A template is where every governance bound on a tenant lives: the budget
+// ceiling, the model-family intersection, the datastore-kind narrowing, the
+// required-compliance flags. They are applied against a template, so a create
+// that names none is not a tenant with laxer bounds — it is the whole set opted
+// out of, with the caller's values blob rendered as given.
+//
+// Before this gate the route's own minimum, operator, was the only thing in the
+// way, while the write path described the uncapped case as belonging to an
+// admin. Whichever of those is right, they cannot both be, and the one that
+// governed was the lower.
+//
+// It sits ahead of every read in EnqueueCreate. A caller who may not make this
+// request should be refused without the request reaching storage.
+func assertMayCreateUncapped(callerRole, templateID string) error {
+	if templateID != "" {
+		return nil
+	}
+	// MaxRole gives an unknown or empty role level 0, so it loses to "admin"
+	// and the comparison below fails — an unrecognised role cannot reach the
+	// uncapped path by not being recognised.
+	if auth.MaxRole(callerRole, "admin") != callerRole {
+		return apperr.Forbidden("creating a tenant without a template applies none of the template caps — budget, model families, datastore kinds, required compliance — so it requires admin; reference a template_id instead")
+	}
+	return nil
 }
 
 // assertTenantNameFree refuses a create when the inventory already holds the

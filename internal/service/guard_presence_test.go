@@ -53,6 +53,12 @@ func (s *stubTenantNames) HasPendingTenantCreate(_ context.Context, _, _, _ stri
 }
 
 func tenantCreate(names tenantNameLookup) (repository.TenantOperation, error) {
+	// admin, so the name gate below is what refuses rather than the
+	// uncapped-create gate in front of it.
+	return tenantCreateAs(names, "admin", "")
+}
+
+func tenantCreateAs(names tenantNameLookup, role, templateID string) (repository.TenantOperation, error) {
 	svc := &TenantService{names: names}
 	return svc.EnqueueCreate(context.Background(), CreateTenantInput{
 		OrgID:        "org_1",
@@ -60,7 +66,47 @@ func tenantCreate(names tenantNameLookup) (repository.TenantOperation, error) {
 		Name:         "acme",
 		OwningTeamID: "team_1",
 		CreatedBy:    "user_1",
+		CallerRole:   role,
+		TemplateID:   templateID,
 	})
+}
+
+// A create naming no template carries no template caps — no budget ceiling, no
+// model-family intersection, no datastore-kind narrowing, no required-compliance
+// flag. Those rules are applied by the caller against a template, so a create
+// without one is the whole governance surface opted out of, and the role that
+// may do it has to be the role the design says it is.
+func TestEnqueueCreate_RefusesAnUncappedCreateFromANonAdmin(t *testing.T) {
+	names := &stubTenantNames{}
+	_, err := tenantCreateAs(names, "operator", "")
+	if apperr.KindOf(err) != apperr.KindForbidden {
+		t.Fatalf("kind = %v, want Forbidden — an operator created a tenant with no template and no caps (err=%v)", apperr.KindOf(err), err)
+	}
+	if names.calls != 0 {
+		t.Errorf("the gate ran after the inventory lookup (%d calls); it must refuse before any I/O", names.calls)
+	}
+}
+
+// The gate must not stand in front of a create that IS capped. Refusing every
+// operator create would satisfy the test above.
+func TestEnqueueCreate_AllowsATemplatedCreateFromAnOperator(t *testing.T) {
+	names := &stubTenantNames{exists: true}
+	_, err := tenantCreateAs(names, "operator", "tpl_1")
+	if apperr.KindOf(err) != apperr.KindConflict {
+		t.Fatalf("kind = %v, want Conflict — a templated operator create was refused before the name gate (err=%v)", apperr.KindOf(err), err)
+	}
+	if names.calls == 0 {
+		t.Error("the create never reached the inventory, so the role gate refused it")
+	}
+}
+
+// And an admin keeps the expert path.
+func TestEnqueueCreate_AllowsAnUncappedCreateFromAnAdmin(t *testing.T) {
+	names := &stubTenantNames{exists: true}
+	_, err := tenantCreateAs(names, "admin", "")
+	if apperr.KindOf(err) != apperr.KindConflict {
+		t.Fatalf("kind = %v, want Conflict — an admin uncapped create was refused before the name gate (err=%v)", apperr.KindOf(err), err)
+	}
 }
 
 func TestEnqueueCreate_RefusesAnExistingTenant(t *testing.T) {
