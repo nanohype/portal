@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"strings"
 	"time"
 )
@@ -20,6 +21,13 @@ type Config struct {
 	Environment     string        `env:"ENVIRONMENT"`
 	LogLevel        string        `env:"LOG_LEVEL" envDefault:"info"`
 	ShutdownTimeout time.Duration `env:"SHUTDOWN_TIMEOUT" envDefault:"15s"`
+	// CIDRs of the proxies in front of this server, if any. Empty means the
+	// connection's own address is the client address and X-Forwarded-For is
+	// ignored — the rate limiter and the audit ledger both key on the result, so
+	// trusting that header without knowing who set it hands the caller both.
+	// Set this to the ranges your ingress speaks from; anything left of a hop
+	// listed here was written before the request reached something portal trusts.
+	TrustedProxyCIDRs []string `env:"TRUSTED_PROXY_CIDRS" envSeparator:","`
 
 	// Database
 	DatabaseURL         string        `env:"DATABASE_URL" envDefault:"postgres://portal:portal@localhost:5432/portal?sslmode=disable"`
@@ -192,6 +200,14 @@ func (c *Config) ValidateDatabase() error {
 
 // Validate checks that the configuration is safe for the target environment.
 func (c *Config) Validate() error {
+	// Checked here rather than at the middleware, which panics on a bad prefix.
+	// A typo in a deployment variable should name itself at startup, not arrive
+	// as a stack trace.
+	for _, cidr := range c.TrustedProxyCIDRs {
+		if _, err := netip.ParsePrefix(strings.TrimSpace(cidr)); err != nil {
+			return fmt.Errorf("TRUSTED_PROXY_CIDRS entry %q is not a CIDR block (want e.g. 10.0.0.0/8): %w", cidr, err)
+		}
+	}
 	if c.Environment != "development" {
 		if c.JWTSecret == "dev-secret-change-in-production" {
 			return fmt.Errorf("JWT_SECRET must be set in non-development environments")

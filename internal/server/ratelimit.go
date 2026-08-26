@@ -1,7 +1,6 @@
 package server
 
 import (
-	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -64,19 +63,10 @@ func (rl *RateLimiter) cleanup() {
 	}
 }
 
-// clientIP extracts the IP address from RemoteAddr, stripping the port.
-func clientIP(remoteAddr string) string {
-	ip, _, err := net.SplitHostPort(remoteAddr)
-	if err != nil {
-		return remoteAddr // fallback: already just an IP
-	}
-	return ip
-}
-
 // Middleware returns an http middleware that rate-limits by IP.
 func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		limiter := rl.getLimiter(clientIP(r.RemoteAddr))
+		limiter := rl.getLimiter(clientIPOf(r))
 		if !limiter.Allow() {
 			w.Header().Set("Retry-After", "1")
 			respond.Error(w, http.StatusTooManyRequests, "rate limit exceeded")

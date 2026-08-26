@@ -109,7 +109,10 @@ func (s *Server) setupRouter() {
 
 	// Middleware
 	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
+	// Ahead of the rate limiter and everything that logs: both read the client
+	// address this sets, and a limiter keyed on an address the caller writes is
+	// not a limiter.
+	r.Use(clientIPMiddleware(s.cfg.TrustedProxyCIDRs))
 	r.Use(tracing.HTTPMiddleware) // server span, joined to incoming W3C context
 	r.Use(metrics.Middleware)     // HTTP RED, keyed on the matched route pattern
 	r.Use(NewStructuredLogger(s.logger))

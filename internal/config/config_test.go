@@ -2,6 +2,7 @@ package config
 
 import (
 	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/caarlos0/env/v11"
@@ -221,5 +222,29 @@ func TestConfig_UnsetS3CredentialsAlsoSelectTheAWSChain(t *testing.T) {
 	if c.S3AccessKey != "" || c.S3SecretKey != "" || c.S3Endpoint != "" {
 		t.Errorf("unset S3 config should be empty, got endpoint=%q access=%q",
 			c.S3Endpoint, c.S3AccessKey)
+	}
+}
+
+// A typo in TRUSTED_PROXY_CIDRS decides whether X-Forwarded-For is believed, so
+// it has to name itself at startup. The middleware panics on a bad prefix;
+// Validate turns that into a message that says which entry and what was wanted.
+func TestValidateRejectsAMalformedTrustedProxyCIDR(t *testing.T) {
+	for _, bad := range []string{"10.0.0.0", "not-a-cidr", "10.0.0.0/33", ""} {
+		c := &Config{Environment: "development", TrustedProxyCIDRs: []string{bad}}
+		err := c.Validate()
+		if err == nil {
+			t.Errorf("TRUSTED_PROXY_CIDRS=%q was accepted", bad)
+			continue
+		}
+		if !strings.Contains(err.Error(), "TRUSTED_PROXY_CIDRS") {
+			t.Errorf("error for %q does not name the variable: %v", bad, err)
+		}
+	}
+}
+
+func TestValidateAcceptsTrustedProxyCIDRs(t *testing.T) {
+	c := &Config{Environment: "development", TrustedProxyCIDRs: []string{"10.0.0.0/8", " 192.168.0.0/16 ", "2001:db8::/32"}}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("valid CIDRs rejected: %v", err)
 	}
 }
