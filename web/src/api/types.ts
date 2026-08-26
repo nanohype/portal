@@ -2098,7 +2098,8 @@ export interface components {
             };
             allowed_overrides: string[];
             max_budget_usd: number;
-            allowed_model_families: string[];
+            /** @description Model families a tenant from this template may declare. Empty places no restriction. The values are the Platform CRD's own enum; a template holding anything else renders a manifest the apiserver refuses. */
+            allowed_model_families: components["schemas"]["ModelFamily"][];
             /** @description Datastore kinds an operator may declare on a tenant from this template. Empty places no restriction. The override allowlist cannot express this on its own: `datastores` is one dotted path carrying the whole list, so allowing it allows every kind. */
             allowed_datastore_kinds: ("relational" | "keyValue" | "objectStore" | "queue" | "cache" | "stream")[];
             required_compliance: string[];
@@ -2108,6 +2109,11 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        /**
+         * @description A model family the Platform CRD admits. Mirrors Platform.spec.identity.allowedModelFamilies; internal/tenantmanifest asserts this list against the vendored schema.
+         * @enum {string}
+         */
+        ModelFamily: "anthropic" | "amazon-nova" | "amazon-titan" | "meta" | "mistral" | "cohere" | "stability";
         CreateTemplateRequest: {
             name: string;
             description?: string;
@@ -2117,7 +2123,8 @@ export interface components {
             };
             allowed_overrides?: string[];
             max_budget_usd?: number;
-            allowed_model_families?: string[];
+            /** @description Model families a tenant from this template may declare. Empty places no restriction. The values are the Platform CRD's own enum; a template holding anything else renders a manifest the apiserver refuses. */
+            allowed_model_families?: components["schemas"]["ModelFamily"][];
             allowed_datastore_kinds?: ("relational" | "keyValue" | "objectStore" | "queue" | "cache" | "stream")[];
             required_compliance?: string[];
         };
@@ -2130,7 +2137,8 @@ export interface components {
             };
             allowed_overrides?: string[];
             max_budget_usd?: number;
-            allowed_model_families?: string[];
+            /** @description Model families a tenant from this template may declare. Empty places no restriction. The values are the Platform CRD's own enum; a template holding anything else renders a manifest the apiserver refuses. */
+            allowed_model_families?: components["schemas"]["ModelFamily"][];
             allowed_datastore_kinds?: ("relational" | "keyValue" | "objectStore" | "queue" | "cache" | "stream")[];
             required_compliance?: string[];
         };

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/nanohype/portal/internal/apperr"
+	"github.com/nanohype/portal/internal/tenantmanifest"
 	"slices"
 	"sort"
 	"strconv"
@@ -66,6 +68,28 @@ func (s *TemplateService) Get(ctx context.Context, id, orgID string) (repository
 	return s.queries.GetTemplate(ctx, repository.GetTemplateParams{ID: id, OrgID: orgID})
 }
 
+// ValidateModelFamilies refuses a template capped to a model family the
+// Platform CRD's enum does not admit.
+//
+// ApplyToValues writes a template's list into the rendered manifest verbatim
+// when the operator declares none of their own, so an unknown family here
+// becomes a Platform CR the apiserver refuses. That refusal is caught before the
+// commit, but by then it is a failed background job attached to a tenant create
+// rather than a message on the form where the family was chosen.
+//
+// An empty list places no cap, which is what ApplyToValues already means by one,
+// so it is not an error.
+func ValidateModelFamilies(families []string) error {
+	for _, f := range families {
+		if !tenantmanifest.IsModelFamily(f) {
+			return apperr.Validation(fmt.Sprintf(
+				"allowed_model_families: %q is not a model family the platform CRD admits (one of: %s)",
+				f, strings.Join(tenantmanifest.ModelFamilies, ", ")))
+		}
+	}
+	return nil
+}
+
 func (s *TemplateService) Create(ctx context.Context, params CreateTemplateParams) (repository.Template, error) {
 	defaults, err := jsonOrEmptyObject(params.DefaultValues)
 	if err != nil {
@@ -74,6 +98,9 @@ func (s *TemplateService) Create(ctx context.Context, params CreateTemplateParam
 	overrides, err := jsonOrEmptyArray(params.AllowedOverrides)
 	if err != nil {
 		return repository.Template{}, fmt.Errorf("marshal allowed_overrides: %w", err)
+	}
+	if err := ValidateModelFamilies(params.AllowedModelFamilies); err != nil {
+		return repository.Template{}, err
 	}
 	models, err := jsonOrEmptyArray(params.AllowedModelFamilies)
 	if err != nil {
@@ -112,6 +139,11 @@ func (s *TemplateService) Update(ctx context.Context, params UpdateTemplateParam
 	overrides, err := jsonOrNilArray(params.AllowedOverrides)
 	if err != nil {
 		return repository.Template{}, fmt.Errorf("marshal allowed_overrides: %w", err)
+	}
+	if params.AllowedModelFamilies != nil {
+		if err := ValidateModelFamilies(*params.AllowedModelFamilies); err != nil {
+			return repository.Template{}, err
+		}
 	}
 	models, err := jsonOrNilArray(params.AllowedModelFamilies)
 	if err != nil {
