@@ -55,4 +55,4 @@ Runbooks (the runbook index in [deployment.md](docs/deployment.md) tells you whi
 
 ## License
 
-MIT
+[Apache License 2.0](LICENSE).
