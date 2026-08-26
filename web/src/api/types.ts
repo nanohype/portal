@@ -561,7 +561,15 @@ export interface paths {
         put?: never;
         /**
          * Request a tenant deploy (operator)
-         * @description Enqueues a tenant_operation of kind=create; the tenant row appears once ArgoCD applies the commit and the watcher observes the CR.
+         * @description Enqueues a tenant_operation of kind=create; the tenant row appears once
+         *     ArgoCD applies the commit and the watcher observes the CR.
+         *
+         *     `values` are overrides against the referenced template, which supplies the
+         *     governance bounds: the budget ceiling, the model-family intersection, the
+         *     datastore-kind narrowing and the required-compliance flags.
+         *
+         *     Omitting `template_id` applies none of them and renders `values` as given,
+         *     so it requires admin. An operator omitting it is refused.
          */
         post: operations["createTenant"];
         delete?: never;
