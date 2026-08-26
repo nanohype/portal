@@ -7,11 +7,11 @@
 // actually executes with, and the API's effective-variables view, which is what
 // an operator reads before approving a production apply.
 //
-// They used to implement it separately — isTagsKey/deepMergeJSON in
-// worker/jobs.go and isEffectiveTagsKey/deepMergeJSONStrings in
-// handler/variables.go. Identical today, and nothing made them stay that way:
-// adding a tag suffix on one side would leave the UI showing an effective set
-// the run does not use, with no error anywhere. One implementation, one test.
+// Both consumers apply a layer through Layer, so the rule cannot drift between
+// them: a tag suffix added here changes what the run uses and what the view
+// shows in the same edit. Two implementations of it would not disagree loudly —
+// they would leave the UI showing an effective set the run does not use, with
+// no error anywhere.
 package varmerge
 
 import (
@@ -52,4 +52,24 @@ func DeepMergeJSON(a, b string) string {
 		return ""
 	}
 	return string(out)
+}
+
+// Layer returns the value a merged variable set should carry for key once
+// incoming arrives on top of what is already there. exists reports whether a
+// lower-precedence layer already set key.
+//
+// Tag maps deep-merge; everything else is replaced by the higher scope.
+//
+// There is deliberately no sensitivity check. The effective view redacts before
+// it layers, so a sensitive tag map arrives as a redaction rather than an
+// object, DeepMergeJSON declines it, and the higher scope's value stands —
+// which is the right answer. Composing two redactions into one invented value
+// would be worse than showing the one that wins.
+func Layer(key, category, existing, incoming string, exists bool) string {
+	if exists && category == "terraform" && IsTagsKey(key) {
+		if merged := DeepMergeJSON(existing, incoming); merged != "" {
+			return merged
+		}
+	}
+	return incoming
 }

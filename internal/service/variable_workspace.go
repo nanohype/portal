@@ -6,6 +6,7 @@ import (
 
 	"github.com/nanohype/portal/internal/apperr"
 	"github.com/nanohype/portal/internal/repository"
+	"github.com/nanohype/portal/internal/varmerge"
 )
 
 func redactWorkspace(v repository.WorkspaceVariable) repository.WorkspaceVariable {
@@ -172,15 +173,14 @@ type EffectiveVariable struct {
 // would return a smaller effective set than the run will actually use, with a
 // 200 and nothing to say a layer is missing.
 func (s *VariableService) EffectiveVariables(ctx context.Context, orgID, workspaceID, pipelineID string) ([]EffectiveVariable, error) {
-	merged := make(map[string]EffectiveVariable)
-	put := func(key, category string, v EffectiveVariable) { merged[key+"|"+category] = v }
+	var orgLayer, pipelineLayer, workspaceLayer []EffectiveVariable
 
 	orgVars, err := s.ListOrgVariables(ctx, orgID)
 	if err != nil {
 		return nil, err
 	}
 	for _, v := range orgVars {
-		put(v.Key, v.Category, EffectiveVariable{
+		orgLayer = append(orgLayer, EffectiveVariable{
 			Key: v.Key, Value: v.Value, Sensitive: v.Sensitive,
 			Category: v.Category, Description: v.Description,
 			Source: "org", SourceID: v.ID,
@@ -193,7 +193,7 @@ func (s *VariableService) EffectiveVariables(ctx context.Context, orgID, workspa
 			return nil, err
 		}
 		for _, v := range pipelineVars {
-			put(v.Key, v.Category, EffectiveVariable{
+			pipelineLayer = append(pipelineLayer, EffectiveVariable{
 				Key: v.Key, Value: v.Value, Sensitive: v.Sensitive,
 				Category: v.Category, Description: v.Description,
 				Source: "pipeline", SourceID: v.ID,
@@ -206,16 +206,38 @@ func (s *VariableService) EffectiveVariables(ctx context.Context, orgID, workspa
 		return nil, err
 	}
 	for _, v := range wsVars {
-		put(v.Key, v.Category, EffectiveVariable{
+		workspaceLayer = append(workspaceLayer, EffectiveVariable{
 			Key: v.Key, Value: v.Value, Sensitive: v.Sensitive,
 			Category: v.Category, Description: v.Description,
 			Source: "workspace", SourceID: v.ID,
 		})
 	}
 
+	return layerEffective(orgLayer, pipelineLayer, workspaceLayer), nil
+}
+
+// layerEffective applies org < pipeline < workspace precedence to the three
+// scopes. Pure, so the rule can be asserted without standing up a database.
+func layerEffective(orgVars, pipelineVars, workspaceVars []EffectiveVariable) []EffectiveVariable {
+	merged := make(map[string]EffectiveVariable)
+	apply := func(v EffectiveVariable) {
+		mapKey := v.Key + "|" + v.Category
+		existing, exists := merged[mapKey]
+		v.Value = varmerge.Layer(v.Key, v.Category, existing.Value, v.Value, exists)
+		merged[mapKey] = v
+	}
+	for _, v := range orgVars {
+		apply(v)
+	}
+	for _, v := range pipelineVars {
+		apply(v)
+	}
+	for _, v := range workspaceVars {
+		apply(v)
+	}
 	result := make([]EffectiveVariable, 0, len(merged))
 	for _, v := range merged {
 		result = append(result, v)
 	}
-	return result, nil
+	return result
 }

@@ -738,8 +738,6 @@ func (w *RunJobWorker) advancePipelineIfNeeded(ctx context.Context, runID, orgID
 
 // mergeVariables combines variables from three scopes. Later scopes override earlier.
 // Precedence: org < pipeline < workspace (workspace always wins).
-// mergeVariables combines variables from three scopes. Later scopes override earlier.
-// Precedence: org < pipeline < workspace (workspace always wins).
 // Special case: "tags" (category terraform) is deep-merged as a JSON map across scopes.
 func mergeVariables(orgVars, pipelineVars, workspaceVars []executor.Variable) []executor.Variable {
 	merged := make(map[string]executor.Variable)
@@ -762,12 +760,7 @@ func mergeVariables(orgVars, pipelineVars, workspaceVars []executor.Variable) []
 func mergeVar(merged map[string]executor.Variable, v executor.Variable) {
 	key := v.Key + "|" + v.Category
 	existing, exists := merged[key]
-	if exists && v.Category == "terraform" && varmerge.IsTagsKey(v.Key) {
-		// Deep merge JSON maps for tag variables
-		if m := varmerge.DeepMergeJSON(existing.Value, v.Value); m != "" {
-			v.Value = m
-		}
-	}
+	v.Value = varmerge.Layer(v.Key, v.Category, existing.Value, v.Value, exists)
 	merged[key] = v
 }
 

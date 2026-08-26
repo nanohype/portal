@@ -90,3 +90,49 @@ func TestDeepMergeJSON_NestedValuesReplaceWholesale(t *testing.T) {
 		t.Errorf("nested = %v, want b's object to replace a's", m["nested"])
 	}
 }
+
+func TestLayer(t *testing.T) {
+	cases := []struct {
+		name               string
+		key, category      string
+		existing, incoming string
+		exists             bool
+		want               string
+	}{
+		{"first layer wins outright", "tags", "terraform", "", `{"a":"1"}`, false, `{"a":"1"}`},
+		{"tag maps deep-merge", "tags", "terraform", `{"a":"1"}`, `{"b":"2"}`, true, `{"a":"1","b":"2"}`},
+		{"higher scope wins a shared key", "tags", "terraform", `{"a":"org"}`, `{"a":"ws"}`, true, `{"a":"ws"}`},
+		{"suffixed tag keys merge", "eks_tags", "terraform", `{"a":"1"}`, `{"b":"2"}`, true, `{"a":"1","b":"2"}`},
+		{"non-tag keys replace", "region", "terraform", "us-east-1", "us-west-2", true, "us-west-2"},
+		{"env category never merges", "tags", "env", `{"a":"1"}`, `{"b":"2"}`, true, `{"b":"2"}`},
+		{"a redacted value is not an object, so it replaces", "tags", "terraform", "***", "***", true, "***"},
+		{"a non-object incoming value replaces", "tags", "terraform", `{"a":"1"}`, "not-json", true, "not-json"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := Layer(c.key, c.category, c.existing, c.incoming, c.exists)
+			if !sameObject(got, c.want) {
+				t.Fatalf("Layer(%q,%q,%q,%q,%v) = %q, want %q",
+					c.key, c.category, c.existing, c.incoming, c.exists, got, c.want)
+			}
+		})
+	}
+}
+
+// sameObject compares JSON objects by value and everything else by string, so
+// the assertion does not depend on Go's map iteration order.
+func sameObject(got, want string) bool {
+	var g, w map[string]any
+	if json.Unmarshal([]byte(got), &g) != nil || json.Unmarshal([]byte(want), &w) != nil {
+		return got == want
+	}
+	if len(g) != len(w) {
+		return false
+	}
+	for k, v := range w {
+		if g[k] != v {
+			return false
+		}
+	}
+	return true
+}
