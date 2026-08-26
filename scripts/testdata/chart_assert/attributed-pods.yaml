@@ -1,0 +1,26 @@
+# The same two kinds, attributed. A check that failed on every Pod would pass
+# the file above and this one is what stops that.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: portal-debug
+spec:
+  serviceAccountName: tenant-runtime
+  containers:
+    - name: debug
+      image: busybox
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: portal-sweep
+spec:
+  schedule: "0 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: tenant-runtime
+          containers:
+            - name: sweep
+              image: busybox

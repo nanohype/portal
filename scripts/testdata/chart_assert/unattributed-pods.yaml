@@ -1,0 +1,41 @@
+# A bare Pod and a ReplicationController, neither naming a ServiceAccount.
+# Both are pod-bearing kinds that a gate keyed on a list of controller names
+# does not contain, and a bare Pod is the ordinary form for a helm hook.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: portal-debug
+spec:
+  containers:
+    - name: debug
+      image: busybox
+---
+apiVersion: v1
+kind: ReplicationController
+metadata:
+  name: portal-legacy
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: legacy
+    spec:
+      containers:
+        - name: legacy
+          image: busybox
+---
+# An attributed Deployment, so this file is never empty from the point of view
+# of a check that only knows controller kinds. Without it a regression could
+# exit here for "found nothing" and look like it had caught the Pod.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: portal-server
+spec:
+  template:
+    spec:
+      serviceAccountName: tenant-runtime
+      containers:
+        - name: server
+          image: portal
