@@ -15,7 +15,6 @@ import (
 	"github.com/nanohype/portal/internal/repository"
 	"github.com/nanohype/portal/internal/secrets"
 	"github.com/nanohype/portal/internal/service"
-	"github.com/nanohype/portal/internal/varmerge"
 )
 
 // auditLogger is the audit surface the variable handlers use. Narrowing to it
@@ -432,20 +431,4 @@ func (h *VariableHandler) Effective(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	respond.JSON(w, http.StatusOK, result)
-}
-
-func mergeEffectiveVar(merged map[string]EffectiveVariableResponse, key, val string, sensitive bool, category, description, source, sourceID string) {
-	mapKey := key + "|" + category
-	ev := EffectiveVariableResponse{
-		Key: key, Value: val, Sensitive: sensitive,
-		Category: category, Description: description,
-		Source: source, SourceID: sourceID,
-	}
-	if existing, ok := merged[mapKey]; ok && category == "terraform" && varmerge.IsTagsKey(key) && !sensitive {
-		if m := varmerge.DeepMergeJSON(existing.Value, val); m != "" {
-			ev.Value = m
-			ev.Description = fmt.Sprintf("Merged from %s + %s", existing.Source, source)
-		}
-	}
-	merged[mapKey] = ev
 }
