@@ -50,9 +50,24 @@ func (RunJobArgs) InsertOpts() river.InsertOpts {
 	}
 }
 
+// pipelineAdvanceStore is the slice of the query layer that advancePipelineIfNeeded
+// touches. It exists as an interface so a test can make each of these writes fail
+// and watch what the advancement does about it — every one of them is a state
+// transition whose failure leaves a pipeline in a state nothing sweeps, and a
+// concrete *repository.Queries puts those branches out of reach.
+type pipelineAdvanceStore interface {
+	GetPipelineRunStageByRunID(ctx context.Context, runID string) (repository.PipelineRunStage, error)
+	GetPipelineRun(ctx context.Context, arg repository.GetPipelineRunParams) (repository.PipelineRun, error)
+	FinishPipelineRunStage(ctx context.Context, id, status string) (repository.PipelineRunStage, error)
+	FinishPipelineRun(ctx context.Context, id, status string) (repository.PipelineRun, error)
+	CancelPendingPipelineRunStages(ctx context.Context, pipelineRunID string) error
+	UpdatePipelineRunStageStatus(ctx context.Context, arg repository.UpdatePipelineRunStageStatusParams) (repository.PipelineRunStage, error)
+}
+
 type RunJobWorker struct {
 	river.WorkerDefaults[RunJobArgs]
 	queries     *repository.Queries
+	pipelines   pipelineAdvanceStore
 	executor    executor.Executor
 	streamer    logstream.Streamer
 	storage     *storage.S3Storage // nil in dev without MinIO
@@ -68,6 +83,7 @@ func (w *RunJobWorker) Timeout(*river.Job[RunJobArgs]) time.Duration {
 
 func NewRunJobWorker(queries *repository.Queries, exec executor.Executor, streamer logstream.Streamer, store *storage.S3Storage, encryptor *secrets.Encryptor) *RunJobWorker {
 	return &RunJobWorker{
+		pipelines: queries,
 		queries:   queries,
 		executor:  exec,
 		streamer:  streamer,
@@ -638,12 +654,12 @@ func toExecutorImports(imports []ImportResource) []executor.ImportResource {
 
 // advancePipelineIfNeeded checks if the completed run belongs to a pipeline and advances it.
 func (w *RunJobWorker) advancePipelineIfNeeded(ctx context.Context, runID, orgID, finalStatus string, logger *slog.Logger) {
-	stage, err := w.queries.GetPipelineRunStageByRunID(ctx, runID)
+	stage, err := w.pipelines.GetPipelineRunStageByRunID(ctx, runID)
 	if err != nil {
 		return // not a pipeline run — fast no-op
 	}
 
-	pr, err := w.queries.GetPipelineRun(ctx, repository.GetPipelineRunParams{ID: stage.PipelineRunID, OrgID: orgID})
+	pr, err := w.pipelines.GetPipelineRun(ctx, repository.GetPipelineRunParams{ID: stage.PipelineRunID, OrgID: orgID})
 	if err != nil {
 		logger.Error("failed to get pipeline run for callback", "error", err)
 		return
@@ -657,75 +673,49 @@ func (w *RunJobWorker) advancePipelineIfNeeded(ctx context.Context, runID, orgID
 
 	switch finalStatus {
 	case "applied":
-		// Stage completed successfully
-		w.queries.FinishPipelineRunStage(ctx, stage.ID, "completed")
+		w.finishStage(ctx, stage.ID, "completed", logger)
 
 		nextOrder := stage.StageOrder + 1
 		if nextOrder >= pr.TotalStages {
-			w.queries.FinishPipelineRun(ctx, pr.ID, "completed")
-			logger.Info("pipeline completed")
+			if w.finishRun(ctx, pr.ID, "completed", logger) {
+				logger.Info("pipeline completed")
+			}
 			return
 		}
-
-		// Enqueue next stage
-		if w.riverClient != nil && w.db != nil {
-			tx, err := w.db.Begin(ctx)
-			if err != nil {
-				logger.Error("failed to begin tx for next pipeline stage", "error", err)
-				return
-			}
-			defer tx.Rollback(ctx)
-
-			_, err = w.riverClient.InsertTx(ctx, tx, PipelineStageJobArgs{
-				PipelineRunID: pr.ID,
-				StageOrder:    nextOrder,
-				OrgID:         orgID,
-				CreatedBy:     pr.CreatedBy,
-			}, nil)
-			if err != nil {
-				logger.Error("failed to enqueue next pipeline stage", "error", err)
-				return
-			}
-			if err := tx.Commit(ctx); err != nil {
-				logger.Error("failed to commit next pipeline stage", "error", err)
-				return
-			}
-			logger.Info("enqueued next pipeline stage", "next_order", nextOrder)
-		}
+		w.enqueueStage(ctx, pr, nextOrder, orgID, logger)
 
 	case "errored":
-		w.queries.FinishPipelineRunStage(ctx, stage.ID, "errored")
+		w.finishStage(ctx, stage.ID, "errored", logger)
 		if stage.OnFailure == "continue" {
 			nextOrder := stage.StageOrder + 1
 			if nextOrder >= pr.TotalStages {
-				w.queries.FinishPipelineRun(ctx, pr.ID, "errored")
+				w.finishRun(ctx, pr.ID, "errored", logger)
 				return
 			}
-			if w.riverClient != nil && w.db != nil {
-				tx, err := w.db.Begin(ctx)
-				if err != nil {
-					return
-				}
-				defer tx.Rollback(ctx)
-				w.riverClient.InsertTx(ctx, tx, PipelineStageJobArgs{
-					PipelineRunID: pr.ID,
-					StageOrder:    nextOrder,
-					OrgID:         orgID,
-					CreatedBy:     pr.CreatedBy,
-				}, nil)
-				tx.Commit(ctx)
-			}
+			w.enqueueStage(ctx, pr, nextOrder, orgID, logger)
 		} else {
-			w.queries.CancelPendingPipelineRunStages(ctx, pr.ID)
-			w.queries.FinishPipelineRun(ctx, pr.ID, "errored")
-			logger.Info("pipeline errored due to stage failure")
+			// Cancel first: a pipeline marked errored while its later stages still
+			// read "pending" is a pipeline the UI shows as having work outstanding
+			// that nothing will ever pick up.
+			if err := w.pipelines.CancelPendingPipelineRunStages(ctx, pr.ID); err != nil {
+				logger.Error("failed to cancel pending pipeline stages", "error", err)
+			}
+			if w.finishRun(ctx, pr.ID, "errored", logger) {
+				logger.Info("pipeline errored due to stage failure")
+			}
 		}
 
 	case "planned", "awaiting_approval":
-		// Pipeline pauses — update stage status
-		w.queries.UpdatePipelineRunStageStatus(ctx, repository.UpdatePipelineRunStageStatusParams{
+		// Pipeline pauses — update stage status. A failure leaves the stage
+		// reading "running" while the run waits for an approval, so the UI shows
+		// work in progress and the approval it needs is attached to a stage
+		// nobody is looking at.
+		if _, err := w.pipelines.UpdatePipelineRunStageStatus(ctx, repository.UpdatePipelineRunStageStatusParams{
 			ID: stage.ID, Status: "awaiting_approval",
-		})
+		}); err != nil {
+			logger.Error("failed to mark pipeline stage awaiting approval", "stage_id", stage.ID, "error", err)
+			return
+		}
 		logger.Info("pipeline paused at stage awaiting approval")
 
 	case "queued":
@@ -762,6 +752,66 @@ func mergeVar(merged map[string]executor.Variable, v executor.Variable) {
 	existing, exists := merged[key]
 	v.Value = varmerge.Layer(v.Key, v.Category, existing.Value, v.Value, exists)
 	merged[key] = v
+}
+
+// finishStage records a stage's terminal status. A failure cannot be retried —
+// the run row is already final and the job is not re-run — so the stage is left
+// reading "running" under a pipeline that has moved on, and only this line says
+// so.
+func (w *RunJobWorker) finishStage(ctx context.Context, stageID, status string, logger *slog.Logger) {
+	if _, err := w.pipelines.FinishPipelineRunStage(ctx, stageID, status); err != nil {
+		logger.Error("failed to finish pipeline stage", "stage_id", stageID, "status", status, "error", err)
+	}
+}
+
+// finishRun records the pipeline's terminal status and reports whether it landed.
+//
+// The caller uses the return value to decide whether to announce completion: a
+// run that failed to finish has not completed, and saying so in the log while
+// the row still reads "running" is how an operator ends up trusting the log over
+// the database. The row staying "running" also blocks every later run of that
+// pipeline, and nothing sweeps it.
+func (w *RunJobWorker) finishRun(ctx context.Context, pipelineRunID, status string, logger *slog.Logger) bool {
+	if _, err := w.pipelines.FinishPipelineRun(ctx, pipelineRunID, status); err != nil {
+		logger.Error("failed to finish pipeline run", "status", status, "error", err,
+			"consequence", "the run stays 'running' and blocks later runs of this pipeline until it is cleared by hand")
+		return false
+	}
+	return true
+}
+
+// enqueueStage inserts the next stage's job in a transaction.
+//
+// One implementation for both the success path and the continue-on-failure path.
+// They used to be separate copies of the same three calls, and only one of the
+// copies checked them: a failed insert on the continue path left the pipeline
+// with no next stage and no record of why, which is indistinguishable from a
+// pipeline still working.
+func (w *RunJobWorker) enqueueStage(ctx context.Context, pr repository.PipelineRun, nextOrder int32, orgID string, logger *slog.Logger) {
+	if w.riverClient == nil || w.db == nil {
+		return
+	}
+	tx, err := w.db.Begin(ctx)
+	if err != nil {
+		logger.Error("failed to begin tx for next pipeline stage", "next_order", nextOrder, "error", err)
+		return
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := w.riverClient.InsertTx(ctx, tx, PipelineStageJobArgs{
+		PipelineRunID: pr.ID,
+		StageOrder:    nextOrder,
+		OrgID:         orgID,
+		CreatedBy:     pr.CreatedBy,
+	}, nil); err != nil {
+		logger.Error("failed to enqueue next pipeline stage", "next_order", nextOrder, "error", err)
+		return
+	}
+	if err := tx.Commit(ctx); err != nil {
+		logger.Error("failed to commit next pipeline stage", "next_order", nextOrder, "error", err)
+		return
+	}
+	logger.Info("enqueued next pipeline stage", "next_order", nextOrder)
 }
 
 func (w *RunJobWorker) enqueueNextPendingRun(ctx context.Context, workspaceID string, logger *slog.Logger) {

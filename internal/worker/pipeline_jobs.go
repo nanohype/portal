@@ -111,10 +111,14 @@ func (w *PipelineStageJobWorker) Work(ctx context.Context, job *river.Job[Pipeli
 		}
 	}
 
-	// Update pipeline run current stage
-	w.queries.UpdatePipelineRunStatus(ctx, repository.UpdatePipelineRunStatusParams{
+	// Update pipeline run current stage. The UI reads current_stage to say which
+	// stage is live; a failure here leaves it naming the previous one while the
+	// next one runs.
+	if _, err := w.queries.UpdatePipelineRunStatus(ctx, repository.UpdatePipelineRunStatusParams{
 		ID: args.PipelineRunID, Status: "running", CurrentStage: args.StageOrder,
-	})
+	}); err != nil {
+		logger.Error("failed to advance pipeline current stage", "stage_order", args.StageOrder, "error", err)
+	}
 
 	// Create workspace run
 	run, err := w.createRun(ctx, stage.WorkspaceID, args.OrgID, "plan", args.CreatedBy, &stage.AutoApply)
@@ -135,20 +139,33 @@ func (w *PipelineStageJobWorker) Work(ctx context.Context, job *river.Job[Pipeli
 func (w *PipelineStageJobWorker) failStage(ctx context.Context, stage repository.PipelineRunStage, pr repository.PipelineRun, logger *slog.Logger, err error) {
 	logger.Error("pipeline stage failed", "error", err)
 
-	w.queries.FinishPipelineRunStage(ctx, stage.ID, "errored")
+	if _, ferr := w.queries.FinishPipelineRunStage(ctx, stage.ID, "errored"); ferr != nil {
+		logger.Error("failed to mark pipeline stage errored", "stage_id", stage.ID, "error", ferr)
+	}
 
 	if stage.OnFailure == "continue" {
 		w.enqueueNextStage(ctx, pr, stage.StageOrder, logger)
 	} else {
-		w.queries.CancelPendingPipelineRunStages(ctx, pr.ID)
-		w.queries.FinishPipelineRun(ctx, pr.ID, "errored")
+		// Cancel first: a run marked errored while later stages still read
+		// "pending" shows outstanding work nothing will pick up.
+		if cerr := w.queries.CancelPendingPipelineRunStages(ctx, pr.ID); cerr != nil {
+			logger.Error("failed to cancel pending pipeline stages", "error", cerr)
+		}
+		if _, ferr := w.queries.FinishPipelineRun(ctx, pr.ID, "errored"); ferr != nil {
+			logger.Error("failed to finish pipeline run", "status", "errored", "error", ferr,
+				"consequence", "the run stays 'running' and blocks later runs of this pipeline until it is cleared by hand")
+		}
 	}
 }
 
 func (w *PipelineStageJobWorker) enqueueNextStage(ctx context.Context, pr repository.PipelineRun, currentOrder int32, logger *slog.Logger) {
 	nextOrder := currentOrder + 1
 	if nextOrder >= pr.TotalStages {
-		w.queries.FinishPipelineRun(ctx, pr.ID, "completed")
+		if _, err := w.queries.FinishPipelineRun(ctx, pr.ID, "completed"); err != nil {
+			logger.Error("failed to finish pipeline run", "status", "completed", "error", err,
+				"consequence", "the run stays 'running' and blocks later runs of this pipeline until it is cleared by hand")
+			return
+		}
 		logger.Info("pipeline completed")
 		return
 	}
