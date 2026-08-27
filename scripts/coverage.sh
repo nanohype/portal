@@ -72,6 +72,14 @@ echo "== total coverage: ${total}% =="
 # validated 32-byte AES key, say — where the alternative is either a permanently
 # red gate or deleting a defensive error check. Every marker states why, and the
 # gate reports how many were honoured so they cannot pile up unnoticed.
+#
+# The marker is honoured on any line of the block and on the line that opens it.
+# Both placements are needed because Go does not attribute a block's line range
+# the same way across releases: through 1.26 an `if` body starts at the condition
+# line, and from 1.27 it starts at the first statement inside the brace, which
+# puts a trailing `{ //coverage:ignore` outside the range it annotates. Matching
+# both keeps the verdict a function of the source rather than of the compiler
+# that measured it.
 file_cov=$(awk -v m="${module}/" -v root="$PWD" '
   NR > 1 {
     split($1, a, ":"); f = a[1]
@@ -82,12 +90,17 @@ file_cov=$(awk -v m="${module}/" -v root="$PWD" '
     files[f] = 1
   }
   END {
-    # Slurp each file once and record which lines carry the ignore marker.
+    # Slurp each file once and record which lines carry the ignore marker, and
+    # which lines open a block — a line whose code ends in `{`.
     for (f in files) {
       n = 0
       while ((getline line < (root "/" f)) > 0) {
         n++
         if (index(line, "//coverage:ignore") > 0) mark[f, n] = 1
+        code = line
+        sub(/\/\/.*$/, "", code)
+        sub(/[ \t\r]+$/, "", code)
+        if (code ~ /\{$/) opens[f, n] = 1
       }
       close(root "/" f)
     }
@@ -97,6 +110,16 @@ file_cov=$(awk -v m="${module}/" -v root="$PWD" '
       ok = (cnt[i] > 0)
       if (!ok) {
         for (l = start[i]; l <= end[i]; l++) if (mark[f, l]) { ok = 1; ignores[f] += stmts[i]; break }
+      }
+      # A marker on the line that opens the block sits one line above the block
+      # from Go 1.27 on: that release attributes a block from its first inner
+      # statement rather than from the brace, so `if err != nil { //coverage:ignore`
+      # falls outside the range it annotates. Honour the opening line too, and
+      # only when it really opens a block, so a marker on an unrelated preceding
+      # statement cannot excuse this one.
+      if (!ok && mark[f, start[i] - 1] && opens[f, start[i] - 1]) {
+        ok = 1
+        ignores[f] += stmts[i]
       }
       if (ok) covered[f] += stmts[i]
     }
