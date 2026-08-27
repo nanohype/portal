@@ -88,12 +88,25 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: web/package-lock.json
+          cache-dependency-path: |
+            web/package-lock.json
+            tools/apigen/package-lock.json
       - run: npm ci
         working-directory: web
-      # Fail the build on a high/critical CVE in an npm dependency.
+      # The type generator lives in its own dependency tree. openapi-typescript
+      # reaches the TypeScript compiler API through the bare `typescript`
+      # specifier, so it pins the compiler of whatever tree it is installed in;
+      # installed here it cannot pin web's. Its peer range predates both the
+      # TypeScript it runs on and the one web typechecks with, hence the flag.
+      - run: npm ci --legacy-peer-deps
+        working-directory: tools/apigen
+      # Fail the build on a high/critical CVE in an npm dependency. Both trees
+      # are audited: the generator's dependencies leave web's lockfile but stay
+      # in the build, so auditing only web would shrink what this gate covers.
       - run: npm audit --audit-level=high
         working-directory: web
+      - run: npm audit --audit-level=high
+        working-directory: tools/apigen
       - run: npm run lint
         working-directory: web
       # Fail the build on unformatted web sources — the biome counterpart to
@@ -103,7 +116,9 @@ jobs:
         working-directory: web
       # The API contract is generated: api/openapi.yaml is the source of truth
       # and web/src/api/types.ts must match it. Regenerate + diff fails the
-      # build on drift (same pattern as nanohype's verify:catalog).
+      # build on drift (same pattern as nanohype's verify:catalog). The
+      # generator runs out of tools/apigen, so this step also asserts that the
+      # isolated tree still produces the committed bytes.
       - name: API contract drift
         run: |
           npm run generate:api
