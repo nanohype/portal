@@ -13,7 +13,7 @@
     "test:coverage": "vitest run --coverage",
     "format": "biome format --write .",
     "format:check": "biome format .",
-    "generate:api": "openapi-typescript ../api/openapi.yaml -o src/api/types.ts"
+    "generate:api": "../tools/apigen/node_modules/.bin/openapi-typescript ../api/openapi.yaml -o src/api/types.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",
@@ -54,9 +54,8 @@
     "@vitejs/plugin-react": "^6.0.2",
     "@vitest/coverage-v8": "^4.1.9",
     "jsdom": "^30.0.0",
-    "openapi-typescript": "^7.13.0",
     "tailwindcss": "^4.3.0",
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "vite": "^8.0.16",
     "vitest": "^4.1.9"
   }

@@ -11,6 +11,7 @@
 
 # Frontend
 web/node_modules/
+tools/apigen/node_modules/
 web/dist/
 web/.vite/
 

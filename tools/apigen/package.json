@@ -1,0 +1,10 @@
+{
+  "name": "@portal/apigen",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Isolated dependency tree for the OpenAPI type generator. openapi-typescript reaches the TypeScript compiler API through the bare 'typescript' specifier, so it pins the compiler of whatever tree it is installed in. Installed here, it leaves web/ free to move its own TypeScript independently.",
+  "devDependencies": {
+    "openapi-typescript": "^7.13.0",
+    "typescript": "^6.0.3"
+  }
+}
