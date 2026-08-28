@@ -13,7 +13,7 @@
     "test:coverage": "vitest run --coverage",
     "format": "biome format --write .",
     "format:check": "biome format .",
-    "generate:api": "../tools/apigen/node_modules/.bin/openapi-typescript ../api/openapi.yaml -o src/api/types.ts && ../tools/apigen/node_modules/.bin/openapi-ts -i ../api/openapi.yaml -o src/api/gen",
+    "generate:api": "../tools/apigen/node_modules/.bin/openapi-typescript ../api/openapi.yaml -o src/api/types.ts && ../tools/apigen/node_modules/.bin/openapi-ts -f openapi-ts.config.mjs",
     "check:contracts": "node scripts/contract-gates.mjs"
   },
   "dependencies": {
