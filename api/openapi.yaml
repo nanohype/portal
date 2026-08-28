@@ -1166,8 +1166,9 @@ paths:
       operationId: uploadWorkspaceConfig
       summary: Upload a configuration archive (operator)
       description: >
-        Multipart upload (50 MB limit) for source=upload workspaces; the UI
-        sends it with a raw fetch rather than the typed client.
+        Multipart upload (50 MB limit) for source=upload workspaces. Archives
+        can be large, so the caller sets a wider deadline than the client's
+        default on this one request.
       parameters:
         - { name: workspaceId, in: path, required: true, schema: { type: string } }
       requestBody:

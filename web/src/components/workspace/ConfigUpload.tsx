@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { Upload, CheckCircle, FileArchive } from 'lucide-react';
+import { api } from '@/api/client';
 
 interface Props {
   workspaceId: string;
@@ -20,27 +21,28 @@ export function ConfigUpload({ workspaceId, currentConfigVersion }: Props) {
       const formData = new FormData();
       formData.append('file', file);
 
-      const token = localStorage.getItem('portal_token');
-      const res = await fetch(`/api/v1/workspaces/${workspaceId}/upload`, {
-        method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: formData,
-        // Config archives can be large; wider deadline than the 30s API default.
+      // Config archives can be large, so this call carries its own deadline.
+      // The client applies its 30s default only to a call that supplies no
+      // signal, so this one replaces that deadline rather than racing it.
+      const { data, error } = await api.POST('/workspaces/{workspaceId}/upload', {
+        params: { path: { workspaceId } },
+        // The generated body type is the object of multipart parts —
+        // `{ file: string }`, because OpenAPI's `format: binary` has no
+        // TypeScript counterpart. FormData is what carries those parts on the
+        // wire: openapi-fetch forwards a FormData body untouched and leaves
+        // Content-Type unset so the browser writes the multipart boundary.
+        body: formData as unknown as { file: string },
         signal: AbortSignal.timeout(120_000),
       });
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: 'Upload failed' }));
-        throw new Error(err.error || 'Upload failed');
-      }
-
-      return res.json();
+      if (error) throw error;
+      return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['workspace', workspaceId] });
       toast.success('Configuration uploaded');
     },
-    onError: (err: Error) => toast.error(err.message),
+    onError: (e) => toast.error((e as { error?: string })?.error ?? 'Upload failed'),
   });
 
   const handleFile = (file: File) => {
