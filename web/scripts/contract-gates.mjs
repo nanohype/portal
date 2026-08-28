@@ -86,6 +86,16 @@ for (const operation of INDEX_SIGNATURE_OPERATIONS) {
   );
 }
 
+// buildClientParams writes a caller-supplied key straight into a params slot
+// after stripping a `$query_` / `$path_` style prefix, so the key
+// `$query___proto__` substitutes the prototype chain of the object it returns.
+// The generated SDK never calls it and the bundler drops it, which is what keeps
+// the advisory inert here — so the gate is that nothing starts calling it.
+check(
+  'buildClientParams is not referenced',
+  files.filter((f) => /\bbuildClientParams\b/.test(f.text)).map((f) => f.path),
+);
+
 // hey-api declares `response?: Response` where openapi-fetch declared it
 // required, so `res.response.status` yields `number | undefined` rather than a
 // compile error. The first instance would be silent, so none is allowed.
