@@ -4,7 +4,7 @@
   "private": true,
   "description": "Isolated dependency tree for the OpenAPI code generators. openapi-typescript reaches the TypeScript compiler API through the bare 'typescript' specifier, so it pins the compiler of whatever tree it is installed in. Installed here, the generators leave web/ free to move its own TypeScript independently.",
   "devDependencies": {
-    "@hey-api/openapi-ts": "0.97.0",
+    "@hey-api/openapi-ts": "0.97.3",
     "openapi-typescript": "^7.13.0",
     "typescript": "^6.0.3"
   }
