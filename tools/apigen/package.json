@@ -7,5 +7,8 @@
     "@hey-api/openapi-ts": "0.97.3",
     "openapi-typescript": "^7.13.0",
     "typescript": "^6.0.3"
+  },
+  "overrides": {
+    "js-yaml": "4.3.2"
   }
 }
