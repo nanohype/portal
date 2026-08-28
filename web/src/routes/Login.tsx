@@ -6,6 +6,9 @@ export function LoginPage() {
   const [devLogin, setDevLogin] = useState(false);
 
   useEffect(() => {
+    // The dev_login flag is read before a token exists, so this request carries
+    // no Authorization header and has no 401 to act on: the typed client's
+    // middleware would have nothing to add and nothing to handle.
     fetch('/api/v1/health')
       .then((r) => r.json())
       .then((data) => {

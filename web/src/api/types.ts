@@ -838,7 +838,7 @@ export interface paths {
         put?: never;
         /**
          * Upload a configuration archive (operator)
-         * @description Multipart upload (50 MB limit) for source=upload workspaces; the UI sends it with a raw fetch rather than the typed client.
+         * @description Multipart upload (50 MB limit) for source=upload workspaces. Archives can be large, so the caller sets a wider deadline than the client's default on this one request.
          */
         post: operations["uploadWorkspaceConfig"];
         delete?: never;

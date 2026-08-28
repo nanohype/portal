@@ -23,17 +23,17 @@ interface Props {
 }
 
 async function downloadState(workspaceId: string, stateId: string) {
-  const token = localStorage.getItem('portal_token');
-  const res = await fetch(`/api/v1/workspaces/${workspaceId}/state/${stateId}/download`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    signal: AbortSignal.timeout(30_000),
+  // The response is a tfstate document served as an attachment, so it is read
+  // as a Blob rather than parsed. parseAs types `data` as Blob accordingly.
+  const { data, error } = await api.GET('/workspaces/{workspaceId}/state/{stateId}/download', {
+    params: { path: { workspaceId, stateId } },
+    parseAs: 'blob',
   });
-  if (!res.ok) {
+  if (error || !data) {
     toast.error('Failed to download state file');
     return;
   }
-  const blob = await res.blob();
-  const url = URL.createObjectURL(blob);
+  const url = URL.createObjectURL(data);
   const a = document.createElement('a');
   a.href = url;
   a.download = `state-${stateId}.json`;
@@ -56,20 +56,20 @@ export function StateExplorer({ workspaceId, role }: Props) {
 
   const dropMutation = useMutation({
     mutationFn: async (serial: number) => {
-      const token = localStorage.getItem('portal_token');
-      const res = await fetch(`/api/v1/workspaces/${workspaceId}/state/serial/${serial}`, {
-        method: 'DELETE',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        signal: AbortSignal.timeout(30_000),
+      const { error } = await api.DELETE('/workspaces/{workspaceId}/state/serial/{serial}', {
+        params: { path: { workspaceId, serial } },
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (error) throw error;
     },
     onSuccess: () => {
       toast.success('State version dropped');
       qc.invalidateQueries({ queryKey: ['state-versions', workspaceId] });
       qc.invalidateQueries({ queryKey: ['state-current', workspaceId] });
     },
-    onError: (e) => toast.error(`Failed to drop state version: ${(e as Error).message}`),
+    onError: (e) =>
+      toast.error(
+        `Failed to drop state version: ${(e as { error?: string })?.error ?? 'request failed'}`,
+      ),
   });
 
   const {
