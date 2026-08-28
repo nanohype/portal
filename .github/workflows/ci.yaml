@@ -122,7 +122,14 @@ jobs:
       - name: API contract drift
         run: |
           npm run generate:api
-          git diff --exit-code -- src/api/types.ts
+          git diff --exit-code -- src/api/types.ts src/api/gen
+        working-directory: web
+      # Two assertions the compiler cannot make: that the new contract still
+      # covers every operation the previous one declares while both are in the
+      # tree, and that the two operations whose success type is a string index
+      # signature are not read as plain JSON — the only two of 107 where that
+      # mistake compiles.
+      - run: npm run check:contracts
         working-directory: web
       # tsc -b is the real typecheck — the root tsconfig has files:[] + project
       # references, so `tsc --noEmit` against it checks nothing.

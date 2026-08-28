@@ -7,7 +7,14 @@
   },
   "files": {
     "ignoreUnknown": true,
-    "includes": ["**", "!**/package-lock.json", "!**/dist", "!**/coverage", "!src/api/types.ts"]
+    "includes": [
+      "**",
+      "!**/package-lock.json",
+      "!**/dist",
+      "!**/coverage",
+      "!src/api/types.ts",
+      "!src/api/gen"
+    ]
   },
   "formatter": {
     "enabled": true,

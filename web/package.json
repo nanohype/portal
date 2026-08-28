@@ -13,7 +13,8 @@
     "test:coverage": "vitest run --coverage",
     "format": "biome format --write .",
     "format:check": "biome format .",
-    "generate:api": "../tools/apigen/node_modules/.bin/openapi-typescript ../api/openapi.yaml -o src/api/types.ts"
+    "generate:api": "../tools/apigen/node_modules/.bin/openapi-typescript ../api/openapi.yaml -o src/api/types.ts && ../tools/apigen/node_modules/.bin/openapi-ts -i ../api/openapi.yaml -o src/api/gen",
+    "check:contracts": "node scripts/contract-gates.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",
