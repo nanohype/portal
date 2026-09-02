@@ -115,7 +115,7 @@ func TestIsRunCancelled_ReportsAReadItCouldNotAnswer(t *testing.T) {
 	cancel()
 
 	var buf strings.Builder
-	w := &RunJobWorker{queries: testQueries}
+	w := &RunJobWorker{runs: testQueries}
 	got := w.isRunCancelled(cancelled, "run_1", "org_1", capture(&buf))
 
 	if got {
@@ -150,7 +150,7 @@ func TestIsRunCancelled_IsSilentForARunThatIsNotCancelled(t *testing.T) {
 	}
 
 	var buf strings.Builder
-	w := &RunJobWorker{queries: testQueries}
+	w := &RunJobWorker{runs: testQueries}
 	if w.isRunCancelled(ctx, run.ID, orgID, capture(&buf)) {
 		t.Error("a running run was reported cancelled")
 	}

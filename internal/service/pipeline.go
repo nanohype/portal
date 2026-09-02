@@ -17,15 +17,43 @@ import (
 	"github.com/nanohype/portal/internal/worker"
 )
 
+// pipelineCancelStore is the reads and writes cancelling a pipeline run makes.
+//
+// It is an interface because every one of these writes settles a row that
+// nothing else sweeps: a stage or a pipeline left non-terminal under a cancelled
+// run stays that way, and GetActivePipelineRunForPipeline then refuses every
+// later run of the pipeline. A concrete *repository.Queries puts the whole
+// function behind a database, and a gate that skips when the database is absent
+// reports green for a rule it did not check.
+type pipelineCancelStore interface {
+	GetPipelineRun(ctx context.Context, arg repository.GetPipelineRunParams) (repository.PipelineRun, error)
+	ListPipelineRunStages(ctx context.Context, pipelineRunID string) ([]repository.PipelineRunStageWithWorkspace, error)
+	FinishPipelineRunStage(ctx context.Context, id, status string) (repository.PipelineRunStage, error)
+	CancelPendingPipelineRunStages(ctx context.Context, pipelineRunID string) error
+	FinishPipelineRun(ctx context.Context, id, status string) (repository.PipelineRun, error)
+}
+
+// runCanceller stops the workspace run a live stage is waiting on.
+type runCanceller interface {
+	Cancel(ctx context.Context, runID, workspaceID, orgID string) (repository.Run, error)
+}
+
 type PipelineService struct {
 	queries     *repository.Queries
 	db          *pgxpool.Pool
 	runSvc      *RunService
 	riverClient *river.Client[pgx.Tx]
+
+	cancels   pipelineCancelStore
+	cancelRun runCanceller
 }
 
 func NewPipelineService(queries *repository.Queries, db *pgxpool.Pool, runSvc *RunService) *PipelineService {
-	return &PipelineService{queries: queries, db: db, runSvc: runSvc}
+	s := &PipelineService{queries: queries, db: db, runSvc: runSvc, cancels: queries}
+	if runSvc != nil {
+		s.cancelRun = runSvc
+	}
+	return s
 }
 
 func (s *PipelineService) SetRiverClient(client *river.Client[pgx.Tx]) {
@@ -260,7 +288,7 @@ func (s *PipelineService) StartRun(ctx context.Context, pipelineID, orgID, creat
 }
 
 func (s *PipelineService) CancelRun(ctx context.Context, pipelineRunID, orgID string) (repository.PipelineRun, error) {
-	pr, err := s.queries.GetPipelineRun(ctx, repository.GetPipelineRunParams{ID: pipelineRunID, OrgID: orgID})
+	pr, err := s.cancels.GetPipelineRun(ctx, repository.GetPipelineRunParams{ID: pipelineRunID, OrgID: orgID})
 	if err != nil {
 		return repository.PipelineRun{}, fmt.Errorf("get pipeline run: %w", err)
 	}
@@ -269,25 +297,34 @@ func (s *PipelineService) CancelRun(ctx context.Context, pipelineRunID, orgID st
 	}
 
 	// Cancel any running workspace run for the current stage
-	stages, err := s.queries.ListPipelineRunStages(ctx, pipelineRunID)
+	stages, err := s.cancels.ListPipelineRunStages(ctx, pipelineRunID)
 	if err != nil {
 		return repository.PipelineRun{}, fmt.Errorf("list stages: %w", err)
 	}
 	for _, stage := range stages {
 		if stage.Status == "running" && stage.RunID != nil {
-			if _, err := s.runSvc.Cancel(ctx, *stage.RunID, stage.WorkspaceID, orgID); err != nil {
+			if _, err := s.cancelRun.Cancel(ctx, *stage.RunID, stage.WorkspaceID, orgID); err != nil {
 				slog.Warn("failed to cancel workspace run in pipeline", "run_id", *stage.RunID, "error", err)
+			}
+			// The running stage is not in the set CancelPendingPipelineRunStages
+			// matches, which is 'pending' and 'importing_outputs'. Its run has
+			// just been cancelled and will never move again, so leaving the stage
+			// 'running' shows a cancelled pipeline with work still in progress —
+			// the detail view returns this column verbatim.
+			if _, err := s.cancels.FinishPipelineRunStage(ctx, stage.ID, "cancelled"); err != nil {
+				slog.Error("failed to cancel the running pipeline stage", "stage_id", stage.ID, "error", err,
+					"consequence", "the stage reads 'running' under a cancelled pipeline and nothing sweeps it")
 			}
 		}
 	}
 
 	// Cancel pending stages
-	if err := s.queries.CancelPendingPipelineRunStages(ctx, pipelineRunID); err != nil {
+	if err := s.cancels.CancelPendingPipelineRunStages(ctx, pipelineRunID); err != nil {
 		slog.Error("failed to cancel pending pipeline stages", "error", err)
 	}
 
 	// Mark pipeline run as cancelled
-	updated, err := s.queries.FinishPipelineRun(ctx, pipelineRunID, "cancelled")
+	updated, err := s.cancels.FinishPipelineRun(ctx, pipelineRunID, "cancelled")
 	if err != nil {
 		return repository.PipelineRun{}, fmt.Errorf("finish pipeline run: %w", err)
 	}

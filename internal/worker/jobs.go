@@ -71,6 +71,14 @@ type runStatusStore interface {
 	GetRun(ctx context.Context, arg repository.GetRunParams) (repository.Run, error)
 }
 
+// runSlotStore is the workspace's single run slot. failRun releases it on every
+// terminal path, and it is an interface for the reason the others are: the
+// terminal paths are where a pipeline is advanced or left wedged, and a
+// concrete *repository.Queries puts that whole function behind a database.
+type runSlotStore interface {
+	ReleaseWorkspaceRun(ctx context.Context, id, orgID, runID string) error
+}
+
 type RunJobWorker struct {
 	river.WorkerDefaults[RunJobArgs]
 	queries     *repository.Queries
@@ -79,6 +87,7 @@ type RunJobWorker struct {
 	states      stateVersionStore
 	runs        runStatusStore
 	finishes    runFinishStore
+	slots       runSlotStore
 	executor    executor.Executor
 	streamer    logstream.Streamer
 	storage     runBlobStore       // nil in dev without MinIO
@@ -99,6 +108,7 @@ func NewRunJobWorker(queries *repository.Queries, exec executor.Executor, stream
 		states:    queries,
 		runs:      queries,
 		finishes:  queries,
+		slots:     queries,
 		queries:   queries,
 		executor:  exec,
 		streamer:  streamer,
@@ -489,6 +499,7 @@ func (w *RunJobWorker) Work(ctx context.Context, job *river.Job[RunJobArgs]) err
 			logger.Error("failed to release workspace run slot after cancel", "error", err)
 		}
 		w.enqueueNextPendingRun(ctx, args.WorkspaceID, logger)
+		w.advancePipelineIfNeeded(ctx, args.RunID, args.OrgID, "cancelled", logger)
 		return nil
 	}
 
@@ -510,37 +521,49 @@ func (w *RunJobWorker) Work(ctx context.Context, job *river.Job[RunJobArgs]) err
 		w.streamer.Publish(args.RunID, []byte("\r\n\033[31m"+*stateRecordErr+"\033[0m\r\n"))
 	}
 
-	w.streamer.Publish(args.RunID, []byte(fmt.Sprintf("\r\n\033[32mRun completed successfully at %s\033[0m\r\n", time.Now().Format(time.RFC3339))))
-	w.streamer.Close(args.RunID)
+	return w.settleFinishedRun(ctx, args, result, finalStatus, logger)
+}
 
-	// Auto-apply: enqueue the apply immediately instead of unlocking.
-	//
-	// "queued" is already written on the run row, and it is a promise that an
-	// apply is coming. Nothing keeps that promise if the enqueue fails:
-	// GetNextPendingRun sweeps status 'pending' only, so a run left at 'queued'
-	// with no job behind it is picked up by nothing, shows an apply pending
-	// forever, and is not displaced by any later run of the workspace.
-	// The withdrawal settles the run at a different status, and finalStatus is
-	// what the pipeline advancer and the completion log below read. It carries
-	// the row's status from here on.
+// settleFinishedRun closes out a run that executed: it keeps or withdraws the
+// auto-apply promise, closes the log stream, releases the workspace slot, hands
+// off the next pending run, and advances the pipeline.
+//
+// Every one of those reads the status the run row carries, so the withdrawal's
+// answer replaces the caller's: an advancer handed "queued" takes an arm that
+// rests on an apply being on its way, and leaves the stage running behind a run
+// that will never move.
+//
+// The order is load-bearing. The auto-apply block runs before the stream is
+// closed, because the withdrawal publishes the notice it writes to the run row
+// and a Publish after Close reaches nobody — the memory streamer drops it, and
+// the Redis one has already cancelled the subscription and closed every attached
+// channel. A watcher's last line would be the completion message while the run
+// says the apply is not coming.
+func (w *RunJobWorker) settleFinishedRun(ctx context.Context, args RunJobArgs, result *executor.ExecuteResult, finalStatus string, logger *slog.Logger) error {
+	// "queued" on the row is a promise that an apply is coming. Nothing keeps it
+	// if the enqueue fails: GetNextPendingRun sweeps status 'pending' only, so a
+	// run left at 'queued' with no job behind it is picked up by nothing and is
+	// not displaced by any later run of the workspace.
 	if finalStatus == "queued" {
 		if enqErr := w.enqueueAutoApply(ctx, args); enqErr != nil {
 			logger.Error("auto-apply was not enqueued", "error", enqErr)
 			finalStatus = w.withdrawAutoApplyPromise(ctx, args, result, enqErr, logger)
 		} else {
 			logger.Info("auto-apply enqueued", "run_id", args.RunID)
+			w.streamer.Close(args.RunID)
 			return nil
 		}
 	}
 
-	// Unlock workspace and pick up next queued run
-	if err := w.queries.ReleaseWorkspaceRun(ctx, args.WorkspaceID, args.OrgID, args.RunID); err != nil {
+	w.streamer.Publish(args.RunID, []byte(fmt.Sprintf("\r\n\033[32mRun completed at %s\033[0m\r\n", time.Now().Format(time.RFC3339))))
+	w.streamer.Close(args.RunID)
+
+	if err := w.slots.ReleaseWorkspaceRun(ctx, args.WorkspaceID, args.OrgID, args.RunID); err != nil {
 		logger.Error("failed to release workspace run slot", "error", err)
 	}
 
 	w.enqueueNextPendingRun(ctx, args.WorkspaceID, logger)
 
-	// Advance pipeline if this run belongs to one
 	w.advancePipelineIfNeeded(ctx, args.RunID, args.OrgID, finalStatus, logger)
 
 	logger.Info("run completed", "status", finalStatus)
@@ -554,6 +577,9 @@ func (w *RunJobWorker) failRun(ctx context.Context, args RunJobArgs, logger *slo
 	writeCtx, cancel := durableContext(ctx)
 	defer cancel()
 
+	// The status this run ends at, handed to the pipeline advancer below.
+	finalStatus := "errored"
+
 	// Don't overwrite cancelled status
 	if !w.isRunCancelled(writeCtx, args.RunID, args.OrgID, logger) {
 		errMsg := runErr.Error()
@@ -561,7 +587,7 @@ func (w *RunJobWorker) failRun(ctx context.Context, args RunJobArgs, logger *slo
 		if logOutput != "" {
 			planOutput = &logOutput
 		}
-		if _, dbErr := w.queries.UpdateRunFinished(writeCtx, repository.UpdateRunFinishedParams{
+		if _, dbErr := w.finishes.UpdateRunFinished(writeCtx, repository.UpdateRunFinishedParams{
 			ID: args.RunID, Status: "errored", ErrorMessage: &errMsg, PlanOutput: planOutput,
 		}); dbErr != nil {
 			// Return the DB error so River retries — the run would be stuck otherwise
@@ -569,17 +595,30 @@ func (w *RunJobWorker) failRun(ctx context.Context, args RunJobArgs, logger *slo
 		}
 		w.streamer.Publish(args.RunID, []byte(fmt.Sprintf("\r\n\033[31mRun failed: %s\033[0m\r\n", runErr.Error())))
 	} else {
+		finalStatus = "cancelled"
 		logger.Info("run was cancelled, not overwriting with errored status")
 		w.streamer.Publish(args.RunID, []byte("\r\n\033[33mRun was cancelled\033[0m\r\n"))
 	}
 	w.streamer.Close(args.RunID)
 
 	// Unlock workspace
-	if err := w.queries.ReleaseWorkspaceRun(writeCtx, args.WorkspaceID, args.OrgID, args.RunID); err != nil {
+	if err := w.slots.ReleaseWorkspaceRun(writeCtx, args.WorkspaceID, args.OrgID, args.RunID); err != nil {
 		logger.Error("failed to release workspace run slot after failure", "error", err)
 	}
 
 	w.enqueueNextPendingRun(writeCtx, args.WorkspaceID, logger)
+
+	// Every terminal path advances the pipeline this run belongs to. A run that
+	// fails is as final as one that applies, and a pipeline stage whose run is
+	// terminal and unadvanced stays "running" under a pipeline run that stays
+	// "running" — which GetActivePipelineRunForPipeline then reads as active, so
+	// every later run of that pipeline is refused.
+	//
+	// The status handed over is the one the row now carries, "cancelled" when the
+	// cancel branch above took the write and "errored" otherwise, for the reason
+	// the auto-apply withdrawal returns its status: the advancer decides what to
+	// do with the stage from it.
+	w.advancePipelineIfNeeded(writeCtx, args.RunID, args.OrgID, finalStatus, logger)
 	return nil
 }
 
@@ -595,7 +634,7 @@ func (w *RunJobWorker) failRun(ctx context.Context, args RunJobArgs, logger *slo
 // point of failing: the run has already executed, and refusing to settle its
 // status would leave it mid-flight instead.
 func (w *RunJobWorker) isRunCancelled(ctx context.Context, runID, orgID string, logger *slog.Logger) bool {
-	currentRun, err := w.queries.GetRun(ctx, repository.GetRunParams{ID: runID, OrgID: orgID})
+	currentRun, err := w.runs.GetRun(ctx, repository.GetRunParams{ID: runID, OrgID: orgID})
 	if err != nil {
 		logger.Error("cannot tell whether this run was cancelled", "error", err,
 			"consequence", "a cancellation issued while this run was executing is overwritten by the status below")
@@ -648,6 +687,17 @@ func toExecutorImports(imports []ImportResource) []executor.ImportResource {
 		result[i] = executor.ImportResource{Address: imp.Address, ID: imp.ID}
 	}
 	return result
+}
+
+// AdvancePipelineForTerminalRun advances the pipeline a terminal run belongs to,
+// for callers outside the worker.
+//
+// RunService.Cancel settles a run from the API, and a settled run that belongs to
+// a pipeline leaves its stage and its pipeline reading "running" unless something
+// advances them. The worker advances its own terminal paths; this is the same
+// advancement, reachable from the service that owns the other one.
+func AdvancePipelineForTerminalRun(ctx context.Context, q *repository.Queries, runID, orgID, finalStatus string, logger *slog.Logger) {
+	(&RunJobWorker{pipelines: q}).advancePipelineIfNeeded(ctx, runID, orgID, finalStatus, logger)
 }
 
 // advancePipelineIfNeeded checks if the completed run belongs to a pipeline and advances it.
@@ -715,6 +765,21 @@ func (w *RunJobWorker) advancePipelineIfNeeded(ctx context.Context, runID, orgID
 			if w.finishRun(ctx, pr.ID, "errored", logger) {
 				logger.Info("pipeline errored due to stage failure")
 			}
+		}
+
+	case "cancelled":
+		// A cancelled run is as terminal as a failed one and will never move
+		// again, so its stage cannot stay "running": the pipeline row would read
+		// active for ever and refuse every later run of the pipeline. The
+		// pipeline is settled cancelled rather than errored — nothing failed,
+		// somebody stopped it — and its pending stages are cancelled first, for
+		// the reason the errored arm cancels them first.
+		w.finishStage(ctx, stage.ID, "cancelled", logger)
+		if err := w.pipelines.CancelPendingPipelineRunStages(ctx, pr.ID); err != nil {
+			logger.Error("failed to cancel pending pipeline stages", "error", err)
+		}
+		if w.finishRun(ctx, pr.ID, "cancelled", logger) {
+			logger.Info("pipeline cancelled with its run")
 		}
 
 	case "planned", "awaiting_approval":

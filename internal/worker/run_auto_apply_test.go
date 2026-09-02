@@ -243,3 +243,50 @@ func TestRunJobLeavesNoStageRunningWhenTheAutoApplyIsWithdrawn(t *testing.T) {
 	}
 	_ = prID
 }
+
+// A Publish after Close reaches nobody: the memory streamer drops it and the
+// Redis one has already cancelled the subscription and closed every attached
+// channel. The notice says the apply an operator is waiting for is not coming,
+// so a watcher whose last line is the completion message is watching the wrong
+// thing.
+//
+// The ordering is a property of Work, so this drives Work. It needs a database
+// and is skipped without one.
+func TestRunJobPublishesTheWithdrawalToAnOpenStream(t *testing.T) {
+	requireDB(t)
+	ctx := context.Background()
+	orgID, userID := seedOrg(t, ctx, "withdrawstream")
+
+	wsID := id()
+	exec(t, ctx,
+		`INSERT INTO workspaces (id,org_id,name,created_by,source,tofu_version,auto_apply)
+		 VALUES ($1,$2,$3,$4,'upload','1.11.0',TRUE)`,
+		wsID, orgID, "ws-"+wsID, userID)
+
+	run, err := testQueries.CreateRun(ctx, repository.CreateRunParams{
+		ID: id(), WorkspaceID: wsID, OrgID: orgID, Operation: "plan", Status: "pending", CreatedBy: userID,
+		ConfigSource: "upload", ConfigTofuVersion: "1.11.0",
+	})
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	stream := &recordingStreamer{}
+	w := newTestRunWorker(&recordingExecutor{})
+	w.streamer = stream
+
+	if err := w.Work(ctx, &river.Job[RunJobArgs]{
+		Args: RunJobArgs{RunID: run.ID, WorkspaceID: wsID, OrgID: orgID, Operation: "plan"},
+	}); err != nil {
+		t.Fatalf("Work: %v", err)
+	}
+
+	for _, line := range stream.afterClose {
+		if strings.Contains(line, "not enqueued") {
+			t.Fatalf("the withdrawal notice was published after the stream closed, so no watcher receives it:\n%s", line)
+		}
+	}
+	if !strings.Contains(strings.Join(stream.published, "\n"), "not enqueued") {
+		t.Errorf("no watcher was told the apply is not coming; published lines were:\n%s", strings.Join(stream.published, "\n"))
+	}
+}

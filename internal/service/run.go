@@ -181,5 +181,12 @@ func (s *RunService) Cancel(ctx context.Context, runID, workspaceID, orgID strin
 		worker.ClaimAndEnqueueNextRun(ctx, s.queries, s.db, s.riverClient, run.WorkspaceID, slog.Default())
 	}
 
+	// A cancelled run is terminal. If a pipeline stage is waiting on it, the
+	// stage and its pipeline stay 'running' under a run that will never move, and
+	// GetActivePipelineRunForPipeline then refuses every later run of that
+	// pipeline. The worker advances its own terminal paths; this is the one that
+	// happens from the API, and it has to do the same.
+	worker.AdvancePipelineForTerminalRun(ctx, s.queries, runID, orgID, "cancelled", slog.Default())
+
 	return run, nil
 }

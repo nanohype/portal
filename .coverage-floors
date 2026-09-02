@@ -71,7 +71,7 @@ package internal/tfstate            84
 package internal/tracing            0     # otel wiring
 package internal/varmerge           91
 package internal/vcs                100
-package internal/worker             56
+package internal/worker             57
 package internal/worker/executor    15
 package cmd/migrate                 0     # main() wrappers
 package cmd/seeddemo                0

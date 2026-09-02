@@ -37,9 +37,26 @@ type RunCreatorFunc func(ctx context.Context, workspaceID, orgID, operation, cre
 // the target workspace. Avoids import cycle with service package.
 type OutputImporter func(ctx context.Context, sourceWorkspaceID, targetWorkspaceID, orgID string) error
 
+// stageStore is the reads and writes a pipeline stage makes. It is an interface
+// because a stage that mishandles a failure leaves the stage and its pipeline
+// non-terminal, and a concrete *repository.Queries puts the whole job behind a
+// database — where the gate skips, and a skipped gate reports green for a rule
+// it did not check.
+type stageStore interface {
+	GetPipelineRun(ctx context.Context, arg repository.GetPipelineRunParams) (repository.PipelineRun, error)
+	GetPipelineRunStageByOrder(ctx context.Context, pipelineRunID string, stageOrder int32) (repository.PipelineRunStage, error)
+	StartPipelineRunStage(ctx context.Context, id, status string) (repository.PipelineRunStage, error)
+	UpdatePipelineRunStatus(ctx context.Context, arg repository.UpdatePipelineRunStatusParams) (repository.PipelineRun, error)
+	SetPipelineRunStageRunID(ctx context.Context, id, runID string) error
+	FinishPipelineRunStage(ctx context.Context, id, status string) (repository.PipelineRunStage, error)
+	CancelPendingPipelineRunStages(ctx context.Context, pipelineRunID string) error
+	FinishPipelineRun(ctx context.Context, id, status string) (repository.PipelineRun, error)
+}
+
 type PipelineStageJobWorker struct {
 	river.WorkerDefaults[PipelineStageJobArgs]
 	queries       *repository.Queries
+	stages        stageStore
 	createRun     RunCreatorFunc
 	importOutputs OutputImporter
 	riverClient   *river.Client[pgx.Tx]
@@ -49,6 +66,7 @@ type PipelineStageJobWorker struct {
 func NewPipelineStageJobWorker(queries *repository.Queries, createRun RunCreatorFunc, importOutputs OutputImporter) *PipelineStageJobWorker {
 	return &PipelineStageJobWorker{
 		queries:       queries,
+		stages:        queries,
 		createRun:     createRun,
 		importOutputs: importOutputs,
 	}
@@ -69,7 +87,7 @@ func (w *PipelineStageJobWorker) Work(ctx context.Context, job *river.Job[Pipeli
 	logger.Info("processing pipeline stage")
 
 	// Get pipeline run
-	pr, err := w.queries.GetPipelineRun(ctx, repository.GetPipelineRunParams{ID: args.PipelineRunID, OrgID: args.OrgID})
+	pr, err := w.stages.GetPipelineRun(ctx, repository.GetPipelineRunParams{ID: args.PipelineRunID, OrgID: args.OrgID})
 	if err != nil {
 		return fmt.Errorf("get pipeline run: %w", err)
 	}
@@ -81,7 +99,7 @@ func (w *PipelineStageJobWorker) Work(ctx context.Context, job *river.Job[Pipeli
 	}
 
 	// Get this stage
-	stage, err := w.queries.GetPipelineRunStageByOrder(ctx, args.PipelineRunID, args.StageOrder)
+	stage, err := w.stages.GetPipelineRunStageByOrder(ctx, args.PipelineRunID, args.StageOrder)
 	if err != nil {
 		return fmt.Errorf("get pipeline run stage: %w", err)
 	}
@@ -94,11 +112,11 @@ func (w *PipelineStageJobWorker) Work(ctx context.Context, job *river.Job[Pipeli
 
 	// Import outputs from previous stage if not the first stage
 	if args.StageOrder > 0 {
-		if _, err := w.queries.StartPipelineRunStage(ctx, stage.ID, "importing_outputs"); err != nil {
+		if _, err := w.stages.StartPipelineRunStage(ctx, stage.ID, "importing_outputs"); err != nil {
 			return fmt.Errorf("update stage status to importing_outputs: %w", err)
 		}
 
-		prevStage, err := w.queries.GetPipelineRunStageByOrder(ctx, args.PipelineRunID, args.StageOrder-1)
+		prevStage, err := w.stages.GetPipelineRunStageByOrder(ctx, args.PipelineRunID, args.StageOrder-1)
 		if err != nil {
 			w.failStage(ctx, stage, pr, logger, fmt.Errorf("get previous stage: %w", err))
 			return nil
@@ -125,7 +143,7 @@ func (w *PipelineStageJobWorker) Work(ctx context.Context, job *river.Job[Pipeli
 	// Update pipeline run current stage. The UI reads current_stage to say which
 	// stage is live; a failure here leaves it naming the previous one while the
 	// next one runs.
-	if _, err := w.queries.UpdatePipelineRunStatus(ctx, repository.UpdatePipelineRunStatusParams{
+	if _, err := w.stages.UpdatePipelineRunStatus(ctx, repository.UpdatePipelineRunStatusParams{
 		ID: args.PipelineRunID, Status: "running", CurrentStage: args.StageOrder,
 	}); err != nil {
 		logger.Error("failed to advance pipeline current stage", "stage_order", args.StageOrder, "error", err)
@@ -139,7 +157,7 @@ func (w *PipelineStageJobWorker) Work(ctx context.Context, job *river.Job[Pipeli
 	}
 
 	// Link run to stage
-	if err := w.queries.SetPipelineRunStageRunID(ctx, stage.ID, run.ID); err != nil {
+	if err := w.stages.SetPipelineRunStageRunID(ctx, stage.ID, run.ID); err != nil {
 		return fmt.Errorf("set stage run_id: %w", err)
 	}
 
@@ -150,7 +168,7 @@ func (w *PipelineStageJobWorker) Work(ctx context.Context, job *river.Job[Pipeli
 func (w *PipelineStageJobWorker) failStage(ctx context.Context, stage repository.PipelineRunStage, pr repository.PipelineRun, logger *slog.Logger, err error) {
 	logger.Error("pipeline stage failed", "error", err)
 
-	if _, ferr := w.queries.FinishPipelineRunStage(ctx, stage.ID, "errored"); ferr != nil {
+	if _, ferr := w.stages.FinishPipelineRunStage(ctx, stage.ID, "errored"); ferr != nil {
 		logger.Error("failed to mark pipeline stage errored", "stage_id", stage.ID, "error", ferr)
 	}
 
@@ -159,10 +177,10 @@ func (w *PipelineStageJobWorker) failStage(ctx context.Context, stage repository
 	} else {
 		// Cancel first: a run marked errored while later stages still read
 		// "pending" shows outstanding work nothing will pick up.
-		if cerr := w.queries.CancelPendingPipelineRunStages(ctx, pr.ID); cerr != nil {
+		if cerr := w.stages.CancelPendingPipelineRunStages(ctx, pr.ID); cerr != nil {
 			logger.Error("failed to cancel pending pipeline stages", "error", cerr)
 		}
-		if _, ferr := w.queries.FinishPipelineRun(ctx, pr.ID, "errored"); ferr != nil {
+		if _, ferr := w.stages.FinishPipelineRun(ctx, pr.ID, "errored"); ferr != nil {
 			logger.Error("failed to finish pipeline run", "status", "errored", "error", ferr,
 				"consequence", "the run stays 'running' and blocks later runs of this pipeline until it is cleared by hand")
 		}
@@ -172,7 +190,7 @@ func (w *PipelineStageJobWorker) failStage(ctx context.Context, stage repository
 func (w *PipelineStageJobWorker) enqueueNextStage(ctx context.Context, pr repository.PipelineRun, currentOrder int32, logger *slog.Logger) {
 	nextOrder := currentOrder + 1
 	if nextOrder >= pr.TotalStages {
-		if _, err := w.queries.FinishPipelineRun(ctx, pr.ID, "completed"); err != nil {
+		if _, err := w.stages.FinishPipelineRun(ctx, pr.ID, "completed"); err != nil {
 			logger.Error("failed to finish pipeline run", "status", "completed", "error", err,
 				"consequence", "the run stays 'running' and blocks later runs of this pipeline until it is cleared by hand")
 			return

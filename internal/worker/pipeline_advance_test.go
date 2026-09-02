@@ -28,6 +28,7 @@ type stubPipelines struct {
 	failPause  error
 
 	finishedStage, finishedRun []string
+	pausedStage                []string
 	cancelled                  int
 }
 
@@ -49,7 +50,8 @@ func (s *stubPipelines) CancelPendingPipelineRunStages(context.Context, string) 
 	s.cancelled++
 	return s.failCancel
 }
-func (s *stubPipelines) UpdatePipelineRunStageStatus(context.Context, repository.UpdatePipelineRunStageStatusParams) (repository.PipelineRunStage, error) {
+func (s *stubPipelines) UpdatePipelineRunStageStatus(_ context.Context, arg repository.UpdatePipelineRunStageStatusParams) (repository.PipelineRunStage, error) {
+	s.pausedStage = append(s.pausedStage, arg.Status)
 	return repository.PipelineRunStage{}, s.failPause
 }
 
