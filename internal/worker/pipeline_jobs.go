@@ -104,9 +104,20 @@ func (w *PipelineStageJobWorker) Work(ctx context.Context, job *river.Job[Pipeli
 			return nil
 		}
 
+		// A stage exists to run against what the stage before it produced.
+		// Continuing past a failed import creates the run anyway, and it plans
+		// against whatever the target workspace happened to hold — the previous
+		// pipeline run's values, or none — with no line in the plan naming the
+		// substitution and the stage reporting success.
+		//
+		// Failing here routes through the pipeline's own on_failure setting, so
+		// a pipeline that wants to carry on past a broken stage still can; what
+		// it no longer does is carry on without being asked.
 		if w.importOutputs != nil {
 			if err := w.importOutputs(ctx, prevStage.WorkspaceID, stage.WorkspaceID, args.OrgID); err != nil {
-				logger.Warn("output import failed (continuing)", "error", err)
+				w.failStage(ctx, stage, pr, logger, fmt.Errorf(
+					"import the outputs of stage %d into this stage's workspace: %w", args.StageOrder-1, err))
+				return nil
 			}
 		}
 	}

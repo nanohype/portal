@@ -78,6 +78,7 @@ type RunJobWorker struct {
 	variables   runVariableStore
 	states      stateVersionStore
 	runs        runStatusStore
+	finishes    runFinishStore
 	executor    executor.Executor
 	streamer    logstream.Streamer
 	storage     runBlobStore       // nil in dev without MinIO
@@ -97,6 +98,7 @@ func NewRunJobWorker(queries *repository.Queries, exec executor.Executor, stream
 		variables: queries,
 		states:    queries,
 		runs:      queries,
+		finishes:  queries,
 		queries:   queries,
 		executor:  exec,
 		streamer:  streamer,
@@ -511,27 +513,20 @@ func (w *RunJobWorker) Work(ctx context.Context, job *river.Job[RunJobArgs]) err
 	w.streamer.Publish(args.RunID, []byte(fmt.Sprintf("\r\n\033[32mRun completed successfully at %s\033[0m\r\n", time.Now().Format(time.RFC3339))))
 	w.streamer.Close(args.RunID)
 
-	// Auto-apply: enqueue apply job immediately instead of unlocking
-	if finalStatus == "queued" && w.riverClient != nil && w.db != nil {
-		tx, txErr := w.db.Begin(ctx)
-		if txErr != nil {
-			logger.Error("auto-apply: begin tx", "error", txErr)
+	// Auto-apply: enqueue the apply immediately instead of unlocking.
+	//
+	// "queued" is already written on the run row, and it is a promise that an
+	// apply is coming. Nothing keeps that promise if the enqueue fails:
+	// GetNextPendingRun sweeps status 'pending' only, so a run left at 'queued'
+	// with no job behind it is picked up by nothing, shows an apply pending
+	// forever, and is not displaced by any later run of the workspace.
+	if finalStatus == "queued" {
+		if enqErr := w.enqueueAutoApply(ctx, args); enqErr != nil {
+			logger.Error("auto-apply was not enqueued", "error", enqErr)
+			w.withdrawAutoApplyPromise(ctx, args, result, enqErr, logger)
 		} else {
-			_, insErr := w.riverClient.InsertTx(ctx, tx, RunJobArgs{
-				RunID:       args.RunID,
-				WorkspaceID: args.WorkspaceID,
-				OrgID:       args.OrgID,
-				Operation:   "apply",
-			}, nil)
-			if insErr != nil {
-				_ = tx.Rollback(ctx)
-				logger.Error("auto-apply: insert job", "error", insErr)
-			} else if commitErr := tx.Commit(ctx); commitErr != nil {
-				logger.Error("auto-apply: commit", "error", commitErr)
-			} else {
-				logger.Info("auto-apply enqueued", "run_id", args.RunID)
-				return nil
-			}
+			logger.Info("auto-apply enqueued", "run_id", args.RunID)
+			return nil
 		}
 	}
 
@@ -644,8 +639,22 @@ func toExecutorImports(imports []ImportResource) []executor.ImportResource {
 // advancePipelineIfNeeded checks if the completed run belongs to a pipeline and advances it.
 func (w *RunJobWorker) advancePipelineIfNeeded(ctx context.Context, runID, orgID, finalStatus string, logger *slog.Logger) {
 	stage, err := w.pipelines.GetPipelineRunStageByRunID(ctx, runID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return // no pipeline claims this run, which is the ordinary case
+	}
 	if err != nil {
-		return // not a pipeline run — fast no-op
+		// The run is already terminal and this job is not retried, so there is
+		// nowhere left to fail to. Reading the failure as "no pipeline" is what
+		// makes it invisible: a pipeline waiting on this run keeps its "running"
+		// status, which blocks every later run of that pipeline, and nothing
+		// sweeps it.
+		//
+		// The pipeline cannot be named here — the lookup that would name it is
+		// the one that failed — so the log is the only surface available, and it
+		// carries the consequence rather than the error alone.
+		logger.Error("cannot tell whether this run belongs to a pipeline", "error", err,
+			"consequence", "a pipeline waiting on this run stays 'running' and blocks later runs of it until it is cleared by hand")
+		return
 	}
 
 	pr, err := w.pipelines.GetPipelineRun(ctx, repository.GetPipelineRunParams{ID: stage.PipelineRunID, OrgID: orgID})
