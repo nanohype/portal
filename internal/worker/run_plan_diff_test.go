@@ -321,3 +321,77 @@ func TestRunJobReportsAMissingDiffOnAnUngatedPlan(t *testing.T) {
 		}
 	}
 }
+
+// ── which absence is a shape and which is a fault ──────────────────────────
+
+// cmd/worker/main.go leaves the store nil on two arms: no S3 endpoint set, and
+// an endpoint set whose store failed its bounded boot check. It leaves both nil
+// on purpose — an unreachable S3 degrades rather than crashloops — so the nil
+// alone cannot say which instance this is.
+//
+// They mean opposite things. One never had a diff to lose; the other lost it.
+func TestAbsentStorageError_SeparatesAnUnconfiguredInstanceFromABrokenOne(t *testing.T) {
+	unconfigured := &RunJobWorker{storageIntent: StorageNotConfigured}
+	if err := unconfigured.absentStorageError(); !errors.Is(err, errNoArtifactStorage) {
+		t.Errorf("an instance with no object storage configured reports %v, want errNoArtifactStorage", err)
+	}
+
+	broken := &RunJobWorker{storageIntent: StorageConfigured}
+	if err := broken.absentStorageError(); !errors.Is(err, errArtifactStorageUnavailable) {
+		t.Errorf("an instance whose configured storage is absent reports %v, want errArtifactStorageUnavailable", err)
+	}
+	if errors.Is(broken.absentStorageError(), errNoArtifactStorage) {
+		t.Error("a broken instance is exempt from the diff gate and the state notice, which is the silence this removes")
+	}
+}
+
+// The consequence of the separation, at the gate.
+func TestMissingDiffBlocksApproval_RefusesWhenConfiguredStorageIsUnavailable(t *testing.T) {
+	if !missingDiffBlocksApproval("plan", "awaiting_approval", errArtifactStorageUnavailable) {
+		t.Error("a run parked for approval on an instance whose configured storage is absent was not refused; the approver sees no diff and nothing says why")
+	}
+	if !reportsMissingDiff("plan", errArtifactStorageUnavailable) {
+		t.Error("an ungated plan on a broken instance says nothing about the diff it lost")
+	}
+}
+
+func TestRecordPlanDiff_ReportsWhichAbsenceItHit(t *testing.T) {
+	unconfigured := &RunJobWorker{plans: &stubPlans{}, storageIntent: StorageNotConfigured}
+	if err := unconfigured.recordPlanDiff(context.Background(), runArgs(), samplePlanJSON); !errors.Is(err, errNoArtifactStorage) {
+		t.Errorf("got %v, want errNoArtifactStorage", err)
+	}
+
+	broken := &RunJobWorker{plans: &stubPlans{}, storageIntent: StorageConfigured}
+	if err := broken.recordPlanDiff(context.Background(), runArgs(), samplePlanJSON); !errors.Is(err, errArtifactStorageUnavailable) {
+		t.Errorf("got %v, want errArtifactStorageUnavailable", err)
+	}
+}
+
+// The two notice producers key on disjoint operations, so one Work() produces at
+// most one notice. joinRunNotices' comment says so; this is what keeps that true
+// rather than accurate-when-written.
+func TestRunNotices_ProducersAreDisjointByOperation(t *testing.T) {
+	lost := errors.New("503 SlowDown")
+	for _, op := range []string{"plan", "apply", "destroy", "import", "test", ""} {
+		diff := reportsMissingDiff(op, lost)
+		state := mutatesInfrastructure(op)
+		if diff && state {
+			t.Errorf("operation %q produces both a diff notice and a state notice; joinRunNotices' comment claims one run produces at most one", op)
+		}
+	}
+}
+
+// The rule that decides which instance this is. It lives in one function
+// because the worker's notices and the approval gate both key on it, and an
+// instance where those two disagree either refuses every approval or exempts a
+// broken one.
+func TestStorageIntentFor_ReadsTheSettingThatDecidesIt(t *testing.T) {
+	if got := StorageIntentFor(""); got != StorageNotConfigured {
+		t.Errorf("StorageIntentFor(\"\") = %v, want StorageNotConfigured", got)
+	}
+	for _, endpoint := range []string{"http://minio:9000", "https://s3.amazonaws.com", "s3.example.test"} {
+		if got := StorageIntentFor(endpoint); got != StorageConfigured {
+			t.Errorf("StorageIntentFor(%q) = %v, want StorageConfigured; a configured endpoint whose store is absent must not be exempt", endpoint, got)
+		}
+	}
+}

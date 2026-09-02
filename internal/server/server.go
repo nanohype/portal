@@ -21,6 +21,7 @@ import (
 	"github.com/nanohype/portal/internal/service"
 	"github.com/nanohype/portal/internal/storage"
 	"github.com/nanohype/portal/internal/tracing"
+	"github.com/nanohype/portal/internal/worker"
 )
 
 // Option configures a Server before its router is built.
@@ -219,6 +220,11 @@ func (s *Server) setupRouter() {
 	stateSvc := service.NewStateService(queries, store)
 	stateHandler := handler.NewStateHandler(stateSvc, auditSvc)
 	s.approvalSvc = service.NewApprovalService(queries, s.db, auditSvc)
+	// An instance with no object storage configured has no run that can carry a
+	// plan diff, so approvals there are not gated on one. A configured endpoint
+	// that is unavailable does not qualify: those runs lost a diff they should
+	// have had.
+	s.approvalSvc.SetArtifactStorageAbsent(worker.StorageIntentFor(s.cfg.S3Endpoint) == worker.StorageNotConfigured)
 	s.approvalHandler = handler.NewApprovalHandler(s.approvalSvc)
 	auditHandler := handler.NewAuditHandler(queries)
 	healthHandler := handler.NewHealthHandler(s.db, s.cfg.Environment)

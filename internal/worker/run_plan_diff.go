@@ -28,16 +28,17 @@ type planDiffStore interface {
 // still on the run, which is what makes the absence easy to miss — the run looks
 // complete and only the tab is gone.
 //
-// Four things produce an empty plan_json_url and none of them announced itself:
-// the executor generating no JSON plan, object storage being absent, the upload
-// failing, and the row that points at the upload failing. The last leaves the
-// diff in object storage with nothing referencing it.
+// Four things leave plan_json_url empty and each has to reach the caller: the
+// executor generating no JSON plan, object storage being absent, the upload
+// failing, and the row that points at the upload failing. The last is the one
+// worth naming in its own message — the diff is in object storage with nothing
+// referencing it, so the recovery differs from a failed upload.
 func (w *RunJobWorker) recordPlanDiff(ctx context.Context, args RunJobArgs, planJSON []byte) error {
 	if len(planJSON) == 0 {
 		return errors.New("the executor produced no JSON plan, so this run has no machine-readable diff")
 	}
 	if w.storage == nil {
-		return errNoArtifactStorage
+		return w.absentStorageError()
 	}
 
 	planJSONURL, err := w.storage.PutPlanJSON(ctx, args.RunID, planJSON)
@@ -94,9 +95,12 @@ func missingDiffNotice(cause error) string {
 // joinRunNotices collects what a finished run has to tell an operator into the
 // one field that reaches them, or nil when there is nothing to say.
 //
-// A run can lose more than one thing — an apply whose state did not record and
-// whose diff did not either — and dropping all but the first would make the
-// surface depend on the order the failures happened in.
+// One run produces at most one notice today: reportsMissingDiff answers only for
+// "plan" and mutatesInfrastructure only for apply, destroy and import, and
+// TestRunNotices_ProducersAreDisjointByOperation holds that apart. The single
+// field is what makes joining rather than assigning the right shape anyway — a
+// third producer added to it must not silently replace the first, and which one
+// survived would otherwise depend on the order the checks run in.
 func joinRunNotices(notices []string) *string {
 	if len(notices) == 0 {
 		return nil
@@ -105,17 +109,56 @@ func joinRunNotices(notices []string) *string {
 	return &joined
 }
 
-// errNoArtifactStorage is the worker having no object storage at all.
+// errNoArtifactStorage is an instance that is not configured to store run
+// artefacts at all.
 //
-// It separates "this instance stores no artefacts" from "this run failed to
-// store one", which the run path could not tell apart while both arrived as a
-// nil store. The first is a configuration portal supports — every reading
-// endpoint answers 503 "storage not configured" on such an instance — and
-// reporting it on every run would put a line an operator cannot act on onto
-// every run they open, which is how a field stops being read.
+// It marks the one absence that is a declared shape rather than a fault. Portal
+// supports running with no object storage, and says so where the diff is read:
+// the plan-json endpoint answers 503 "storage not configured"
+// (internal/handler/run.go). No run on such an instance can carry a diff, so
+// refusing or annotating each one would put a line on every run that its
+// operator cannot act on.
 //
-// What it cannot distinguish is object storage that was configured and was
-// unreachable when the worker started: cmd/worker/main.go leaves the store nil
-// in that case too, deliberately, so a crashloop does not replace a degraded
-// start. On such an instance this reads as the declared shape.
-var errNoArtifactStorage = errors.New("the worker has no object storage configured, so nothing was stored")
+// It is deliberately not returned when object storage is configured and absent.
+// cmd/worker/main.go leaves the store nil on that arm too — on purpose, so an
+// unreachable S3 degrades rather than crashloops — and the two arms mean
+// opposite things to a run: one instance never had a diff to lose, the other
+// lost it. StorageIntent is what tells them apart.
+var errNoArtifactStorage = errors.New("this instance is not configured to store run artifacts, so nothing was stored")
+
+// errArtifactStorageUnavailable is object storage that this instance is
+// configured for and that the worker does not have. It is a fault, and it is
+// not exempt from anything.
+var errArtifactStorageUnavailable = errors.New("this instance is configured to store run artifacts and the worker has no object storage, so nothing was stored")
+
+// StorageIntent says whether an instance is configured to store run artifacts.
+//
+// It is not "is a store available right now". cmd/worker/main.go leaves the
+// store nil both when none is configured and when a configured one fails its
+// bounded boot check, so the nil alone cannot separate an instance that never
+// had artifacts to lose from one that lost them.
+type StorageIntent bool
+
+const (
+	// StorageNotConfigured is an instance with no S3 endpoint set.
+	StorageNotConfigured StorageIntent = false
+	// StorageConfigured is an instance with one set, whether or not the store
+	// reached the worker.
+	StorageConfigured StorageIntent = true
+)
+
+// StorageIntentFor reads the intent off the setting that decides it. One rule,
+// so the worker and the approval gate cannot disagree about which instance they
+// are running on.
+func StorageIntentFor(s3Endpoint string) StorageIntent {
+	return StorageIntent(s3Endpoint != "")
+}
+
+// absentStorageError is the error a missing store produces, which depends on
+// whether this instance meant to have one.
+func (w *RunJobWorker) absentStorageError() error {
+	if w.storageIntent == StorageConfigured {
+		return errArtifactStorageUnavailable
+	}
+	return errNoArtifactStorage
+}

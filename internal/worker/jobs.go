@@ -73,18 +73,19 @@ type runStatusStore interface {
 
 type RunJobWorker struct {
 	river.WorkerDefaults[RunJobArgs]
-	queries     *repository.Queries
-	pipelines   pipelineAdvanceStore
-	variables   runVariableStore
-	states      stateVersionStore
-	plans       planDiffStore
-	runs        runStatusStore
-	executor    executor.Executor
-	streamer    logstream.Streamer
-	storage     runBlobStore       // nil in dev without MinIO
-	encryptor   *secrets.Encryptor // nil if encryption not configured
-	riverClient *river.Client[pgx.Tx]
-	db          *pgxpool.Pool
+	queries       *repository.Queries
+	pipelines     pipelineAdvanceStore
+	variables     runVariableStore
+	states        stateVersionStore
+	plans         planDiffStore
+	runs          runStatusStore
+	executor      executor.Executor
+	streamer      logstream.Streamer
+	storage       runBlobStore       // nil when object storage did not reach this worker
+	storageIntent StorageIntent      // whether this instance is configured to have any
+	encryptor     *secrets.Encryptor // nil if encryption not configured
+	riverClient   *river.Client[pgx.Tx]
+	db            *pgxpool.Pool
 }
 
 // Timeout returns the maximum duration a run job can execute before River cancels it.
@@ -92,17 +93,18 @@ func (w *RunJobWorker) Timeout(*river.Job[RunJobArgs]) time.Duration {
 	return 2 * time.Hour
 }
 
-func NewRunJobWorker(queries *repository.Queries, exec executor.Executor, streamer logstream.Streamer, store *storage.S3Storage, encryptor *secrets.Encryptor) *RunJobWorker {
+func NewRunJobWorker(queries *repository.Queries, exec executor.Executor, streamer logstream.Streamer, store *storage.S3Storage, intent StorageIntent, encryptor *secrets.Encryptor) *RunJobWorker {
 	w := &RunJobWorker{
-		pipelines: queries,
-		variables: queries,
-		states:    queries,
-		plans:     queries,
-		runs:      queries,
-		queries:   queries,
-		executor:  exec,
-		streamer:  streamer,
-		encryptor: encryptor,
+		pipelines:     queries,
+		variables:     queries,
+		states:        queries,
+		plans:         queries,
+		runs:          queries,
+		queries:       queries,
+		executor:      exec,
+		streamer:      streamer,
+		encryptor:     encryptor,
+		storageIntent: intent,
 	}
 	// A nil *storage.S3Storage placed in an interface field is not a nil
 	// interface: every `w.storage != nil` on the run path would be true and the

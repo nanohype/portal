@@ -45,7 +45,9 @@ func (e *recordingExecutor) Execute(_ context.Context, params executor.ExecutePa
 }
 
 func newTestRunWorker(exec executor.Executor) *RunJobWorker {
-	return NewRunJobWorker(testQueries, exec, logstream.NewMemoryStreamer(), nil, nil)
+	// StorageNotConfigured: the test worker has no object store, and it is not
+	// pretending to be an instance that lost one.
+	return NewRunJobWorker(testQueries, exec, logstream.NewMemoryStreamer(), nil, StorageNotConfigured, nil)
 }
 
 // The apply that follows an approval is a fresh execution — a new checkout, a

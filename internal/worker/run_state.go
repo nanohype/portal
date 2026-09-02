@@ -130,7 +130,7 @@ func (o stateOutcome) producedState() bool {
 // an operator needs both halves in one sentence.
 func (w *RunJobWorker) recordStateVersion(ctx context.Context, args RunJobArgs, out stateOutcome) error {
 	if w.storage == nil {
-		return errNoArtifactStorage
+		return w.absentStorageError()
 	}
 
 	latest, err := w.states.GetLatestStateVersion(ctx, repository.GetLatestStateVersionParams{

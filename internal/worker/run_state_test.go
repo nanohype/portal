@@ -302,7 +302,7 @@ func TestRecordStateVersion_ReportsAbsentStorage(t *testing.T) {
 	if err == nil {
 		t.Fatal("the state a run produced was dropped with no error because storage is absent")
 	}
-	if !strings.Contains(err.Error(), "object storage") {
+	if !errors.Is(err, errNoArtifactStorage) {
 		t.Errorf("the error does not say storage is absent: %v", err)
 	}
 }
@@ -721,5 +721,25 @@ func TestRunJobKeepsTheExecutionErrorWhenPartialStateLands(t *testing.T) {
 	}
 	if len(states.created) != 1 || states.created[0].ResourceSummary != "partial (errored)" {
 		t.Errorf("filed %v, want one row labelled partial", states.created)
+	}
+}
+
+// The same separation on the state path: an apply on an instance whose
+// configured storage is absent lost a state version it should have had, and the
+// run has to say so. An instance that stores nothing by configuration does not
+// annotate every apply with a line its operator cannot act on.
+func TestRecordStateVersion_ReportsWhichAbsenceItHit(t *testing.T) {
+	unconfigured := &RunJobWorker{states: &stubStates{}, storageIntent: StorageNotConfigured}
+	if err := unconfigured.recordStateVersion(context.Background(), runArgs(), applied()); !errors.Is(err, errNoArtifactStorage) {
+		t.Errorf("got %v, want errNoArtifactStorage", err)
+	}
+
+	broken := &RunJobWorker{states: &stubStates{}, storageIntent: StorageConfigured}
+	err := broken.recordStateVersion(context.Background(), runArgs(), applied())
+	if !errors.Is(err, errArtifactStorageUnavailable) {
+		t.Errorf("got %v, want errArtifactStorageUnavailable", err)
+	}
+	if errors.Is(err, errNoArtifactStorage) {
+		t.Error("a broken instance is exempt from the state-loss notice, so an apply that changed infrastructure records nothing and says nothing")
 	}
 }

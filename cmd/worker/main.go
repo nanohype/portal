@@ -135,6 +135,13 @@ func main() {
 	// A dependency the code treats as optional has to be optional on every
 	// path, including the one where the network drops the packets rather than
 	// refusing them.
+	// Whether this instance means to store run artifacts, which is a different
+	// question from whether the store below reached this process. Both arms of
+	// the failure path leave `store` nil, and a run has to tell them apart: an
+	// instance with no S3 endpoint never had a plan diff or a state version to
+	// lose, and one whose configured S3 did not answer lost them.
+	storageIntent := worker.StorageIntentFor(cfg.S3Endpoint)
+
 	var store *storage.S3Storage
 	if cfg.S3Endpoint != "" {
 		s, err := storage.NewS3Storage(cfg)
@@ -191,7 +198,7 @@ func main() {
 
 	// Set up River workers
 	workers := river.NewWorkers()
-	runJobWorker := worker.NewRunJobWorker(queries, exec, streamer, store, encryptor)
+	runJobWorker := worker.NewRunJobWorker(queries, exec, streamer, store, storageIntent, encryptor)
 	river.AddWorker(workers, runJobWorker)
 
 	// Pipeline stage worker with function adapters to avoid import cycle
