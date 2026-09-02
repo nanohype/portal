@@ -437,10 +437,10 @@ func importableOutputs(outputs []tfstate.Output) ([]tfstate.Output, int) {
 // import-outputs endpoint and pipeline stage advancement run through here.
 //
 // A failed upsert does not abort the rest — one unwritable output should not
-// cost the others — but every failure is returned. Skipping silently is what
-// let a pipeline stage plan against an incomplete set of upstream values while
-// reporting success, and a caller holding only the list of what landed cannot
-// tell a partial import from a source that published fewer outputs.
+// cost the others — and every failure is returned. A caller holding only the
+// list of what landed cannot tell a partial import from a source that published
+// fewer outputs, and a pipeline stage that cannot tell those apart plans against
+// an incomplete set of upstream values.
 //
 // It returns the variables actually written and how many outputs were dropped
 // for being sensitive — state redacts those, so there is no value to carry

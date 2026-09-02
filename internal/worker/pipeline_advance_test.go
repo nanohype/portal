@@ -163,15 +163,15 @@ func TestAdvance_StillAnnouncesASuccessfulCompletion(t *testing.T) {
 	}
 }
 
-// The lookup that decides whether a run belongs to a pipeline at all was the one
-// read on this path that failed open. Any error read as "no pipeline", and the
-// pipeline waiting on the run kept its "running" status — which blocks every
-// later run of that pipeline and which nothing sweeps.
+// The lookup decides whether a run belongs to a pipeline at all, and only
+// pgx.ErrNoRows answers that question. Any other error read as "no pipeline"
+// leaves the pipeline waiting on the run at "running", which blocks every later
+// run of that pipeline and which nothing sweeps.
 //
-// There is nowhere to fail to here: the run is already terminal and this job is
-// not retried. The pipeline cannot even be named, because the lookup that would
-// name it is the one that failed. So the log is the surface, and it has to carry
-// the consequence rather than the error alone.
+// There is nowhere to fail to: the run is already terminal and this job is not
+// retried. The pipeline cannot even be named, because the lookup that would name
+// it is the one that failed. So the log is the surface, and it carries the
+// consequence rather than the error alone.
 func TestAdvance_ReportsAFailedStageLookup(t *testing.T) {
 	st := onePipeline("stop", 1)
 	st.failLookup = errors.New("connection reset by peer")

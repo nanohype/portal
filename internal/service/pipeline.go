@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -179,10 +180,19 @@ func (s *PipelineService) StageWorkspaceGates(ctx context.Context, orgID string,
 }
 
 func (s *PipelineService) StartRun(ctx context.Context, pipelineID, orgID, createdBy string) (repository.PipelineRun, error) {
-	// Check for active run
+	// One run of a pipeline at a time. Its stages hand outputs to each other
+	// through the target workspace's variables, so two runs of the same pipeline
+	// write the same keys and each plans against whichever landed last.
+	//
+	// pgx.ErrNoRows is the answer "nothing is running". Any other error leaves
+	// the question unanswered, and starting on an unanswered question is the one
+	// outcome the guard exists to prevent.
 	_, err := s.queries.GetActivePipelineRunForPipeline(ctx, pipelineID, orgID)
 	if err == nil {
-		return repository.PipelineRun{}, fmt.Errorf("pipeline already has an active run")
+		return repository.PipelineRun{}, apperr.Conflict("pipeline already has an active run")
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return repository.PipelineRun{}, fmt.Errorf("check whether this pipeline already has an active run: %w", err)
 	}
 
 	// Get stages

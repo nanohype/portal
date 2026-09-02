@@ -33,23 +33,23 @@ func (s *stubFinishes) UpdateRunFinished(_ context.Context, arg repository.Updat
 	return repository.Run{ID: arg.ID, Status: arg.Status}, nil
 }
 
-func withdraw(t *testing.T, finishes *stubFinishes) (*stubFinishes, string) {
+func withdraw(t *testing.T, finishes *stubFinishes) (*stubFinishes, string, string) {
 	t.Helper()
 	var buf strings.Builder
 	w := &RunJobWorker{finishes: finishes, streamer: logstream.NewMemoryStreamer()}
 	added, changed, deleted := int32(3), int32(1), int32(0)
-	w.withdrawAutoApplyPromise(context.Background(),
+	settled := w.withdrawAutoApplyPromise(context.Background(),
 		RunJobArgs{RunID: "run_1", WorkspaceID: "ws_1", OrgID: "org_1", Operation: "plan"},
 		&executor.ExecuteResult{
 			Output:         "Plan: 3 to add, 1 to change, 0 to destroy.",
 			ResourcesAdded: added, ResourcesChanged: changed, ResourcesDeleted: deleted,
 		},
 		errors.New("connection reset by peer"), capture(&buf))
-	return finishes, buf.String()
+	return finishes, settled, buf.String()
 }
 
 func TestWithdrawAutoApplyPromise_LeavesTheRunPlannedRatherThanQueued(t *testing.T) {
-	finishes, _ := withdraw(t, &stubFinishes{})
+	finishes, _, _ := withdraw(t, &stubFinishes{})
 
 	if len(finishes.finished) != 1 {
 		t.Fatalf("the run was settled %d times, want once", len(finishes.finished))
@@ -88,7 +88,7 @@ func TestAutoApplyNotice_NamesBothHalves(t *testing.T) {
 // nothing will ever move. If it fails too, the log has to say what is left
 // behind rather than only that a write failed.
 func TestWithdrawAutoApplyPromise_ReportsWhatIsLeftWhenTheCorrectionFails(t *testing.T) {
-	_, logged := withdraw(t, &stubFinishes{fail: errors.New("deadlock detected")})
+	_, _, logged := withdraw(t, &stubFinishes{fail: errors.New("deadlock detected")})
 
 	if !strings.Contains(logged, "deadlock detected") {
 		t.Errorf("the cause is not in the log:\n%s", logged)
@@ -103,7 +103,7 @@ func TestWithdrawAutoApplyPromise_ReportsWhatIsLeftWhenTheCorrectionFails(t *tes
 // The plan's own output and counts must survive the correction, or withdrawing
 // the promise costs the operator the plan they were meant to read.
 func TestWithdrawAutoApplyPromise_KeepsThePlanItIsCorrecting(t *testing.T) {
-	finishes, _ := withdraw(t, &stubFinishes{})
+	finishes, _, _ := withdraw(t, &stubFinishes{})
 	got := finishes.finished[0]
 
 	if got.PlanOutput == nil || !strings.Contains(*got.PlanOutput, "3 to add") {
@@ -165,4 +165,81 @@ func TestRunJobWithdrawsTheQueuedPromiseWhenNoApplyCanBeEnqueued(t *testing.T) {
 			t.Errorf("the run's message is missing %q:\n%s", want, finished.ErrorMessage)
 		}
 	}
+}
+
+// The status a withdrawal settles is the status everything downstream reads. The
+// pipeline advancer decides what to do with the stage from it, and its "queued"
+// arm is a deliberate no-op resting on an apply being on its way — so a stale
+// "queued" leaves the stage running behind a run that will never move again,
+// which nothing sweeps.
+func TestWithdrawAutoApplyPromise_ReturnsTheStatusTheRowHolds(t *testing.T) {
+	_, settled, _ := withdraw(t, &stubFinishes{})
+	if settled != "planned" {
+		t.Errorf("returned %q, want planned; the run row was rewritten to planned and callers key on this value", settled)
+	}
+
+	// When the corrective write fails the row is still "queued", and the value
+	// handed downstream has to be the row's — a "planned" here would have the
+	// advancer act on a status the database does not hold.
+	_, stuck, _ := withdraw(t, &stubFinishes{fail: errors.New("deadlock detected")})
+	if stuck != "queued" {
+		t.Errorf("returned %q after a failed correction, want queued; the row still reads queued", stuck)
+	}
+}
+
+// A run in a pipeline is the case the standalone-workspace fixture could not
+// reach, and it is where the stale status is load-bearing: the advancer's
+// queued arm does nothing, so the stage is left non-terminal behind a terminal
+// run.
+func TestRunJobLeavesNoStageRunningWhenTheAutoApplyIsWithdrawn(t *testing.T) {
+	requireDB(t)
+	ctx := context.Background()
+	orgID, prID, stageID := seedTwoStagePipeline(t, ctx, "withdrawpipe", "stop")
+
+	// The pipeline's second stage, its run created and auto-applying.
+	var wsID string
+	if err := testPool.QueryRow(ctx,
+		`SELECT workspace_id FROM pipeline_run_stages WHERE id = $1`, stageID).Scan(&wsID); err != nil {
+		t.Fatalf("read stage workspace: %v", err)
+	}
+	exec(t, ctx, `UPDATE workspaces SET auto_apply = TRUE WHERE id = $1`, wsID)
+
+	var userID string
+	if err := testPool.QueryRow(ctx, `SELECT id FROM users WHERE org_id = $1 LIMIT 1`, orgID).Scan(&userID); err != nil {
+		t.Fatalf("find seeded user: %v", err)
+	}
+	run, err := testQueries.CreateRun(ctx, repository.CreateRunParams{
+		ID: id(), WorkspaceID: wsID, OrgID: orgID, Operation: "plan", Status: "pending", CreatedBy: userID,
+		ConfigSource: "upload", ConfigTofuVersion: "1.11.0",
+	})
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+	exec(t, ctx, `UPDATE pipeline_run_stages SET run_id = $1, status = 'running' WHERE id = $2`, run.ID, stageID)
+
+	// newTestRunWorker wires no River client, so the apply cannot be enqueued.
+	w := newTestRunWorker(&recordingExecutor{})
+	if err := w.Work(ctx, &river.Job[RunJobArgs]{
+		Args: RunJobArgs{RunID: run.ID, WorkspaceID: wsID, OrgID: orgID, Operation: "plan"},
+	}); err != nil {
+		t.Fatalf("Work: %v", err)
+	}
+
+	finished, err := testQueries.GetRun(ctx, repository.GetRunParams{ID: run.ID, OrgID: orgID})
+	if err != nil {
+		t.Fatalf("get run: %v", err)
+	}
+	if finished.Status != "planned" {
+		t.Fatalf("run status = %q, want planned", finished.Status)
+	}
+
+	// The stage must not still read "running" behind a run that is terminal.
+	got := stageStatus(t, ctx, stageID)
+	if got == "running" {
+		t.Errorf("the stage is still running behind a run recorded %q that will never move again; nothing sweeps it", finished.Status)
+	}
+	if got != "awaiting_approval" {
+		t.Errorf("stage status = %q, want awaiting_approval — the arm the advancer takes for a planned run, which an operator can act on", got)
+	}
+	_ = prID
 }

@@ -52,17 +52,25 @@ func (w *RunJobWorker) enqueueAutoApply(ctx context.Context, args RunJobArgs) er
 
 // withdrawAutoApplyPromise settles a run whose apply was never enqueued.
 //
-// The run row already reads "queued", which every reading surface takes to mean
-// an apply is coming. Leaving it there is the worse of the two lies available:
-// GetNextPendingRun claims status 'pending' only, so nothing ever picks the run
-// up, no later run of the workspace displaces it, and the pipeline or operator
-// waiting on the apply waits on a job that does not exist.
+// The run row reads "queued", which every reading surface takes to mean an
+// apply is coming. GetNextPendingRun claims status 'pending' only, so nothing
+// picks such a run up, no later run of the workspace displaces it, and the
+// pipeline or operator waiting on the apply waits on a job that does not exist.
+// "planned" is what happened: the plan finished and no apply is queued. The
+// notice carries the half a status cannot — that this workspace auto-applies, so
+// an apply was expected and has to be started by hand.
 //
-// "planned" is what actually happened — the plan finished and no apply is
-// queued — and the notice carries the half the status cannot: that this
-// workspace auto-applies, so an apply was expected and has to be started by
-// hand.
-func (w *RunJobWorker) withdrawAutoApplyPromise(ctx context.Context, args RunJobArgs, result *executor.ExecuteResult, cause error, logger *slog.Logger) {
+// The return value is the invariant this holds: it is the status the run row
+// carries when this returns, including when the corrective write fails and the
+// row is still "queued".
+//
+// Everything downstream of the call keys on that status. The pipeline advancer
+// decides what to do with the stage from it, and the completion log prints it. A
+// caller that goes on using its own "queued" hands them a status the row does
+// not hold — the advancer then takes its queued arm, which is a deliberate no-op
+// resting on an apply being on its way, and leaves the stage running behind a
+// run that will never move again.
+func (w *RunJobWorker) withdrawAutoApplyPromise(ctx context.Context, args RunJobArgs, result *executor.ExecuteResult, cause error, logger *slog.Logger) string {
 	notice := autoApplyNotice(cause)
 
 	// The job context may already be cancelled; this write is what stops the run
@@ -81,10 +89,11 @@ func (w *RunJobWorker) withdrawAutoApplyPromise(ctx context.Context, args RunJob
 	}); err != nil {
 		logger.Error("the run still claims an apply that was never enqueued", "error", err,
 			"consequence", "the run stays 'queued', nothing picks it up, and no later run of this workspace displaces it")
-		return
+		return "queued"
 	}
 
 	w.streamer.Publish(args.RunID, []byte("\r\n\033[31m"+notice+"\033[0m\r\n"))
+	return "planned"
 }
 
 // autoApplyNotice is what a run says when its plan succeeded and the apply that

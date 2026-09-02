@@ -10,15 +10,13 @@ import (
 	"github.com/nanohype/portal/internal/repository"
 )
 
-// A stage exists to run against what the stage before it produced. Continuing
-// past a failed import created the run anyway, and it planned against whatever
-// the target workspace happened to hold — the previous pipeline run's values, or
-// none — with no line in the plan naming the substitution and the stage
-// reporting success.
+// A stage exists to run against what the stage before it produced, so a failed
+// import fails the stage. A stage that creates its run regardless plans against
+// whatever the target workspace happens to hold — the previous pipeline run's
+// values, or none — and no line in the plan names the substitution.
 //
-// Failing routes through the pipeline's own on_failure setting, so a pipeline
-// that wants to carry on past a broken stage still can. What it no longer does
-// is carry on without being asked.
+// The refusal routes through the pipeline's own on_failure setting, which is
+// where a pipeline says whether it wants to carry on past a broken stage.
 
 // seedTwoStagePipeline builds a pipeline run whose second stage is pending, so
 // the import path is the one under test.

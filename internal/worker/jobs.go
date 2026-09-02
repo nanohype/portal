@@ -481,7 +481,7 @@ func (w *RunJobWorker) Work(ctx context.Context, job *river.Job[RunJobArgs]) err
 	}
 
 	// Check if run was cancelled while we were executing
-	if w.isRunCancelled(ctx, args.RunID, args.OrgID) {
+	if w.isRunCancelled(ctx, args.RunID, args.OrgID, logger) {
 		logger.Info("run was cancelled during execution, skipping status update")
 		w.streamer.Publish(args.RunID, []byte("\r\n\033[33mRun was cancelled\033[0m\r\n"))
 		w.streamer.Close(args.RunID)
@@ -520,10 +520,13 @@ func (w *RunJobWorker) Work(ctx context.Context, job *river.Job[RunJobArgs]) err
 	// GetNextPendingRun sweeps status 'pending' only, so a run left at 'queued'
 	// with no job behind it is picked up by nothing, shows an apply pending
 	// forever, and is not displaced by any later run of the workspace.
+	// The withdrawal settles the run at a different status, and finalStatus is
+	// what the pipeline advancer and the completion log below read. It carries
+	// the row's status from here on.
 	if finalStatus == "queued" {
 		if enqErr := w.enqueueAutoApply(ctx, args); enqErr != nil {
 			logger.Error("auto-apply was not enqueued", "error", enqErr)
-			w.withdrawAutoApplyPromise(ctx, args, result, enqErr, logger)
+			finalStatus = w.withdrawAutoApplyPromise(ctx, args, result, enqErr, logger)
 		} else {
 			logger.Info("auto-apply enqueued", "run_id", args.RunID)
 			return nil
@@ -552,7 +555,7 @@ func (w *RunJobWorker) failRun(ctx context.Context, args RunJobArgs, logger *slo
 	defer cancel()
 
 	// Don't overwrite cancelled status
-	if !w.isRunCancelled(writeCtx, args.RunID, args.OrgID) {
+	if !w.isRunCancelled(writeCtx, args.RunID, args.OrgID, logger) {
 		errMsg := runErr.Error()
 		var planOutput *string
 		if logOutput != "" {
@@ -580,11 +583,22 @@ func (w *RunJobWorker) failRun(ctx context.Context, args RunJobArgs, logger *slo
 	return nil
 }
 
-// isRunCancelled checks if the run status was set to cancelled (e.g. via the API)
-// while the worker was executing. Returns true if the run should not have its status overwritten.
-func (w *RunJobWorker) isRunCancelled(ctx context.Context, runID, orgID string) bool {
+// isRunCancelled reports whether the run was cancelled through the API while
+// this worker was executing it, in which case its status must not be
+// overwritten.
+//
+// A read that fails is not evidence the run was not cancelled — the same
+// reasoning retryRefusal applies to the status it reads. Answering "not
+// cancelled" overwrites a cancellation an operator issued and watched take
+// effect, with a terminal status they did not ask for and cannot tell from a
+// race. It is reported rather than returned because both callers are past the
+// point of failing: the run has already executed, and refusing to settle its
+// status would leave it mid-flight instead.
+func (w *RunJobWorker) isRunCancelled(ctx context.Context, runID, orgID string, logger *slog.Logger) bool {
 	currentRun, err := w.queries.GetRun(ctx, repository.GetRunParams{ID: runID, OrgID: orgID})
 	if err != nil {
+		logger.Error("cannot tell whether this run was cancelled", "error", err,
+			"consequence", "a cancellation issued while this run was executing is overwritten by the status below")
 		return false
 	}
 	return currentRun.Status == "cancelled"
@@ -834,9 +848,21 @@ func ClaimAndEnqueueNextRun(ctx context.Context, q *repository.Queries, db *pgxp
 	defer tx.Rollback(ctx)
 	qtx := q.WithTx(tx)
 
+	// pgx.ErrNoRows is the answer "nothing is waiting on this workspace", which
+	// is the ordinary case. Any other error is a failed question, and answering
+	// it as "nothing is waiting" strands whatever was: this hand-off is the only
+	// thing that starts a pending run, and it runs on a release that has already
+	// happened, so no later event comes back for it. The run sits at 'pending'
+	// behind a free slot until someone notices.
 	nextRun, err := qtx.GetNextPendingRun(ctx, workspaceID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return
+	}
 	if err != nil {
-		return // no pending runs (pgx.ErrNoRows)
+		logger.Error("cannot tell whether a run is waiting on this workspace", "error", err,
+			"workspace_id", workspaceID,
+			"consequence", "a pending run on this workspace is not started by this release, and nothing else comes back for it")
+		return
 	}
 
 	// Take the slot atomically. If another path already claimed it, back off and

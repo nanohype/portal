@@ -10,13 +10,12 @@ import (
 )
 
 // A stage or an operator importing outputs gets back the list of what landed.
-// Holding only that list, neither can tell a partial import from a source that
-// published fewer outputs — so a skipped upsert made the target's variable set
-// quietly smaller than the source's, and a pipeline stage then planned against
-// it and reported success.
+// That list alone cannot separate a partial import from a source that published
+// fewer outputs, so an upsert failure has to come back as one: a target variable
+// set smaller than the source's is what a pipeline stage then plans against.
 //
-// One unwritable output still must not cost the others. What changes is that
-// the failure comes back.
+// One unwritable output must not cost the others, so the loop finishes and
+// reports what it could not write.
 
 // stateAt returns a state document with the given outputs, which is what the
 // object store hands ImportOutputs.
