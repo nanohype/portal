@@ -64,11 +64,20 @@ type pipelineAdvanceStore interface {
 	UpdatePipelineRunStageStatus(ctx context.Context, arg repository.UpdatePipelineRunStageStatusParams) (repository.PipelineRunStage, error)
 }
 
+// runStatusStore is the read the retry guard arms itself with. It is an
+// interface because the guard's failure mode lives in what happens when that
+// read fails, and a concrete *repository.Queries puts that branch out of a
+// test's reach.
+type runStatusStore interface {
+	GetRun(ctx context.Context, arg repository.GetRunParams) (repository.Run, error)
+}
+
 type RunJobWorker struct {
 	river.WorkerDefaults[RunJobArgs]
 	queries     *repository.Queries
 	pipelines   pipelineAdvanceStore
 	variables   runVariableStore
+	runs        runStatusStore
 	executor    executor.Executor
 	streamer    logstream.Streamer
 	storage     *storage.S3Storage // nil in dev without MinIO
@@ -86,6 +95,7 @@ func NewRunJobWorker(queries *repository.Queries, exec executor.Executor, stream
 	return &RunJobWorker{
 		pipelines: queries,
 		variables: queries,
+		runs:      queries,
 		queries:   queries,
 		executor:  exec,
 		streamer:  streamer,
@@ -139,6 +149,55 @@ func refusesRetry(attempt int, priorStatus string) bool {
 	return attempt > 1 && priorStatus == "applying"
 }
 
+// retryRefusal reports whether this attempt must not re-execute, given what
+// could be learned about the attempt before it.
+//
+// statusRead says whether priorStatus was read at all. A status that could not
+// be read is not evidence of safety, and treating it as such disarms the guard
+// exactly when it is needed: the read fails for the same degraded database that
+// failed the write which left the run at "applying", so the two failures arrive
+// together. The guard would then be armed only in the cases where nothing had
+// gone wrong.
+//
+// With no status to key on, the operation is what is left, and
+// startedStatusFor is the mapping the status would have carried — calling it
+// rather than restating the operation list is what keeps a second list from
+// drifting from the first.
+//
+// The cost of refusing wrongly is a run someone re-triggers. The cost of
+// proceeding wrongly is a second destroy.
+func retryRefusal(attempt int, priorStatus string, statusRead bool, operation string) bool {
+	if attempt <= 1 {
+		return false
+	}
+	if !statusRead {
+		return startedStatusFor(operation) == "applying"
+	}
+	return refusesRetry(attempt, priorStatus)
+}
+
+// retryRefusalReason reads the status recorded before this attempt and returns
+// why the attempt must not re-execute, or "" when it may proceed.
+//
+// The read is the thing that arms the guard, so its failure is part of the
+// decision rather than a reason to skip it — see retryRefusal.
+func (w *RunJobWorker) retryRefusalReason(ctx context.Context, attempt int, args RunJobArgs, logger *slog.Logger) string {
+	if attempt <= 1 {
+		return ""
+	}
+	prior, err := w.runs.GetRun(ctx, repository.GetRunParams{ID: args.RunID, OrgID: args.OrgID})
+	if err != nil {
+		logger.Warn("cannot read the status of the previous attempt", "error", err)
+	}
+	if !retryRefusal(attempt, prior.Status, err == nil, args.Operation) {
+		return ""
+	}
+	if err != nil {
+		return "the status of the previous attempt could not be read, so a previous attempt having already changed infrastructure cannot be ruled out"
+	}
+	return "a previous attempt was already executing and may have changed infrastructure"
+}
+
 func (w *RunJobWorker) Work(ctx context.Context, job *river.Job[RunJobArgs]) error {
 	args := job.Args
 	logger := slog.With("run_id", args.RunID, "workspace_id", args.WorkspaceID, "operation", args.Operation)
@@ -167,13 +226,11 @@ func (w *RunJobWorker) Work(ctx context.Context, job *river.Job[RunJobArgs]) err
 	//
 	// Refusing here costs a re-run someone triggers deliberately. Not refusing
 	// costs a second destroy.
-	if attempt := attemptOf(job); attempt > 1 {
-		if prior, err := w.queries.GetRun(ctx, repository.GetRunParams{ID: args.RunID, OrgID: args.OrgID}); err == nil && refusesRetry(attempt, prior.Status) {
-			return w.failRun(ctx, args, logger, fmt.Errorf(
-				"refusing to retry %s: a previous attempt was already executing and may have changed infrastructure. "+
-					"Inspect the run log and the workspace state, then start a new run if the operation still needs to happen",
-				args.Operation), "")
-		}
+	if reason := w.retryRefusalReason(ctx, attemptOf(job), args, logger); reason != "" {
+		return w.failRun(ctx, args, logger, fmt.Errorf(
+			"refusing to retry %s: %s. "+
+				"Inspect the run log and the workspace state, then start a new run if the operation still needs to happen",
+			args.Operation, reason), "")
 	}
 
 	// Update run status
