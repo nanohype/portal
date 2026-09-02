@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"regexp"
@@ -102,7 +103,10 @@ func (e *KubernetesExecutor) Execute(ctx context.Context, params ExecuteParams) 
 	podName := runObjectName(params.RunID)
 
 	// Build OpenTofu command script
-	script := e.buildScript(params)
+	script, err := e.buildScript(params)
+	if err != nil {
+		return nil, err
+	}
 
 	payload := buildRunPayload(script, podName, params)
 
@@ -143,8 +147,7 @@ func (e *KubernetesExecutor) Execute(ctx context.Context, params ExecuteParams) 
 	// Create Pod
 	pod := e.buildPod(podName, params, payload)
 
-	_, err := e.client.CoreV1().Pods(e.namespace).Create(ctx, pod, metav1.CreateOptions{})
-	if err != nil {
+	if _, err := e.client.CoreV1().Pods(e.namespace).Create(ctx, pod, metav1.CreateOptions{}); err != nil {
 		return nil, fmt.Errorf("failed to create pod: %w", err)
 	}
 
@@ -171,11 +174,13 @@ func (e *KubernetesExecutor) Execute(ctx context.Context, params ExecuteParams) 
 	// Parse result
 	result := resultFromCaptured(output, captured)
 
-	// Lift the executed commit out of the log and drop the marker line from what
-	// the user reads.
-	if m := commitMarkerRe.FindStringSubmatch(output); m != nil {
-		result.CommitSHA = m[1]
-		output = commitMarkerRe.ReplaceAllString(output, "")
+	sha, cleaned, err := executedCommit(output, params.Source)
+	if err != nil {
+		return nil, err
+	}
+	if sha != "" {
+		result.CommitSHA = sha
+		output = cleaned
 		result.Output = output
 	}
 
@@ -194,7 +199,13 @@ func (e *KubernetesExecutor) Execute(ctx context.Context, params ExecuteParams) 
 	return result, nil
 }
 
-func (e *KubernetesExecutor) buildScript(params ExecuteParams) string {
+// buildScript renders the run script, or reports an operation it has no
+// commands for.
+//
+// The dispatch below is the executor's strategy switch and it has no silent
+// fall-through: rendering an empty operation produced a pod that exited 0 and a
+// run recorded as succeeded. See Operations.
+func (e *KubernetesExecutor) buildScript(params ExecuteParams) (string, error) {
 	var sb strings.Builder
 
 	sb.WriteString("#!/bin/sh\nset -e\n\n")
@@ -293,7 +304,14 @@ func (e *KubernetesExecutor) buildScript(params ExecuteParams) string {
 		sb.WriteString("$BIN plan -no-color -detailed-exitcode -out=planfile $VAR_FILE\n")
 		sb.WriteString("PLAN_EXIT=$?\n")
 		sb.WriteString("set -e\n")
-		sb.WriteString("if [ \"$PLAN_EXIT\" -eq 1 ]; then echo 'Plan failed with errors'; exit 1; fi\n")
+		// -detailed-exitcode defines 0 and 2 and nothing else, so every other
+		// code is the plan not having finished: 137 is an OOM kill, 143 a
+		// SIGTERM, 139 a segfault. Failing only on 1 read each of those as a
+		// plan with no changes — an empty diff an approver would sign.
+		sb.WriteString("if [ \"$PLAN_EXIT\" -ne 0 ] && [ \"$PLAN_EXIT\" -ne 2 ]; then\n")
+		sb.WriteString("  echo \"Plan did not complete (exit $PLAN_EXIT)\"\n")
+		sb.WriteString("  exit 1\n")
+		sb.WriteString("fi\n")
 		sb.WriteString("\n# JSON plan, framed — see framing.go.\n")
 		sb.WriteString("if [ -f planfile ]; then\n")
 		sb.WriteString(frameFor(framedPlanJSON).open())
@@ -308,9 +326,30 @@ func (e *KubernetesExecutor) buildScript(params ExecuteParams) string {
 		sb.WriteString("echo \"\\$ $BIN destroy\"\n")
 		sb.WriteString("$BIN destroy -no-color -auto-approve $VAR_FILE\n")
 		sb.WriteString(captureState())
+	case "import":
+		// Each address and id is read from an env var portal named, never
+		// interpolated into the script text — the same rule the repo URL,
+		// branch and working directory follow, and for the same reason: a
+		// resource id containing shell metacharacters has to reach tofu as a
+		// literal argument. The names are positional because the count is known
+		// when the script is built; only the values are the user's.
+		//
+		// The state capture is what makes the import durable. Without it the
+		// adopted resources exist in the backend and no state version records
+		// them, which is the same silent loss as rendering nothing.
+		for i := range params.ImportResources {
+			addr := fmt.Sprintf("$PORTAL_IMPORT_ADDR_%d", i)
+			id := fmt.Sprintf("$PORTAL_IMPORT_ID_%d", i)
+			sb.WriteString(fmt.Sprintf("echo \"Importing %s = %s...\"\n", addr, id))
+			sb.WriteString(fmt.Sprintf("$BIN import -no-color $VAR_FILE \"%s\" \"%s\"\n", addr, id))
+		}
+		sb.WriteString(fmt.Sprintf("echo 'Successfully imported %d resource(s)'\n", len(params.ImportResources)))
+		sb.WriteString(captureState())
+	default:
+		return "", unsupportedOperation(params.Operation)
 	}
 
-	return sb.String()
+	return sb.String(), nil
 }
 
 // captureState renders the tail apply and destroy share: the raw state file the
@@ -585,3 +624,25 @@ func (e *KubernetesExecutor) streamPodLogs(ctx context.Context, podName string, 
 func int32Ptr(i int32) *int32 { return &i }
 func int64Ptr(i int64) *int64 { return &i }
 func boolPtr(b bool) *bool    { return &b }
+
+// executedCommit lifts the commit a run reported out of its log, and returns the
+// log with the marker line removed.
+//
+// A VCS run's script always echoes the marker (see buildScript), so its absence
+// means the commit this run executed cannot be established. Reporting no commit
+// leaves the run unpinned, and an unpinned approvable run resolves branch head
+// when its apply follows — which is the moving target the pin exists to remove:
+// the admin reads a plan of one tree and the apply runs whatever the branch
+// points at by then.
+//
+// An upload run emits no marker and needs none; it is pinned by its config
+// version. So the absence is only an answer for that source.
+func executedCommit(output, source string) (sha, cleaned string, err error) {
+	if m := commitMarkerRe.FindStringSubmatch(output); m != nil {
+		return m[1], commitMarkerRe.ReplaceAllString(output, ""), nil
+	}
+	if source == "upload" {
+		return "", output, nil
+	}
+	return "", output, errors.New("the pod did not report the commit it executed, so this run cannot be pinned to the tree it ran")
+}

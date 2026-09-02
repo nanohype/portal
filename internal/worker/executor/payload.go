@@ -83,6 +83,21 @@ func buildRunPayload(script, secretName string, params ExecuteParams) runPayload
 		},
 	}
 
+	// The addresses and ids an import adopts. They are the pod spec's own env,
+	// not the Secret, because they are addresses rather than values: the local
+	// executor already writes both into the run log, which is portal's standing
+	// statement about what they are. What the Secret protects is a variable's
+	// value, which never appears in a spec.
+	//
+	// buildScript emits one pair of references per index, so the script text
+	// carries no user data — see its import case.
+	for i, r := range params.ImportResources {
+		p.env = append(p.env,
+			corev1.EnvVar{Name: fmt.Sprintf("PORTAL_IMPORT_ADDR_%d", i), Value: r.Address},
+			corev1.EnvVar{Name: fmt.Sprintf("PORTAL_IMPORT_ID_%d", i), Value: r.ID},
+		)
+	}
+
 	var tfVarLines []string
 
 	for i, v := range params.Variables {
