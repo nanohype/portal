@@ -68,6 +68,7 @@ type RunJobWorker struct {
 	river.WorkerDefaults[RunJobArgs]
 	queries     *repository.Queries
 	pipelines   pipelineAdvanceStore
+	variables   runVariableStore
 	executor    executor.Executor
 	streamer    logstream.Streamer
 	storage     *storage.S3Storage // nil in dev without MinIO
@@ -84,6 +85,7 @@ func (w *RunJobWorker) Timeout(*river.Job[RunJobArgs]) time.Duration {
 func NewRunJobWorker(queries *repository.Queries, exec executor.Executor, streamer logstream.Streamer, store *storage.S3Storage, encryptor *secrets.Encryptor) *RunJobWorker {
 	return &RunJobWorker{
 		pipelines: queries,
+		variables: queries,
 		queries:   queries,
 		executor:  exec,
 		streamer:  streamer,
@@ -199,63 +201,13 @@ func (w *RunJobWorker) Work(ctx context.Context, job *river.Job[RunJobArgs]) err
 		return w.failRun(ctx, args, logger, fmt.Errorf("failed to get workspace: %w", err), "")
 	}
 
-	// Load and merge variables from all scopes: org < pipeline < workspace
-	var orgExecVars []executor.Variable
-	orgVars, _ := w.queries.ListOrgVariables(ctx, args.OrgID)
-	for _, v := range orgVars {
-		value := v.Value
-		if v.Sensitive && w.encryptor != nil {
-			decrypted, err := w.encryptor.Decrypt(v.Value)
-			if err != nil {
-				logger.Warn("failed to decrypt org variable, skipping", "key", v.Key, "error", err)
-				continue
-			}
-			value = decrypted
-		}
-		orgExecVars = append(orgExecVars, executor.Variable{Key: v.Key, Value: value, Category: v.Category})
-	}
-
-	var pipelineExecVars []executor.Variable
-	if prs, err := w.queries.GetPipelineRunStageByRunID(ctx, args.RunID); err == nil {
-		if pr, err := w.queries.GetPipelineRun(ctx, repository.GetPipelineRunParams{ID: prs.PipelineRunID, OrgID: args.OrgID}); err == nil {
-			pVars, _ := w.queries.ListPipelineVariables(ctx, repository.ListPipelineVariablesParams{
-				PipelineID: pr.PipelineID, OrgID: args.OrgID,
-			})
-			for _, v := range pVars {
-				value := v.Value
-				if v.Sensitive && w.encryptor != nil {
-					decrypted, err := w.encryptor.Decrypt(v.Value)
-					if err != nil {
-						logger.Warn("failed to decrypt pipeline variable, skipping", "key", v.Key, "error", err)
-						continue
-					}
-					value = decrypted
-				}
-				pipelineExecVars = append(pipelineExecVars, executor.Variable{Key: v.Key, Value: value, Category: v.Category})
-			}
-		}
-	}
-
-	vars, err := w.queries.ListWorkspaceVariables(ctx, repository.ListWorkspaceVariablesParams{
-		WorkspaceID: args.WorkspaceID, OrgID: args.OrgID,
-	})
+	// The variable set is assembled and layered in loadRunVariables, which
+	// refuses the run rather than executing against a set it could not fully
+	// read.
+	execVars, err := w.loadRunVariables(ctx, args)
 	if err != nil {
-		return w.failRun(ctx, args, logger, fmt.Errorf("failed to load variables: %w", err), "")
+		return w.failRun(ctx, args, logger, err, "")
 	}
-	var wsExecVars []executor.Variable
-	for _, v := range vars {
-		value := v.Value
-		if v.Sensitive && w.encryptor != nil {
-			decrypted, err := w.encryptor.Decrypt(v.Value)
-			if err != nil {
-				return w.failRun(ctx, args, logger, fmt.Errorf("failed to decrypt variable %q: %w", v.Key, err), "")
-			}
-			value = decrypted
-		}
-		wsExecVars = append(wsExecVars, executor.Variable{Key: v.Key, Value: value, Category: v.Category})
-	}
-
-	execVars := mergeVariables(orgExecVars, pipelineExecVars, wsExecVars)
 
 	// Fetch previous state from S3 for continuity
 	var previousState []byte
