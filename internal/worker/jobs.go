@@ -10,7 +10,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/oklog/ulid/v2"
 	"github.com/riverqueue/river"
 
 	"github.com/nanohype/portal/internal/logstream"
@@ -69,9 +68,10 @@ type RunJobWorker struct {
 	queries     *repository.Queries
 	pipelines   pipelineAdvanceStore
 	variables   runVariableStore
+	states      stateVersionStore
 	executor    executor.Executor
 	streamer    logstream.Streamer
-	storage     *storage.S3Storage // nil in dev without MinIO
+	storage     runBlobStore       // nil in dev without MinIO
 	encryptor   *secrets.Encryptor // nil if encryption not configured
 	riverClient *river.Client[pgx.Tx]
 	db          *pgxpool.Pool
@@ -83,15 +83,23 @@ func (w *RunJobWorker) Timeout(*river.Job[RunJobArgs]) time.Duration {
 }
 
 func NewRunJobWorker(queries *repository.Queries, exec executor.Executor, streamer logstream.Streamer, store *storage.S3Storage, encryptor *secrets.Encryptor) *RunJobWorker {
-	return &RunJobWorker{
+	w := &RunJobWorker{
 		pipelines: queries,
 		variables: queries,
+		states:    queries,
 		queries:   queries,
 		executor:  exec,
 		streamer:  streamer,
-		storage:   store,
 		encryptor: encryptor,
 	}
+	// A nil *storage.S3Storage placed in an interface field is not a nil
+	// interface: every `w.storage != nil` on the run path would be true and the
+	// first call would panic. Leaving the field unset is what makes "storage is
+	// absent" testable as absence.
+	if store != nil {
+		w.storage = store
+	}
+	return w
 }
 
 func (w *RunJobWorker) SetRiverClient(client *river.Client[pgx.Tx], db *pgxpool.Pool) {
@@ -209,27 +217,11 @@ func (w *RunJobWorker) Work(ctx context.Context, job *river.Job[RunJobArgs]) err
 		return w.failRun(ctx, args, logger, err, "")
 	}
 
-	// Fetch previous state from S3 for continuity
-	var previousState []byte
-	if w.storage != nil {
-		latestSV, err := w.queries.GetLatestStateVersion(ctx, repository.GetLatestStateVersionParams{
-			WorkspaceID: args.WorkspaceID, OrgID: args.OrgID,
-		})
-		if err == nil && latestSV.Serial > 0 {
-			// Try raw state first (preserves encryption), fall back to browse state
-			rawKey := fmt.Sprintf("state-raw/%s/%d.tfstate", args.WorkspaceID, latestSV.Serial)
-			if stateData, err := w.storage.GetRawState(ctx, rawKey); err == nil {
-				previousState = stateData
-				logger.Info("fetched previous state (raw)", "serial", latestSV.Serial, "size", len(stateData))
-			} else if latestSV.StateURL != "" {
-				if stateData, err := w.storage.GetState(ctx, latestSV.StateURL); err == nil {
-					previousState = stateData
-					logger.Info("fetched previous state (browse)", "serial", latestSV.Serial, "size", len(stateData))
-				} else {
-					logger.Warn("failed to fetch previous state", "error", err)
-				}
-			}
-		}
+	// The state this run continues from. A workspace that has state and cannot
+	// produce it fails here rather than planning against an empty one.
+	previousState, err := w.restorePreviousState(ctx, args, logger)
+	if err != nil {
+		return w.failRun(ctx, args, logger, err, "")
 	}
 
 	// Download config archive for upload workspaces
@@ -303,32 +295,23 @@ func (w *RunJobWorker) Work(ctx context.Context, job *river.Job[RunJobArgs]) err
 	metrics.ObserveTofuRun(args.Operation, execStatus, time.Since(execStart))
 
 	if err != nil {
-		// Save partial state if the executor captured it (e.g. failed apply with some resources created).
-		// Terragrunt mode: no local StateFile, but `state pull` populates StateJSON.
-		if result != nil && (result.StateFile != nil || result.StateJSON != nil) && w.storage != nil {
-			latestSV, _ := w.queries.GetLatestStateVersion(ctx, repository.GetLatestStateVersionParams{
-				WorkspaceID: args.WorkspaceID, OrgID: args.OrgID,
-			})
-			nextSerial := latestSV.Serial + 1
-
-			if result.StateFile != nil {
-				if _, storeErr := w.storage.PutRawState(ctx, args.WorkspaceID, int(nextSerial), result.StateFile); storeErr != nil {
-					logger.Error("failed to upload partial raw state", "error", storeErr)
-				}
-			}
-
-			browseState := selectBrowseState(result.StateFile, result.StateJSON)
-			if len(browseState) > 0 {
-				if stateURL, storeErr := w.storage.PutState(ctx, args.WorkspaceID, int(nextSerial), browseState); storeErr != nil {
-					logger.Error("failed to upload partial state", "error", storeErr)
-				} else {
-					w.queries.CreateStateVersion(ctx, repository.CreateStateVersionParams{
-						ID: ulid.Make().String(), WorkspaceID: args.WorkspaceID, OrgID: args.OrgID,
-						RunID: args.RunID, Serial: nextSerial, StateURL: stateURL,
-						ResourceCount: 0, ResourceSummary: "partial (errored)",
-					})
-					logger.Info("saved partial state from failed run", "serial", nextSerial)
-				}
+		// A failed apply can still have created resources, and the partial state
+		// the executor captured is the only record of which. Terragrunt mode has
+		// no local state file; `state pull` populates StateJSON instead.
+		//
+		// The run is failing either way, so the record failure joins the run's
+		// error rather than replacing it: an operator reading only "apply failed"
+		// would not know that resources exist which nothing tracks.
+		if partial := (stateOutcome{
+			StateFile: resultStateFile(result), StateJSON: resultStateJSON(result),
+			ResourceCount: 0, ResourceSummary: "partial (errored)",
+		}); partial.producedState() {
+			if recErr := w.recordStateVersion(ctx, args, partial); recErr != nil {
+				logger.Error("failed to record partial state from a failed run", "error", recErr)
+				err = fmt.Errorf("%w. The partial state this run produced was not recorded either: %v. "+
+					"Resources it created may exist with nothing tracking them", err, recErr)
+			} else {
+				logger.Info("recorded partial state from a failed run")
 			}
 		}
 		return w.failRun(ctx, args, logger, err, logBuf.String())
@@ -403,48 +386,39 @@ func (w *RunJobWorker) Work(ctx context.Context, job *river.Job[RunJobArgs]) err
 		}
 	}
 
-	// Upload state to S3 after apply/destroy. Terragrunt workspaces don't
-	// produce a local terraform.tfstate at the leaf (state lives in their
-	// remote backend), so StateFile is empty — fall through on StateJSON
-	// alone (which the worker captures via `state pull`).
-	if (result.StateFile != nil || result.StateJSON != nil) && w.storage != nil {
-		latestSV, _ := w.queries.GetLatestStateVersion(ctx, repository.GetLatestStateVersionParams{
-			WorkspaceID: args.WorkspaceID, OrgID: args.OrgID,
-		})
-		nextSerial := latestSV.Serial + 1
-
-		// Store raw state (may be encrypted) for restoration on next run.
-		// Only present in plain-tofu mode; terragrunt-managed state isn't
-		// restored from portal (terragrunt owns its backend).
-		if result.StateFile != nil {
-			if _, err := w.storage.PutRawState(ctx, args.WorkspaceID, int(nextSerial), result.StateFile); err != nil {
-				logger.Error("failed to upload raw state", "error", err)
+	// Record the state the run produced. Terragrunt workspaces have no local
+	// terraform.tfstate at the leaf — state lives in their own backend — so
+	// StateFile is empty and StateJSON, captured via `state pull`, carries it.
+	//
+	// A mutating run whose state does not land leaves the workspace's recorded
+	// state describing infrastructure that no longer exists. The run still
+	// finishes with the status the operation earned, because it did happen; what
+	// changes is that the operator is told both halves. Failing the run instead
+	// would deny that anything changed, and succeeding silently denies that
+	// anything was lost.
+	summary := fmt.Sprintf("+%d ~%d -%d", result.ResourcesAdded, result.ResourcesChanged, result.ResourcesDeleted)
+	var stateRecordErr *string
+	if outcome := (stateOutcome{
+		StateFile:       result.StateFile,
+		StateJSON:       result.StateJSON,
+		ResourceCount:   result.ResourcesAdded + result.ResourcesChanged,
+		ResourceSummary: summary,
+	}); outcome.producedState() {
+		if recErr := w.recordStateVersion(ctx, args, outcome); recErr != nil {
+			logger.Error("failed to record the state this run produced", "error", recErr)
+			if mutatesInfrastructure(args.Operation) {
+				msg := stateRecordFailure(args.Operation, summary, recErr)
+				stateRecordErr = &msg
 			}
 		}
-
-		// Store decrypted JSON for the resource browser + pipeline output
-		// import (fall back to raw if no decrypted version).
-		browseState := selectBrowseState(result.StateFile, result.StateJSON)
-
-		if len(browseState) > 0 {
-			stateURL, err := w.storage.PutState(ctx, args.WorkspaceID, int(nextSerial), browseState)
-			if err != nil {
-				logger.Error("failed to upload state", "error", err)
-			} else {
-				if _, err := w.queries.CreateStateVersion(ctx, repository.CreateStateVersionParams{
-					ID:              ulid.Make().String(),
-					WorkspaceID:     args.WorkspaceID,
-					OrgID:           args.OrgID,
-					RunID:           args.RunID,
-					Serial:          nextSerial,
-					StateURL:        stateURL,
-					ResourceCount:   result.ResourcesAdded + result.ResourcesChanged,
-					ResourceSummary: fmt.Sprintf("+%d ~%d -%d", result.ResourcesAdded, result.ResourcesChanged, result.ResourcesDeleted),
-				}); err != nil {
-					logger.Error("failed to create state version", "error", err)
-				}
-			}
-		}
+	} else if mutatesInfrastructure(args.Operation) {
+		// An apply, destroy or import that captured no state at all. The
+		// executors read terraform.tfstate and `state pull` behind `err == nil`
+		// guards, so a capture that failed arrives here as absence.
+		msg := stateRecordFailure(args.Operation, summary,
+			errors.New("the executor captured neither a state file nor a state pull, so there was nothing to record"))
+		logger.Error("a mutating run produced no state", "operation", args.Operation)
+		stateRecordErr = &msg
 	}
 
 	// Check if run was cancelled while we were executing
@@ -464,11 +438,17 @@ func (w *RunJobWorker) Work(ctx context.Context, job *river.Job[RunJobArgs]) err
 		ID:               args.RunID,
 		Status:           finalStatus,
 		PlanOutput:       &result.Output,
+		ErrorMessage:     stateRecordErr,
 		ResourcesAdded:   &result.ResourcesAdded,
 		ResourcesChanged: &result.ResourcesChanged,
 		ResourcesDeleted: &result.ResourcesDeleted,
 	}); err != nil {
 		return fmt.Errorf("failed to update run finished: %w", err)
+	}
+
+	// The run row is the durable half. A watcher still attached sees it too.
+	if stateRecordErr != nil {
+		w.streamer.Publish(args.RunID, []byte("\r\n\033[31m"+*stateRecordErr+"\033[0m\r\n"))
 	}
 
 	w.streamer.Publish(args.RunID, []byte(fmt.Sprintf("\r\n\033[32mRun completed successfully at %s\033[0m\r\n", time.Now().Format(time.RFC3339))))
