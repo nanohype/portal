@@ -577,8 +577,9 @@ func TestRunJobReportsBothHalvesWhenAMutatingRunProducedNoState(t *testing.T) {
 }
 
 // A plan produces no state and must not be reported as having lost one, or the
-// message means nothing on the runs that did.
-func TestRunJobReportsNothingForANonMutatingRunWithNoState(t *testing.T) {
+// message means nothing on the runs that did. It may still carry a notice about
+// its diff, which is a different loss with a different sentence.
+func TestRunJobReportsNoStateLossForANonMutatingRun(t *testing.T) {
 	requireDB(t)
 	ctx := context.Background()
 	orgID, userID := seedOrg(t, ctx, "planstate")
@@ -611,8 +612,10 @@ func TestRunJobReportsNothingForANonMutatingRunWithNoState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get run: %v", err)
 	}
-	if finished.ErrorMessage != "" {
-		t.Errorf("a plan was reported as having lost a state record:\n%s", finished.ErrorMessage)
+	for _, unwanted := range []string{"changed infrastructure", "state version", "predates this run"} {
+		if strings.Contains(finished.ErrorMessage, unwanted) {
+			t.Errorf("a plan was reported as having lost a state record — it says %q:\n%s", unwanted, finished.ErrorMessage)
+		}
 	}
 }
 
