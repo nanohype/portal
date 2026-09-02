@@ -327,7 +327,7 @@ func (e *LocalExecutor) Execute(ctx context.Context, params ExecuteParams) (*Exe
 		}
 		params.LogCallback([]byte(fmt.Sprintf("\033[1m$ %s destroy\033[0m\r\n", binary)))
 	default:
-		return nil, fmt.Errorf("unknown operation: %s", params.Operation)
+		return nil, unsupportedOperation(params.Operation)
 	}
 
 	output, err := e.runToolCapture(ctx, binary, tfDir, tfArgs, env, params.LogCallback)

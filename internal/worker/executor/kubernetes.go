@@ -285,6 +285,28 @@ func (e *KubernetesExecutor) buildScript(params ExecuteParams) (string, error) {
 	// Operation
 	sb.WriteString("if [ -f portal.auto.tfvars ]; then VAR_FILE='-var-file=portal.auto.tfvars'; fi\n\n")
 
+	op, err := operationScript(params)
+	if err != nil {
+		return "", err
+	}
+	sb.WriteString(op)
+
+	return sb.String(), nil
+}
+
+// operationScript renders the commands for one operation, and nothing else.
+//
+// It is separate from the preamble because the preamble clones or unpacks into
+// absolute container paths and cannot run outside a pod, while this section is
+// the part whose behaviour matters: it either runs the operation or it does not.
+// Rendered on its own it executes under a shell, which is how the tests assert
+// that an arm runs its operation rather than that its name appears in the text.
+//
+// The dispatch has no silent fall-through. Rendering an empty operation produced
+// a pod that exited 0 and a run recorded as succeeded.
+func operationScript(params ExecuteParams) (string, error) {
+	var sb strings.Builder
+
 	switch params.Operation {
 	case "test":
 		sb.WriteString("echo \"\\$ $BIN output -json\"\n")
@@ -327,6 +349,17 @@ func (e *KubernetesExecutor) buildScript(params ExecuteParams) (string, error) {
 		sb.WriteString("$BIN destroy -no-color -auto-approve $VAR_FILE\n")
 		sb.WriteString(captureState())
 	case "import":
+		// An import that names no resources adopts nothing. Rendering the arm
+		// anyway echoes a count of zero, captures state and exits 0, and the run
+		// is recorded as applied with nothing imported — the same fail-open the
+		// missing arm produced, through a different door. Imports live only in
+		// the River job args, and the re-enqueue path carries the operation
+		// alone, so an import that arrives without them is not a request to
+		// import nothing.
+		if len(params.ImportResources) == 0 {
+			return "", errors.New("this import names no resources: nothing would be adopted, and a run that adopted nothing must not be recorded as having imported. Start the import again from the run that names its resources")
+		}
+
 		// Each address and id is read from an env var portal named, never
 		// interpolated into the script text — the same rule the repo URL,
 		// branch and working directory follow, and for the same reason: a
