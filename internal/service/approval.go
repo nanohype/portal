@@ -56,6 +56,17 @@ func (s *ApprovalService) SetRiverClient(client *river.Client[pgx.Tx]) {
 	s.riverClient = client
 }
 
+// RequiresPlanDiff reports whether an approval of a run with no plan diff is
+// refused on this instance.
+//
+// It is the predicate Create branches on, exported because the value behind it
+// is wired by the server from configuration and a wiring nothing reads is a
+// wiring nothing holds: replacing it with a different reading of the same
+// configuration compiles and changes what approvals do.
+func (s *ApprovalService) RequiresPlanDiff() bool {
+	return !s.artifactStorageAbsent
+}
+
 // SetArtifactStorageAbsent records that this instance stores no run artifacts,
 // which exempts approvals from requiring the plan diff they would otherwise be
 // granted against. Only an instance with no object storage configured qualifies;
@@ -140,7 +151,7 @@ func (s *ApprovalService) Create(ctx context.Context, runID, workspaceID, orgID,
 	// With plan_json_url empty the Changes tab is hidden and the plan-json
 	// endpoint answers 404, so the signature would cover changes nothing could
 	// show the signer. A rejection authorises nothing and is left alone.
-	if status == "approved" && run.PlanJSONURL == "" && !s.artifactStorageAbsent {
+	if status == "approved" && run.PlanJSONURL == "" && s.RequiresPlanDiff() {
 		return repository.Approval{}, apperr.Conflict(
 			"this run has no machine-readable plan, so there is no diff to approve. " +
 				"Start a new plan and approve that one")
