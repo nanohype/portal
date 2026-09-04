@@ -20,10 +20,19 @@ import (
 // GetActivePipelineRunForPipeline then refuses every later run of that
 // pipeline.
 //
-// These drive the terminal paths themselves rather than the advancer's arms, so
-// a path that never calls the advancer fails here. They need no database: every
-// store a terminal path touches is behind an interface, which is what makes the
-// property assertable rather than skippable.
+// These drive the terminal paths that settle a run from inside the worker's own
+// finish handling — failRun and settleFinishedRun — rather than the advancer's
+// arms, so one of those that never calls the advancer fails here. They need no
+// database: every store those paths touch is behind an interface, which is what
+// makes the property assertable rather than skippable.
+//
+// They enter below Work's dispatch, so the terminal paths above it are outside
+// what they reach and are held elsewhere: Work's mid-flight cancel branch by
+// TestRunJobAdvancesThePipelineWhenTheRunIsCancelledMidExecution, and a run
+// settled through the API by
+// TestRunServiceCancelSettlesTheStageAndPipelineAboveTheRun in internal/service.
+// Both drive the real path against a database and read the stage and pipeline
+// rows back, because neither is reachable from a store interface.
 
 // recordingStreamer answers whether a publish would have reached anyone. A
 // Publish after Close is dropped by the memory streamer and lands on a cancelled

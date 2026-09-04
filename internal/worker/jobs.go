@@ -865,7 +865,15 @@ func (w *RunJobWorker) finishRun(ctx context.Context, pipelineRunID, status stri
 // with no next stage and no record of why, which is indistinguishable from a
 // pipeline still working.
 func (w *RunJobWorker) enqueueStage(ctx context.Context, pr repository.PipelineRun, nextOrder int32, orgID string, logger *slog.Logger) {
+	// AdvancePipelineForTerminalRun is exported and builds a worker with no queue
+	// client, so this is reachable from a caller that has one stage to finish and
+	// no way to start the next. Every other return on this path carries its
+	// consequence; a silent one here wedges a pipeline with nothing recording
+	// that anything was skipped.
 	if w.riverClient == nil || w.db == nil {
+		logger.Error("cannot enqueue the next pipeline stage: this worker has no job queue client",
+			"next_order", nextOrder, "pipeline_run_id", pr.ID,
+			"consequence", "the next stage stays 'pending' and the run stays 'running' until it is cleared by hand")
 		return
 	}
 	tx, err := w.db.Begin(ctx)

@@ -207,3 +207,21 @@ func TestAdvance_IsSilentForARunInNoPipeline(t *testing.T) {
 		t.Errorf("a run in no pipeline advanced a stage: %v", st.finishedStage)
 	}
 }
+
+// AdvancePipelineForTerminalRun is exported and builds a worker with no queue
+// client, so a caller can finish one stage and have no way to start the next.
+// Every other return on this path carries its consequence, and this one wedges a
+// pipeline: without a line here the stage is finished, the next stays 'pending',
+// and nothing records that anything was skipped.
+func TestAdvance_ReportsThatItCannotStartTheNextStage(t *testing.T) {
+	st := onePipeline("stop", 2)
+
+	out := advance(t, st, "applied")
+
+	if !strings.Contains(out, "no job queue client") {
+		t.Fatalf("the next stage was not enqueued and nothing said so:\n%s", out)
+	}
+	if !strings.Contains(out, "stays 'pending'") {
+		t.Errorf("the log does not carry the consequence, so an operator reading it does not know a pipeline is wedged:\n%s", out)
+	}
+}
