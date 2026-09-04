@@ -103,7 +103,10 @@ func TestEveryFrameTheScriptEmitsIsSuppressed(t *testing.T) {
 	found := map[string]bool{}
 	for _, op := range []string{"plan", "apply", "destroy", "test"} {
 		for _, src := range []string{"vcs", "upload"} {
-			script := e.buildScript(ExecuteParams{Operation: op, Source: src})
+			script, err := e.buildScript(ExecuteParams{Operation: op, Source: src})
+			if err != nil {
+				t.Fatalf("buildScript: %v", err)
+			}
 			for _, m := range sentinel.FindAllString(script, -1) {
 				found[m] = true
 				if !suppressed[m] {
