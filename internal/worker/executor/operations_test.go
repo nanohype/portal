@@ -1,6 +1,8 @@
 package executor
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -26,28 +28,64 @@ import (
 // same. An arm that echoes its own name, or carries a label over an empty body,
 // invokes nothing and fails here.
 //
-// The other direction — that no arm exists for an operation the vocabulary does
-// not admit — is a property of the source, so it is read from the source: the
-// switch statement is parsed out of the file by AST and its case labels
-// compared. It is scoped to one function's one switch, not to a token anywhere
-// in a file.
+// The other direction — that nothing runs for an operation the vocabulary does
+// not admit — is held twice, because neither half holds it alone. Which labels
+// the dispatch declares is a property of the source, so the switch is parsed out
+// of the file by AST and its case labels compared against the enum; that is
+// scoped to one function's one switch, not to a token anywhere in a file, and it
+// sees nothing written outside those case labels. What each executor does with a
+// name outside the vocabulary is behaviour, so both are run against such names
+// and required to refuse, whatever the arm handling them is spelled as.
 
-// runOperationEnum reads the vocabulary from the migration that defines it.
-// CLAUDE.md makes that enum the one source of truth, so reading it here is what
-// stops this becoming a second copy.
+// runOperationEnum reads the vocabulary out of migrations/. CLAUDE.md makes that
+// enum the one source of truth, so reading it here is what stops this becoming a
+// second copy.
+//
+// It walks every up-migration in order rather than one file. Once the initial
+// schema has run in production the enum can only grow by `ALTER TYPE
+// run_operation ADD VALUE` in a later migration, so a reader pinned to the file
+// carrying the CREATE TYPE reports the vocabulary as it was and drives neither
+// executor for anything added since.
+var (
+	createRunOperation = regexp.MustCompile(`(?s)CREATE TYPE run_operation AS ENUM \((.*?)\);`)
+	addRunOperation    = regexp.MustCompile(`ALTER TYPE run_operation\s+ADD VALUE\s+(?:IF NOT EXISTS\s+)?'([^']+)'`)
+	quotedValue        = regexp.MustCompile(`'([^']+)'`)
+)
+
 func runOperationEnum(t *testing.T) []string {
 	t.Helper()
-	body, err := os.ReadFile("../../../migrations/000001_initial_schema.up.sql")
+	const dir = "../../../migrations"
+	names, err := filepath.Glob(filepath.Join(dir, "*.up.sql"))
 	if err != nil {
-		t.Fatalf("read the schema that defines run_operation: %v", err)
+		t.Fatalf("list migrations: %v", err)
 	}
-	block := regexp.MustCompile(`(?s)CREATE TYPE run_operation AS ENUM \((.*?)\);`).FindStringSubmatch(string(body))
-	if block == nil {
-		t.Fatal("no run_operation enum in the initial schema; the vocabulary moved and this test reads the wrong file")
+	if len(names) == 0 {
+		t.Fatalf("no up-migrations under %s; the schema moved and this test reads the wrong place", dir)
 	}
+	sort.Strings(names)
+
 	var ops []string
-	for _, m := range regexp.MustCompile(`'([^']+)'`).FindAllStringSubmatch(block[1], -1) {
-		ops = append(ops, m[1])
+	created := ""
+	for _, name := range names {
+		body, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		if block := createRunOperation.FindStringSubmatch(string(body)); block != nil {
+			if created != "" {
+				t.Fatalf("%s and %s both create run_operation; which one this reads decides the population", created, name)
+			}
+			created = name
+			for _, m := range quotedValue.FindAllStringSubmatch(block[1], -1) {
+				ops = append(ops, m[1])
+			}
+		}
+		for _, m := range addRunOperation.FindAllStringSubmatch(string(body), -1) {
+			ops = append(ops, m[1])
+		}
+	}
+	if created == "" {
+		t.Fatalf("no CREATE TYPE run_operation under %s; the vocabulary moved and this test reads the wrong place", dir)
 	}
 	if len(ops) == 0 {
 		t.Fatal("run_operation enum parsed as empty")
@@ -86,19 +124,43 @@ exit 0
 	}
 }
 
+// smokeProof returns the body of the workspace's own smoke script and a check
+// for whether it ran.
+//
+// The script writes a token generated for this test into a file of its own. The
+// recording binary appends only argv lines to the invocation log and creates no
+// other file, so nothing a rendered `tofu` invocation can do satisfies this: an
+// arm that passes the script's NAME to a subcommand — `tofu show -json
+// smoke-test.sh` — leaves the marker absent, where a log-substring oracle reads
+// the filename in that argv line and calls the script run.
+func smokeProof(t *testing.T) (body string, ran func() bool) {
+	t.Helper()
+	var raw [16]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		t.Fatalf("generate the smoke marker: %v", err)
+	}
+	token := hex.EncodeToString(raw[:])
+	marker := filepath.Join(t.TempDir(), "smoke-ran")
+	body = "#!/bin/sh\nprintf %s " + token + " > \"" + marker + "\"\nexit 0\n"
+	return body, func() bool {
+		b, err := os.ReadFile(marker)
+		return err == nil && string(b) == token
+	}
+}
+
 // invocations runs a rendered operation section under /bin/sh and returns what
-// the binary was called with.
-func invocations(t *testing.T, section string) []string {
+// the binary was called with, plus whether the workspace's smoke script ran.
+func invocations(t *testing.T, section string) (lines []string, smokeRan bool) {
 	t.Helper()
 	work := t.TempDir()
 	bin := t.TempDir()
 	logPath := filepath.Join(work, "invocations.log")
 	recordingBinary(t, bin, logPath)
 
-	// smoke-test.sh is the `test` arm's own script, and it records that it ran —
-	// the arm's whole job is to execute the workspace's script, so nothing else
-	// can stand in for having done so.
-	smoke := "#!/bin/sh\necho ./smoke-test.sh >> \"" + logPath + "\"\nexit 0\n"
+	// smoke-test.sh is the `test` arm's own script. The arm's whole job is to
+	// execute the workspace's script, so nothing else can stand in for having
+	// done so.
+	smoke, ranSmoke := smokeProof(t)
 	if err := os.WriteFile(filepath.Join(work, "smoke-test.sh"), []byte(smoke), 0o755); err != nil {
 		t.Fatalf("write smoke-test.sh: %v", err)
 	}
@@ -122,15 +184,14 @@ func invocations(t *testing.T, section string) []string {
 
 	body, err := os.ReadFile(logPath)
 	if err != nil {
-		return nil
+		return nil, ranSmoke()
 	}
-	var lines []string
 	for _, l := range strings.Split(strings.TrimSpace(string(body)), "\n") {
 		if l != "" {
 			lines = append(lines, l)
 		}
 	}
-	return lines
+	return lines, ranSmoke()
 }
 
 // ── every operation the vocabulary admits runs ─────────────────────────────
@@ -149,8 +210,8 @@ func TestPodScript_RunsEveryOperationTheEnumAdmits(t *testing.T) {
 				t.Fatalf("the production executor renders nothing for %q: %v", op, err)
 			}
 
-			ran := invocations(t, section)
-			if !invokedOperation(op, ran) {
+			ran, smokeRan := invocations(t, section)
+			if !invokedOperation(op, ran, smokeRan) {
 				t.Errorf("the %q arm invoked %v; none of it is the %s the operation is named for, so a pod running this exits 0 having done nothing",
 					op, ran, expectedInvocation(op))
 			}
@@ -167,16 +228,13 @@ func expectedInvocation(op string) string {
 	return "tofu " + op
 }
 
-func invokedOperation(op string, ran []string) bool {
+// invokedOperation reads what the arm did. For `test` that is the smoke script's
+// own marker rather than anything in the invocation log: the log holds the
+// recording binary's argv, so a line there naming smoke-test.sh is an argument
+// passed to `tofu`, not the script running.
+func invokedOperation(op string, ran []string, smokeRan bool) bool {
 	if op == "test" {
-		// The smoke script records its own execution, so an arm that skips
-		// straight past it records nothing.
-		for _, line := range ran {
-			if strings.Contains(line, "smoke-test.sh") {
-				return true
-			}
-		}
-		return false
+		return smokeRan
 	}
 	for _, line := range ran {
 		if strings.HasPrefix(line, op+" ") || line == op {
@@ -197,7 +255,7 @@ func TestPodScript_InvokesOneImportPerResource(t *testing.T) {
 		t.Fatalf("operationScript: %v", err)
 	}
 
-	ran := invocations(t, section)
+	ran, _ := invocations(t, section)
 	var imports int
 	for _, line := range ran {
 		if strings.HasPrefix(line, "import ") {
@@ -236,10 +294,10 @@ func TestLocalExecutor_RunsEveryOperationTheEnumAdmits(t *testing.T) {
 			recordingBinary(t, bin, logPath)
 			t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
+			smoke, smokeRan := smokeProof(t)
 			entries := [][2]string{{"envs/production/main.tf", "# empty\n"}}
 			if op == "test" {
-				entries = append(entries, [2]string{"envs/production/smoke-test.sh",
-					"#!/bin/sh\necho ./smoke-test.sh >> \"" + logPath + "\"\nexit 0\n"})
+				entries = append(entries, [2]string{"envs/production/smoke-test.sh", smoke})
 			}
 
 			params := ExecuteParams{
@@ -258,7 +316,7 @@ func TestLocalExecutor_RunsEveryOperationTheEnumAdmits(t *testing.T) {
 
 			body, _ := os.ReadFile(logPath)
 			ran := strings.Split(strings.TrimSpace(string(body)), "\n")
-			if !invokedOperation(op, ran) {
+			if !invokedOperation(op, ran, smokeRan()) {
 				t.Errorf("the local executor's %q arm invoked %v; none of it is %s", op, ran, expectedInvocation(op))
 			}
 		})
@@ -270,10 +328,19 @@ func TestLocalExecutor_RunsEveryOperationTheEnumAdmits(t *testing.T) {
 // caseLabelsOf parses one function's switch on the named selector and returns
 // its case labels, plus whether it has a default.
 //
-// This is a property of the source — which labels the dispatch declares — so it
-// is read from the source. It is scoped to one function's one switch: a
-// `default:` belonging to another switch in the same file, or a case label in
-// another function, cannot satisfy it.
+// Which labels the dispatch declares is a property of the source, so it is read
+// from the source. What it covers is exactly that: the top-level case labels of
+// one function's one switch, and whether that switch has a default. A `default:`
+// belonging to another switch in the same file, or a case label in another
+// function, cannot satisfy it — and equally, an arm written anywhere but those
+// case labels is invisible to it. An if-branch before the switch, a nested
+// switch inside `default:`, or a helper called from `default:` are all arms this
+// walk does not see.
+//
+// What covers those is behaviour rather than source:
+// TestExecutorsRefuseAnOperationTheVocabularyDoesNotAdmit runs each executor
+// against names the enum does not admit and requires a refusal, whatever the arm
+// handling them is spelled as.
 func caseLabelsOf(t *testing.T, file, fn, selector string) (labels []string, hasDefault bool) {
 	t.Helper()
 	fset := token.NewFileSet()
@@ -362,6 +429,60 @@ func TestDispatchDeclaresExactlyTheVocabulary(t *testing.T) {
 				if !seen[op] {
 					t.Errorf("the database admits %q and the dispatch declares no arm for it", op)
 				}
+			}
+		})
+	}
+}
+
+// The AST walk above sees one switch's case labels. This sees what the executors
+// do, which is the half a source reading cannot hold: an arm written as an
+// if-branch before the switch, as a nested switch inside `default:`, or as a
+// helper called from `default:` renders a real script for a name the database
+// does not admit, and no case label records that it exists.
+//
+// The names below are drift that has somewhere to come from — tofu subcommands a
+// caller could plausibly send — plus the spellings a case-insensitive or
+// whitespace-trimming arm would let through. Each is checked against the enum
+// first, so this fails if one of them is ever admitted rather than quietly
+// testing nothing.
+func TestExecutorsRefuseAnOperationTheVocabularyDoesNotAdmit(t *testing.T) {
+	admitted := map[string]bool{}
+	for _, op := range runOperationEnum(t) {
+		admitted[op] = true
+	}
+
+	for _, op := range []string{"refresh", "validate", "unlock", "console", "graph", "", "PLAN", "plan "} {
+		if admitted[op] {
+			t.Fatalf("%q is in run_operation, so it is not outside the vocabulary and this case proves nothing", op)
+		}
+		t.Run("operationScript/"+op, func(t *testing.T) {
+			script, err := operationScript(ExecuteParams{
+				Operation: op, Source: "upload", WorkingDir: "envs/production",
+			})
+			if err == nil {
+				t.Fatalf("the pod script renders for %q, which the database does not admit; a pod running this executes it and the run is recorded as having succeeded:\n%s", op, script)
+			}
+			if !strings.Contains(err.Error(), "unknown operation") {
+				t.Errorf("the refusal for %q is not the dispatch refusing it: %v", op, err)
+			}
+		})
+		t.Run("LocalExecutor/"+op, func(t *testing.T) {
+			bin := t.TempDir()
+			recordingBinary(t, bin, filepath.Join(t.TempDir(), "invocations.log"))
+			t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+			e := &LocalExecutor{}
+			_, err := e.Execute(t.Context(), ExecuteParams{
+				RunID: "run_outside", Operation: op, Source: "upload",
+				WorkingDir:  "envs/production",
+				ArchiveData: tarGz(t, [][2]string{{"envs/production/main.tf", "# empty\n"}}),
+				LogCallback: func([]byte) {},
+			})
+			if err == nil {
+				t.Fatalf("the local executor ran %q, which the database does not admit, and reported success", op)
+			}
+			if !strings.Contains(err.Error(), "unknown operation") {
+				t.Errorf("the refusal for %q is not the dispatch refusing it: %v", op, err)
 			}
 		})
 	}
