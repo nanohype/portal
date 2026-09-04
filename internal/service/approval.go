@@ -33,6 +33,15 @@ type ApprovalService struct {
 	store approvalStore
 	// handoff is the post-commit slot release, seamed for the same reason.
 	handoff runHandoff
+
+	// artifactStorageAbsent is an instance not configured to store run
+	// artifacts. No run on one can carry a plan diff, so requiring one would
+	// make every approval impossible rather than make any of them safer.
+	//
+	// It defaults to false — the gate armed — because forgetting to set it must
+	// cost an approval that has to be re-planned, not admit one granted against
+	// nothing.
+	artifactStorageAbsent bool
 }
 
 func NewApprovalService(queries *repository.Queries, db *pgxpool.Pool, auditSvc *AuditService) *ApprovalService {
@@ -45,6 +54,26 @@ func NewApprovalService(queries *repository.Queries, db *pgxpool.Pool, auditSvc 
 
 func (s *ApprovalService) SetRiverClient(client *river.Client[pgx.Tx]) {
 	s.riverClient = client
+}
+
+// RequiresPlanDiff reports whether an approval of a run with no plan diff is
+// refused on this instance.
+//
+// It is the predicate Create branches on, exported because the value behind it
+// is wired by the server from configuration and a wiring nothing reads is a
+// wiring nothing holds: replacing it with a different reading of the same
+// configuration compiles and changes what approvals do.
+func (s *ApprovalService) RequiresPlanDiff() bool {
+	return !s.artifactStorageAbsent
+}
+
+// SetArtifactStorageAbsent records that this instance stores no run artifacts,
+// which exempts approvals from requiring the plan diff they would otherwise be
+// granted against. Only an instance with no object storage configured qualifies;
+// one whose configured storage is unavailable has runs that lost a diff they
+// should have had, and those approvals stay gated.
+func (s *ApprovalService) SetArtifactStorageAbsent(absent bool) {
+	s.artifactStorageAbsent = absent
 }
 
 // approvalAuditRecord is the snake_case projection of an approval row stored
@@ -112,6 +141,20 @@ func (s *ApprovalService) Create(ctx context.Context, runID, workspaceID, orgID,
 	}
 	if run.Status != "planned" && run.Status != "awaiting_approval" {
 		return repository.Approval{}, apperr.Conflict("run is not awaiting approval")
+	}
+
+	// An approval is what authorises an apply against this run, and the plan
+	// diff is what it is granted against. Both statuses accepted above are
+	// approvable — the UI offers Approve & Apply on each — so the diff has to be
+	// present for either, not only for the one the worker parked.
+	//
+	// With plan_json_url empty the Changes tab is hidden and the plan-json
+	// endpoint answers 404, so the signature would cover changes nothing could
+	// show the signer. A rejection authorises nothing and is left alone.
+	if status == "approved" && run.PlanJSONURL == "" && s.RequiresPlanDiff() {
+		return repository.Approval{}, apperr.Conflict(
+			"this run has no machine-readable plan, so there is no diff to approve. " +
+				"Start a new plan and approve that one")
 	}
 
 	approval, err := qtx.CreateApproval(ctx, repository.CreateApprovalParams{

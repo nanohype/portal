@@ -21,6 +21,7 @@ import (
 	"github.com/nanohype/portal/internal/service"
 	"github.com/nanohype/portal/internal/storage"
 	"github.com/nanohype/portal/internal/tracing"
+	"github.com/nanohype/portal/internal/worker"
 )
 
 // Option configures a Server before its router is built.
@@ -33,6 +34,18 @@ type Option func(*Server)
 // be asserted without a database standing in the way.
 func WithAuthzResolver(resolver AuthzResolver) Option {
 	return func(s *Server) { s.authz = resolver }
+}
+
+// WithArtifactStore replaces how the object store is built. Production passes
+// nothing and storage.NewS3Storage runs.
+//
+// It exists because the store and the approval diff gate answer two different
+// questions off the same configuration — whether a store was built, and whether
+// one was configured — and those answers part company exactly when a configured
+// endpoint does not yield a store. That state is the one the gate is armed for,
+// and without a seam it cannot be presented to a test at all.
+func WithArtifactStore(build func(*config.Config) (*storage.S3Storage, error)) Option {
+	return func(s *Server) { s.buildStore = build }
 }
 
 // AuthzResolver is everything the gates need to decide a request: who the
@@ -51,6 +64,7 @@ type Server struct {
 	http            *http.Server
 	approvalHandler *handler.ApprovalHandler
 	approvalSvc     *service.ApprovalService
+	buildStore      func(*config.Config) (*storage.S3Storage, error)
 	runSvc          *service.RunService
 	pipelineSvc     *service.PipelineService
 	clusterSvc      *service.ClusterService
@@ -167,11 +181,21 @@ func (s *Server) setupRouter() {
 	}
 	authMiddleware := auth.NewMiddleware(jwtAuth, s.authz)
 
-	// Optional S3 storage
+	// Whether this instance is configured to store run artifacts, read once.
+	// Everything below that asks about object storage asks about this, and not
+	// about whether the store below was built: a configured endpoint that yields
+	// no store is an instance that should have artifacts and does not, which is
+	// the opposite of one that was never going to have any.
+	storageConfigured := worker.StorageIntentFor(s.cfg.S3Endpoint) == worker.StorageConfigured
+
 	var store *storage.S3Storage
-	if s.cfg.S3Endpoint != "" {
+	if storageConfigured {
+		build := s.buildStore
+		if build == nil {
+			build = storage.NewS3Storage
+		}
 		var err error
-		store, err = storage.NewS3Storage(s.cfg)
+		store, err = build(s.cfg)
 		if err != nil {
 			s.logger.Warn("S3 storage not available", "error", err)
 		}
@@ -219,6 +243,11 @@ func (s *Server) setupRouter() {
 	stateSvc := service.NewStateService(queries, store)
 	stateHandler := handler.NewStateHandler(stateSvc, auditSvc)
 	s.approvalSvc = service.NewApprovalService(queries, s.db, auditSvc)
+	// An instance with no object storage configured has no run that can carry a
+	// plan diff, so approvals there are not gated on one. A configured endpoint
+	// that yielded no store does not qualify: those runs lost a diff they should
+	// have had, and `store` being nil is what the two cases have in common.
+	s.approvalSvc.SetArtifactStorageAbsent(!storageConfigured)
 	s.approvalHandler = handler.NewApprovalHandler(s.approvalSvc)
 	auditHandler := handler.NewAuditHandler(queries)
 	healthHandler := handler.NewHealthHandler(s.db, s.cfg.Environment)
