@@ -210,7 +210,10 @@ esac
 // running anything, so the script text is the assertion.
 func TestPodScript_NamesThePlanFileAbsolutely(t *testing.T) {
 	e := &KubernetesExecutor{}
-	script := e.buildScript(ExecuteParams{Operation: "plan", Source: "upload", WorkingDir: "envs/production"})
+	script, err := e.buildScript(ExecuteParams{Operation: "plan", Source: "upload", WorkingDir: "envs/production"})
+	if err != nil {
+		t.Fatalf("buildScript: %v", err)
+	}
 
 	if !strings.Contains(script, `PLANFILE="$PWD/planfile"`) {
 		t.Fatalf("the script does not name the plan file absolutely:\n%s", script)

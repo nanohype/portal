@@ -180,7 +180,10 @@ func TestCheckoutCommitFailsWhenTheCommitIsGone(t *testing.T) {
 // of the log without leaking the marker into what the user reads.
 func TestKubernetesScriptChecksOutThePinAndReportsTheCommit(t *testing.T) {
 	e := &KubernetesExecutor{}
-	script := e.buildScript(ExecuteParams{Operation: "plan", Source: "vcs"})
+	script, err := e.buildScript(ExecuteParams{Operation: "plan", Source: "vcs"})
+	if err != nil {
+		t.Fatalf("buildScript: %v", err)
+	}
 
 	for _, want := range []string{
 		`if [ -n "$PORTAL_COMMIT_SHA" ]; then`,
@@ -226,7 +229,10 @@ func TestKubernetesOutputParsingLiftsTheCommitOutOfTheLog(t *testing.T) {
 // anything out or report a commit.
 func TestKubernetesScriptSkipsTheCheckoutForUploads(t *testing.T) {
 	e := &KubernetesExecutor{}
-	script := e.buildScript(ExecuteParams{Operation: "plan", Source: "upload"})
+	script, err := e.buildScript(ExecuteParams{Operation: "plan", Source: "upload"})
+	if err != nil {
+		t.Fatalf("buildScript: %v", err)
+	}
 
 	if strings.Contains(script, "PORTAL_COMMIT_SHA") {
 		t.Error("upload run script tries to check out a commit")
