@@ -378,7 +378,7 @@ func TestRunNotices_ProducersAreDisjointByOperation(t *testing.T) {
 		diff := reportsMissingDiff(op, lost)
 		state := mutatesInfrastructure(op)
 		if diff && state {
-			t.Errorf("operation %q produces both a diff notice and a state notice; joinRunNotices' comment claims one run produces at most one", op)
+			t.Errorf("operation %q produces both a diff notice and a state notice; joinRunNotices' comment claims the two producers at the finish write are disjoint by operation", op)
 		}
 	}
 }

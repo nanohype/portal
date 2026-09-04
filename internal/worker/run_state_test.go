@@ -53,6 +53,10 @@ type stubBlobs struct {
 	failPutState          error
 
 	putRawSerials, putStateSerials []int
+
+	// The config archive a run stages before it executes. Empty is what every
+	// test that never reaches an executor wants.
+	configArchive []byte
 }
 
 func (s *stubBlobs) GetRawState(context.Context, string) ([]byte, error) {
@@ -69,7 +73,9 @@ func (s *stubBlobs) PutState(_ context.Context, _ string, serial int, _ []byte) 
 	s.putStateSerials = append(s.putStateSerials, serial)
 	return "state/ws_1", s.failPutState
 }
-func (s *stubBlobs) GetConfigArchive(context.Context, string) ([]byte, error) { return nil, nil }
+func (s *stubBlobs) GetConfigArchive(context.Context, string) ([]byte, error) {
+	return s.configArchive, nil
+}
 func (s *stubBlobs) PutLog(context.Context, string, string, []byte) (string, error) {
 	return "", nil
 }

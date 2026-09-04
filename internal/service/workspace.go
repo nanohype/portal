@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"path"
@@ -25,10 +26,15 @@ var ErrWorkspaceHasRuns = fmt.Errorf("workspace has existing runs")
 // import) when the service was built without an object store.
 var ErrStorageNotConfigured = fmt.Errorf("storage not configured")
 
+// StateReader is the object-store read that output import goes through.
+type StateReader interface {
+	GetState(ctx context.Context, key string) ([]byte, error)
+}
+
 type WorkspaceService struct {
 	queries *repository.Queries
 	db      *pgxpool.Pool
-	storage *storage.S3Storage
+	storage StateReader
 }
 
 // NewWorkspaceService builds the workspace domain. The store is what output
@@ -37,7 +43,23 @@ type WorkspaceService struct {
 // workspaces as-is, and state outputs the source marked sensitive arrive
 // already redacted, so nothing here ever holds a plaintext secret.
 func NewWorkspaceService(queries *repository.Queries, db *pgxpool.Pool, store *storage.S3Storage) *WorkspaceService {
-	return &WorkspaceService{queries: queries, db: db, storage: store}
+	// A nil *storage.S3Storage placed in an interface field is not a nil
+	// interface, and the ErrStorageNotConfigured guard in ImportOutputs would
+	// stop firing. Passing the nil through as an absent reader keeps it.
+	if store == nil {
+		return NewWorkspaceServiceWithState(queries, db, nil)
+	}
+	return NewWorkspaceServiceWithState(queries, db, store)
+}
+
+// NewWorkspaceServiceWithState wires the domain against any state reader.
+//
+// It exists because output import writes one variable per output and has to
+// report the ones it could not write; reaching that loop through
+// NewWorkspaceService means standing up object storage, which is the thing a
+// per-output failure is least likely to be reproduced behind.
+func NewWorkspaceServiceWithState(queries *repository.Queries, db *pgxpool.Pool, state StateReader) *WorkspaceService {
+	return &WorkspaceService{queries: queries, db: db, storage: state}
 }
 
 type CreateWorkspaceParams struct {
@@ -412,8 +434,13 @@ func importableOutputs(outputs []tfstate.Output) ([]tfstate.Output, int) {
 // ImportOutputs reads the source workspace's latest state, parses its outputs,
 // and upserts each importable one as a terraform-category variable on the
 // target (update by key when it exists, create otherwise). Both the
-// import-outputs endpoint and pipeline stage advancement run through here. A
-// failed upsert is logged and skipped so one bad output doesn't abort the rest.
+// import-outputs endpoint and pipeline stage advancement run through here.
+//
+// A failed upsert does not abort the rest — one unwritable output should not
+// cost the others — and every failure is returned. A caller holding only the
+// list of what landed cannot tell a partial import from a source that published
+// fewer outputs, and a pipeline stage that cannot tell those apart plans against
+// an incomplete set of upstream values.
 //
 // It returns the variables actually written and how many outputs were dropped
 // for being sensitive — state redacts those, so there is no value to carry
@@ -469,6 +496,7 @@ func (s *WorkspaceService) ImportOutputs(ctx context.Context, params ImportOutpu
 	}
 
 	affected := make([]repository.WorkspaceVariable, 0, len(outputs))
+	var failed []error
 	for _, out := range outputs {
 		// Non-string outputs (lists, maps, numbers) are stored as their JSON
 		// encoding, which is also how tofu expects complex variable values.
@@ -506,10 +534,16 @@ func (s *WorkspaceService) ImportOutputs(ctx context.Context, params ImportOutpu
 			})
 		}
 		if err != nil {
-			slog.Warn("failed to import output as variable", "key", out.Name, "error", err)
+			failed = append(failed, fmt.Errorf("output %q: %w", out.Name, err))
 			continue
 		}
 		affected = append(affected, v)
+	}
+
+	if len(failed) > 0 {
+		return affected, skippedSensitive, fmt.Errorf(
+			"imported %d of %d outputs from %s; the rest could not be written: %w",
+			len(affected), len(outputs), params.SourceWorkspaceID, errors.Join(failed...))
 	}
 
 	slog.Info("imported outputs between workspaces",

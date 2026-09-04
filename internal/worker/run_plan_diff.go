@@ -95,12 +95,15 @@ func missingDiffNotice(cause error) string {
 // joinRunNotices collects what a finished run has to tell an operator into the
 // one field that reaches them, or nil when there is nothing to say.
 //
-// One run produces at most one notice today: reportsMissingDiff answers only for
-// "plan" and mutatesInfrastructure only for apply, destroy and import, and
-// TestRunNotices_ProducersAreDisjointByOperation holds that apart. The single
-// field is what makes joining rather than assigning the right shape anyway — a
-// third producer added to it must not silently replace the first, and which one
-// survived would otherwise depend on the order the checks run in.
+// The two producers at the finish write are disjoint by operation:
+// reportsMissingDiff answers only for "plan" and mutatesInfrastructure only for
+// apply, destroy and import, which TestRunNotices_ProducersAreDisjointByOperation
+// holds apart. Joining rather than assigning is still what the single field
+// needs, because the run row is written more than once: withdrawAutoApplyPromise
+// rewrites it after the finish write, and a plan whose diff was lost on a
+// workspace that auto-applies reaches both. That path joins through here with
+// what the finish write already put on the row, so the second write adds to the
+// first instead of replacing it.
 func joinRunNotices(notices []string) *string {
 	if len(notices) == 0 {
 		return nil

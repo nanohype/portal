@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/nanohype/portal/internal/repository"
 )
 
@@ -19,17 +21,19 @@ import (
 type stubPipelines struct {
 	stage      repository.PipelineRunStage
 	run        repository.PipelineRun
+	failLookup error
 	failStage  error
 	failRun    error
 	failCancel error
 	failPause  error
 
 	finishedStage, finishedRun []string
+	pausedStage                []string
 	cancelled                  int
 }
 
 func (s *stubPipelines) GetPipelineRunStageByRunID(context.Context, string) (repository.PipelineRunStage, error) {
-	return s.stage, nil
+	return s.stage, s.failLookup
 }
 func (s *stubPipelines) GetPipelineRun(context.Context, repository.GetPipelineRunParams) (repository.PipelineRun, error) {
 	return s.run, nil
@@ -46,7 +50,8 @@ func (s *stubPipelines) CancelPendingPipelineRunStages(context.Context, string) 
 	s.cancelled++
 	return s.failCancel
 }
-func (s *stubPipelines) UpdatePipelineRunStageStatus(context.Context, repository.UpdatePipelineRunStageStatusParams) (repository.PipelineRunStage, error) {
+func (s *stubPipelines) UpdatePipelineRunStageStatus(_ context.Context, arg repository.UpdatePipelineRunStageStatusParams) (repository.PipelineRunStage, error) {
+	s.pausedStage = append(s.pausedStage, arg.Status)
 	return repository.PipelineRunStage{}, s.failPause
 }
 
@@ -157,5 +162,66 @@ func TestAdvance_StillAnnouncesASuccessfulCompletion(t *testing.T) {
 	}
 	if strings.Contains(out, "level=ERROR") {
 		t.Errorf("a clean completion logged an error:\n%s", out)
+	}
+}
+
+// The lookup decides whether a run belongs to a pipeline at all, and only
+// pgx.ErrNoRows answers that question. Any other error read as "no pipeline"
+// leaves the pipeline waiting on the run at "running", which blocks every later
+// run of that pipeline and which nothing sweeps.
+//
+// There is nowhere to fail to: the run is already terminal and this job is not
+// retried. The pipeline cannot even be named, because the lookup that would name
+// it is the one that failed. So the log is the surface, and it carries the
+// consequence rather than the error alone.
+func TestAdvance_ReportsAFailedStageLookup(t *testing.T) {
+	st := onePipeline("stop", 1)
+	st.failLookup = errors.New("connection reset by peer")
+
+	out := advance(t, st, "applied")
+
+	if !strings.Contains(out, "connection reset by peer") {
+		t.Errorf("a failed stage lookup was read as 'no pipeline' and nothing said so:\n%s", out)
+	}
+	if !strings.Contains(out, "blocks later runs") {
+		t.Errorf("the log does not carry the consequence, so an operator reading it does not know a pipeline is wedged:\n%s", out)
+	}
+	// Nothing may be advanced on a lookup that did not answer.
+	if len(st.finishedStage) != 0 || len(st.finishedRun) != 0 {
+		t.Errorf("the advancement acted on a stage it could not read: stages=%v runs=%v", st.finishedStage, st.finishedRun)
+	}
+}
+
+// A run started from a workspace belongs to no pipeline, which is the ordinary
+// case and must stay silent — otherwise every such run logs an error.
+func TestAdvance_IsSilentForARunInNoPipeline(t *testing.T) {
+	st := onePipeline("stop", 1)
+	st.failLookup = pgx.ErrNoRows
+
+	out := advance(t, st, "applied")
+
+	if strings.Contains(out, "ERROR") || strings.Contains(out, "level=ERROR") {
+		t.Errorf("a run in no pipeline logged an error:\n%s", out)
+	}
+	if len(st.finishedStage) != 0 {
+		t.Errorf("a run in no pipeline advanced a stage: %v", st.finishedStage)
+	}
+}
+
+// AdvancePipelineForTerminalRun is exported and builds a worker with no queue
+// client, so a caller can finish one stage and have no way to start the next.
+// Every other return on this path carries its consequence, and this one wedges a
+// pipeline: without a line here the stage is finished, the next stays 'pending',
+// and nothing records that anything was skipped.
+func TestAdvance_ReportsThatItCannotStartTheNextStage(t *testing.T) {
+	st := onePipeline("stop", 2)
+
+	out := advance(t, st, "applied")
+
+	if !strings.Contains(out, "no job queue client") {
+		t.Fatalf("the next stage was not enqueued and nothing said so:\n%s", out)
+	}
+	if !strings.Contains(out, "stays 'pending'") {
+		t.Errorf("the log does not carry the consequence, so an operator reading it does not know a pipeline is wedged:\n%s", out)
 	}
 }
