@@ -198,6 +198,27 @@ func (e *LocalExecutor) Execute(ctx context.Context, params ExecuteParams) (*Exe
 		params.LogCallback([]byte(notice))
 	}
 
+	// The dispatch decides here, ahead of any work, and this is the switch that
+	// declares what this executor runs. An operation it has no arm for is refused
+	// before init, because init is not free: it reaches the workspace's
+	// configured backend, downloads its providers, and under terragrunt's
+	// TG_BACKEND_BOOTSTRAP creates the remote state bucket. A run that is going to
+	// be refused must not do any of that first. The pod executor already refuses
+	// at render time, before a pod exists; this is the same point on this path.
+	//
+	// The arms below key on the value this produces rather than on
+	// params.Operation, so there is one switch on the operation in this function
+	// and it is the one that refuses. That an arm exists for each admitted name is
+	// held by running them: TestLocalExecutor_RunsEveryOperationTheEnumAdmits
+	// drives every operation the enum carries and asserts what it invoked.
+	var operation string
+	switch params.Operation {
+	case "plan", "apply", "destroy", "import", "test":
+		operation = params.Operation
+	default:
+		return nil, unsupportedOperation(params.Operation)
+	}
+
 	// init
 	params.LogCallback([]byte(fmt.Sprintf("\033[1m$ %s init\033[0m\r\n", binary)))
 	if err := e.runTool(ctx, binary, tfDir, []string{"init", "-no-color"}, env, params.LogCallback); err != nil {
@@ -216,7 +237,7 @@ func (e *LocalExecutor) Execute(ctx context.Context, params ExecuteParams) (*Exe
 	result := &ExecuteResult{CommitSHA: commitSHA}
 	var tfArgs []string
 
-	switch params.Operation {
+	switch operation {
 	case "test":
 		// Export outputs to JSON for smoke-test.sh
 		params.LogCallback([]byte(fmt.Sprintf("\033[1m$ %s output -json\033[0m\r\n", binary)))

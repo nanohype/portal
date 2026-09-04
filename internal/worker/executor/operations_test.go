@@ -468,7 +468,8 @@ func TestExecutorsRefuseAnOperationTheVocabularyDoesNotAdmit(t *testing.T) {
 		})
 		t.Run("LocalExecutor/"+op, func(t *testing.T) {
 			bin := t.TempDir()
-			recordingBinary(t, bin, filepath.Join(t.TempDir(), "invocations.log"))
+			logPath := filepath.Join(t.TempDir(), "invocations.log")
+			recordingBinary(t, bin, logPath)
 			t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 			e := &LocalExecutor{}
@@ -483,6 +484,18 @@ func TestExecutorsRefuseAnOperationTheVocabularyDoesNotAdmit(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), "unknown operation") {
 				t.Errorf("the refusal for %q is not the dispatch refusing it: %v", op, err)
+			}
+
+			// The refusal has to come before the work, not after it. init reaches
+			// the workspace's configured backend, downloads its providers, and
+			// under terragrunt's TG_BACKEND_BOOTSTRAP creates the remote state
+			// bucket — all of it for a run that is about to be refused. The
+			// recording binary answers this on any machine: a dispatch that
+			// refuses after init records an invocation here whether or not a real
+			// tofu is installed.
+			if body, readErr := os.ReadFile(logPath); readErr == nil && len(strings.TrimSpace(string(body))) > 0 {
+				t.Errorf("refusing %q invoked %s first; the refusal is behind work that a refused run must not do",
+					op, strings.Join(strings.Fields(string(body)), " "))
 			}
 		})
 	}
