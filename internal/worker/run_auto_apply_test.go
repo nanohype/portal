@@ -33,7 +33,7 @@ func (s *stubFinishes) UpdateRunFinished(_ context.Context, arg repository.Updat
 	return repository.Run{ID: arg.ID, Status: arg.Status}, nil
 }
 
-func withdraw(t *testing.T, finishes *stubFinishes) (*stubFinishes, string, string) {
+func withdraw(t *testing.T, finishes *stubFinishes, notices ...string) (*stubFinishes, string, string) {
 	t.Helper()
 	var buf strings.Builder
 	w := &RunJobWorker{finishes: finishes, streamer: logstream.NewMemoryStreamer()}
@@ -44,7 +44,7 @@ func withdraw(t *testing.T, finishes *stubFinishes) (*stubFinishes, string, stri
 			Output:         "Plan: 3 to add, 1 to change, 0 to destroy.",
 			ResourcesAdded: added, ResourcesChanged: changed, ResourcesDeleted: deleted,
 		},
-		errors.New("connection reset by peer"), capture(&buf))
+		errors.New("connection reset by peer"), notices, capture(&buf))
 	return finishes, settled, buf.String()
 }
 
@@ -288,5 +288,30 @@ func TestRunJobPublishesTheWithdrawalToAnOpenStream(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(stream.published, "\n"), "not enqueued") {
 		t.Errorf("no watcher was told the apply is not coming; published lines were:\n%s", strings.Join(stream.published, "\n"))
+	}
+}
+
+// The withdrawal replaces the run's message field rather than adding to it, so
+// what the finish write already put there is carried across or it is lost. A plan
+// whose diff could not be stored on a workspace that auto-applies reaches both:
+// the diff notice is written at the finish, and the withdrawal rewrites the row.
+// An operator reading the run has to be told both — that the apply must be
+// started by hand, and that the Changes tab has nothing in it.
+func TestWithdrawAutoApplyPromise_CarriesTheNoticesAlreadyOnTheRun(t *testing.T) {
+	earlier := missingDiffNotice(errors.New("503 SlowDown"))
+	finishes, _, _ := withdraw(t, &stubFinishes{}, earlier)
+
+	if len(finishes.finished) != 1 {
+		t.Fatalf("the run was settled %d times, want once", len(finishes.finished))
+	}
+	got := finishes.finished[0]
+	if got.ErrorMessage == nil {
+		t.Fatal("the run carries no message at all")
+	}
+	if !strings.Contains(*got.ErrorMessage, "no machine-readable diff was recorded") {
+		t.Errorf("the withdrawal dropped the notice the finish write had already put on the run:\n%s", *got.ErrorMessage)
+	}
+	if !strings.Contains(*got.ErrorMessage, "auto-apply") && !strings.Contains(*got.ErrorMessage, "by hand") {
+		t.Errorf("the withdrawal did not say its own half:\n%s", *got.ErrorMessage)
 	}
 }

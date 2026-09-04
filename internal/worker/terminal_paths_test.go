@@ -200,7 +200,7 @@ func TestWithdrawAutoApplyPromise_PublishesToAnOpenStream(t *testing.T) {
 	added, changed, deleted := int32(3), int32(1), int32(0)
 	w.withdrawAutoApplyPromise(context.Background(), failedRunArgs(),
 		&executor.ExecuteResult{Output: "Plan: 3 to add", ResourcesAdded: added, ResourcesChanged: changed, ResourcesDeleted: deleted},
-		errors.New("connection reset by peer"), capture(&buf))
+		errors.New("connection reset by peer"), nil, capture(&buf))
 
 	if len(stream.published) == 0 {
 		t.Fatal("the notice was not published at all")
@@ -229,7 +229,7 @@ func settleAutoApply(t *testing.T, st *stubPipelines) (*stubPipelines, *stubFini
 	var buf strings.Builder
 	if err := w.settleFinishedRun(context.Background(), failedRunArgs(),
 		&executor.ExecuteResult{Output: "Plan: 3 to add", ResourcesAdded: added, ResourcesChanged: changed, ResourcesDeleted: deleted},
-		"queued", capture(&buf)); err != nil {
+		"queued", nil, capture(&buf)); err != nil {
 		t.Fatalf("settleFinishedRun: %v", err)
 	}
 	return st, fin, stream
@@ -277,7 +277,7 @@ func TestSettleFinishedRun_AdvancesAtTheStatusItArrivedWith(t *testing.T) {
 
 	var buf strings.Builder
 	if err := w.settleFinishedRun(context.Background(), failedRunArgs(),
-		&executor.ExecuteResult{Output: "applied"}, "applied", capture(&buf)); err != nil {
+		&executor.ExecuteResult{Output: "applied"}, "applied", nil, capture(&buf)); err != nil {
 		t.Fatalf("settleFinishedRun: %v", err)
 	}
 	if len(st.finishedStage) == 0 || st.finishedStage[0] != "completed" {

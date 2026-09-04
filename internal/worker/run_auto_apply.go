@@ -70,8 +70,14 @@ func (w *RunJobWorker) enqueueAutoApply(ctx context.Context, args RunJobArgs) er
 // not hold — the advancer then takes its queued arm, which is a deliberate no-op
 // resting on an apply being on its way, and leaves the stage running behind a
 // run that will never move again.
-func (w *RunJobWorker) withdrawAutoApplyPromise(ctx context.Context, args RunJobArgs, result *executor.ExecuteResult, cause error, logger *slog.Logger) string {
+func (w *RunJobWorker) withdrawAutoApplyPromise(ctx context.Context, args RunJobArgs, result *executor.ExecuteResult, cause error, notices []string, logger *slog.Logger) string {
 	notice := autoApplyNotice(cause)
+
+	// This write replaces the run's message field rather than adding to it, so
+	// anything the finish write already put there has to be carried across or it
+	// is gone. Only this notice is published: the others reached the stream when
+	// they were written.
+	carried := joinRunNotices(append(append([]string{}, notices...), notice))
 
 	// The job context may already be cancelled; this write is what stops the run
 	// claiming an apply that is not coming, so it gets a context of its own.
@@ -82,7 +88,7 @@ func (w *RunJobWorker) withdrawAutoApplyPromise(ctx context.Context, args RunJob
 		ID:               args.RunID,
 		Status:           "planned",
 		PlanOutput:       &result.Output,
-		ErrorMessage:     &notice,
+		ErrorMessage:     carried,
 		ResourcesAdded:   &result.ResourcesAdded,
 		ResourcesChanged: &result.ResourcesChanged,
 		ResourcesDeleted: &result.ResourcesDeleted,

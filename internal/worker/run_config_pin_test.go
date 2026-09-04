@@ -6,6 +6,7 @@ import (
 
 	"github.com/riverqueue/river"
 
+	"github.com/nanohype/portal/internal/config"
 	"github.com/nanohype/portal/internal/logstream"
 	"github.com/nanohype/portal/internal/repository"
 	"github.com/nanohype/portal/internal/worker/executor"
@@ -22,17 +23,32 @@ type recordingExecutor struct {
 	// commit the run actually ran. Empty means the executor resolved nothing,
 	// which is what an upload-source run looks like.
 	resolvedCommit string
+
+	// omitPlanJSON reproduces a plan whose JSON diff was never generated —
+	// `tofu show -json` failing, or an executor with no branch that produces
+	// one.
+	omitPlanJSON bool
 }
 
 func (e *recordingExecutor) Execute(_ context.Context, params executor.ExecuteParams) (*executor.ExecuteResult, error) {
 	e.params = params
 	e.called = true
 	params.LogCallback([]byte("recorded\n"))
-	return &executor.ExecuteResult{Output: "recorded", CommitSHA: e.resolvedCommit}, nil
+	result := &executor.ExecuteResult{Output: "recorded", CommitSHA: e.resolvedCommit}
+	// A plan produces a JSON plan and the other operations do not, which is what
+	// the executors do (`tofu show -json planfile`, plan only). A run parked for
+	// approval without one is refused, so a stub that never produced one could
+	// not reach awaiting_approval at all.
+	if params.Operation == "plan" && !e.omitPlanJSON {
+		result.PlanJSON = []byte(`{"format_version":"1.2","resource_changes":[]}`)
+	}
+	return result, nil
 }
 
 func newTestRunWorker(exec executor.Executor) *RunJobWorker {
-	return NewRunJobWorker(testQueries, exec, logstream.NewMemoryStreamer(), nil, nil)
+	// An empty S3Endpoint: the test worker has no object store, and it is not
+	// pretending to be an instance that lost one.
+	return NewRunJobWorker(testQueries, exec, logstream.NewMemoryStreamer(), nil, &config.Config{}, nil)
 }
 
 // The apply that follows an approval is a fresh execution — a new checkout, a
