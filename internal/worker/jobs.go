@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
+	"github.com/nanohype/portal/internal/config"
 	"github.com/nanohype/portal/internal/logstream"
 	"github.com/nanohype/portal/internal/metrics"
 	"github.com/nanohype/portal/internal/repository"
@@ -73,17 +74,19 @@ type runStatusStore interface {
 
 type RunJobWorker struct {
 	river.WorkerDefaults[RunJobArgs]
-	queries     *repository.Queries
-	pipelines   pipelineAdvanceStore
-	variables   runVariableStore
-	states      stateVersionStore
-	runs        runStatusStore
-	executor    executor.Executor
-	streamer    logstream.Streamer
-	storage     runBlobStore       // nil in dev without MinIO
-	encryptor   *secrets.Encryptor // nil if encryption not configured
-	riverClient *river.Client[pgx.Tx]
-	db          *pgxpool.Pool
+	queries       *repository.Queries
+	pipelines     pipelineAdvanceStore
+	variables     runVariableStore
+	states        stateVersionStore
+	plans         planDiffStore
+	runs          runStatusStore
+	executor      executor.Executor
+	streamer      logstream.Streamer
+	storage       runBlobStore       // nil when object storage did not reach this worker
+	storageIntent StorageIntent      // whether this instance is configured to have any
+	encryptor     *secrets.Encryptor // nil if encryption not configured
+	riverClient   *river.Client[pgx.Tx]
+	db            *pgxpool.Pool
 }
 
 // Timeout returns the maximum duration a run job can execute before River cancels it.
@@ -91,16 +94,22 @@ func (w *RunJobWorker) Timeout(*river.Job[RunJobArgs]) time.Duration {
 	return 2 * time.Hour
 }
 
-func NewRunJobWorker(queries *repository.Queries, exec executor.Executor, streamer logstream.Streamer, store *storage.S3Storage, encryptor *secrets.Encryptor) *RunJobWorker {
+// NewRunJobWorker builds the worker from the configuration the process was
+// started with. The storage intent is derived here rather than passed in, so a
+// binary wiring this worker has no intent to spell: whatever it configured for
+// object storage is what the run path reads.
+func NewRunJobWorker(queries *repository.Queries, exec executor.Executor, streamer logstream.Streamer, store *storage.S3Storage, cfg *config.Config, encryptor *secrets.Encryptor) *RunJobWorker {
 	w := &RunJobWorker{
-		pipelines: queries,
-		variables: queries,
-		states:    queries,
-		runs:      queries,
-		queries:   queries,
-		executor:  exec,
-		streamer:  streamer,
-		encryptor: encryptor,
+		pipelines:     queries,
+		variables:     queries,
+		states:        queries,
+		plans:         queries,
+		runs:          queries,
+		queries:       queries,
+		executor:      exec,
+		streamer:      streamer,
+		encryptor:     encryptor,
+		storageIntent: StorageIntentFor(cfg.S3Endpoint),
 	}
 	// A nil *storage.S3Storage placed in an interface field is not a nil
 	// interface: every `w.storage != nil` on the run path would be true and the
@@ -429,17 +438,28 @@ func (w *RunJobWorker) Work(ctx context.Context, job *river.Job[RunJobArgs]) err
 		}
 	}
 
-	// Upload JSON plan to S3 if available
-	if len(result.PlanJSON) > 0 && w.storage != nil {
-		planJSONURL, err := w.storage.PutPlanJSON(ctx, args.RunID, result.PlanJSON)
-		if err != nil {
-			logger.Error("failed to upload plan JSON", "error", err)
-		} else {
-			if err := w.queries.UpdateRunPlanJSONURL(ctx, repository.UpdateRunPlanJSONURLParams{
-				ID: args.RunID, PlanJSONURL: planJSONURL,
-			}); err != nil {
-				logger.Error("failed to update run plan JSON URL", "error", err)
-			}
+	// The machine-readable diff, and the gate on approving without one.
+	//
+	// An approval authorises an apply against this run row, and the diff is the
+	// artefact it is granted against. A run parked at awaiting_approval with no
+	// plan_json_url hides the Changes tab and makes the plan-json endpoint
+	// refuse, so the admin is asked to sign off on changes nothing can show
+	// them — while the plan text still on the run makes it look complete.
+	//
+	// This is the same rule the commit pin above takes, for the same reason: a
+	// failure that only matters because an apply will follow off this row fails
+	// the run, and otherwise is reported on it.
+	var runNotices []string
+	if diffErr := w.recordPlanDiff(ctx, args, result.PlanJSON); diffErr != nil {
+		if missingDiffBlocksApproval(args.Operation, finalStatus, diffErr) {
+			return w.failRun(ctx, args, logger,
+				fmt.Errorf("refusing to park this run for approval: %w. "+
+					"An approval authorises an apply against this run, and there is no diff to approve", diffErr),
+				logBuf.String())
+		}
+		if reportsMissingDiff(args.Operation, diffErr) {
+			logger.Error("the plan diff was not recorded", "error", diffErr)
+			runNotices = append(runNotices, missingDiffNotice(diffErr))
 		}
 	}
 
@@ -454,7 +474,6 @@ func (w *RunJobWorker) Work(ctx context.Context, job *river.Job[RunJobArgs]) err
 	// would deny that anything changed, and succeeding silently denies that
 	// anything was lost.
 	summary := fmt.Sprintf("+%d ~%d -%d", result.ResourcesAdded, result.ResourcesChanged, result.ResourcesDeleted)
-	var stateRecordErr *string
 	if outcome := (stateOutcome{
 		StateFile:       result.StateFile,
 		StateJSON:       result.StateJSON,
@@ -463,20 +482,23 @@ func (w *RunJobWorker) Work(ctx context.Context, job *river.Job[RunJobArgs]) err
 	}); outcome.producedState() {
 		if recErr := w.recordStateVersion(ctx, args, outcome); recErr != nil {
 			logger.Error("failed to record the state this run produced", "error", recErr)
-			if mutatesInfrastructure(args.Operation) {
-				msg := stateRecordFailure(args.Operation, summary, recErr)
-				stateRecordErr = &msg
+			if mutatesInfrastructure(args.Operation) && !errors.Is(recErr, errNoArtifactStorage) {
+				runNotices = append(runNotices, stateRecordFailure(args.Operation, summary, recErr))
 			}
 		}
 	} else if mutatesInfrastructure(args.Operation) {
 		// An apply, destroy or import that captured no state at all. The
 		// executors read terraform.tfstate and `state pull` behind `err == nil`
 		// guards, so a capture that failed arrives here as absence.
-		msg := stateRecordFailure(args.Operation, summary,
-			errors.New("the executor captured neither a state file nor a state pull, so there was nothing to record"))
 		logger.Error("a mutating run produced no state", "operation", args.Operation)
-		stateRecordErr = &msg
+		runNotices = append(runNotices, stateRecordFailure(args.Operation, summary,
+			errors.New("the executor captured neither a state file nor a state pull, so there was nothing to record")))
 	}
+
+	// Everything the run finished with that an operator has to be told. The run
+	// row is the only durable surface for it: the status says the operation
+	// happened and these say what did not survive it.
+	notice := joinRunNotices(runNotices)
 
 	// Check if run was cancelled while we were executing
 	if w.isRunCancelled(ctx, args.RunID, args.OrgID) {
@@ -495,7 +517,7 @@ func (w *RunJobWorker) Work(ctx context.Context, job *river.Job[RunJobArgs]) err
 		ID:               args.RunID,
 		Status:           finalStatus,
 		PlanOutput:       &result.Output,
-		ErrorMessage:     stateRecordErr,
+		ErrorMessage:     notice,
 		ResourcesAdded:   &result.ResourcesAdded,
 		ResourcesChanged: &result.ResourcesChanged,
 		ResourcesDeleted: &result.ResourcesDeleted,
@@ -504,8 +526,8 @@ func (w *RunJobWorker) Work(ctx context.Context, job *river.Job[RunJobArgs]) err
 	}
 
 	// The run row is the durable half. A watcher still attached sees it too.
-	if stateRecordErr != nil {
-		w.streamer.Publish(args.RunID, []byte("\r\n\033[31m"+*stateRecordErr+"\033[0m\r\n"))
+	if notice != nil {
+		w.streamer.Publish(args.RunID, []byte("\r\n\033[31m"+*notice+"\033[0m\r\n"))
 	}
 
 	w.streamer.Publish(args.RunID, []byte(fmt.Sprintf("\r\n\033[32mRun completed successfully at %s\033[0m\r\n", time.Now().Format(time.RFC3339))))

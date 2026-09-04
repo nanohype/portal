@@ -107,3 +107,19 @@ type ExecuteResult struct {
 type Executor interface {
 	Execute(ctx context.Context, params ExecuteParams) (*ExecuteResult, error)
 }
+
+// planFilePath is where a plan writes the binary plan file it is later shown
+// from, named absolutely.
+//
+// A relative -out is resolved against the process's working directory, and for
+// terragrunt that is not the leaf: terragrunt renders the module into
+// .terragrunt-cache and runs tofu there, so `-out=planfile` lands in the cache
+// directory while `show` at the leaf finds nothing. The whole JSON plan
+// disappears for every terragrunt workspace, and with it the diff an approval
+// is granted against.
+//
+// An absolute path is the same file whichever directory the wrapper runs tofu
+// in, so both wrappers write and read one place.
+func planFilePath(workDir string) string {
+	return filepath.Join(workDir, "planfile")
+}

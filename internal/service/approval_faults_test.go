@@ -156,8 +156,15 @@ func approvalWithFaults(tx *fakeApprovalTx, beginErr error) (*ApprovalService, *
 	}, h
 }
 
+// plannedRun carries a plan diff, because an approvable run in production does.
+// An approval is granted against that diff and is refused without one, so a run
+// row without it is not an approvable run — it is the case
+// TestApprovalCreate_RefusesAnApprovalWithNoDiff covers.
 func plannedRun() repository.Run {
-	return repository.Run{ID: "run_1", Status: "planned", WorkspaceID: "ws_1", OrgID: "org_1"}
+	return repository.Run{
+		ID: "run_1", Status: "planned", WorkspaceID: "ws_1", OrgID: "org_1",
+		PlanJSONURL: "plans/run_1/plan.json",
+	}
 }
 
 func approve(s *ApprovalService) (repository.Approval, error) {
@@ -383,5 +390,91 @@ func TestApprovalCreate_ApprovalDoesNotReleaseTheSlotItJustClaimed(t *testing.T)
 	}
 	if len(handoff.calls) != 0 {
 		t.Errorf("an approved run released its workspace slot: %v", handoff.calls)
+	}
+}
+
+// An approval authorises an apply against a run, and the plan diff is the
+// artefact it is granted against. With plan_json_url empty the Changes tab is
+// hidden and the plan-json endpoint answers 404, so the signature would cover
+// changes nothing could show the signer.
+//
+// Both approvable statuses are covered: the worker refuses to park a run at
+// awaiting_approval without a diff, but "planned" reaches here by another route
+// and the UI offers Approve & Apply on it too.
+func TestApprovalCreate_RefusesAnApprovalWithNoDiff(t *testing.T) {
+	for _, status := range []string{"planned", "awaiting_approval"} {
+		t.Run(status, func(t *testing.T) {
+			run := plannedRun()
+			run.Status = status
+			run.PlanJSONURL = ""
+			tx := &fakeApprovalTx{run: run}
+			svc, _ := approvalWithFaults(tx, nil)
+
+			_, err := approve(svc)
+			if err == nil {
+				t.Fatal("a run with no diff was approved; the signature would cover changes nothing can show the signer")
+			}
+			if apperr.KindOf(err) != apperr.KindConflict {
+				t.Errorf("kind = %v, want Conflict", apperr.KindOf(err))
+			}
+			if !strings.Contains(err.Error(), "no diff to approve") {
+				t.Errorf("the refusal does not say what is missing: %v", err)
+			}
+			if tx.committed {
+				t.Error("committed an approval granted against no diff")
+			}
+		})
+	}
+}
+
+// A rejection authorises nothing, so it is not gated on a diff. Refusing it
+// would leave a run with no diff impossible to clear.
+func TestApprovalCreate_AllowsARejectionWithNoDiff(t *testing.T) {
+	run := plannedRun()
+	run.PlanJSONURL = ""
+	tx := &fakeApprovalTx{run: run}
+	svc, _ := approvalWithFaults(tx, nil)
+
+	if _, err := svc.Create(context.Background(), "run_1", "ws_1", "org_1", "user_1", "rejected", "no", "127.0.0.1", "test"); err != nil {
+		t.Fatalf("a rejection was refused for want of a diff: %v", err)
+	}
+	if !tx.committed {
+		t.Error("a valid rejection did not commit")
+	}
+}
+
+// An instance with no object storage configured has no run that can carry a
+// diff. Gating there would make every approval impossible rather than make any
+// of them safer, and it is the one absence portal declares rather than suffers.
+func TestApprovalCreate_ExemptsAnInstanceThatStoresNoArtifacts(t *testing.T) {
+	run := plannedRun()
+	run.PlanJSONURL = ""
+	tx := &fakeApprovalTx{run: run}
+	svc, _ := approvalWithFaults(tx, nil)
+	svc.SetArtifactStorageAbsent(true)
+
+	if _, err := approve(svc); err != nil {
+		t.Fatalf("an approval on an instance that stores no artifacts was refused: %v", err)
+	}
+	if !tx.committed {
+		t.Error("the approval did not commit")
+	}
+}
+
+// The exemption must be off by default, and the default is what the production
+// constructor produces: forgetting to wire SetArtifactStorageAbsent has to cost
+// an approval that gets re-planned, not admit one granted against nothing.
+func TestApprovalCreate_GatesByDefault(t *testing.T) {
+	built := NewApprovalService(nil, nil, nil)
+	if built.artifactStorageAbsent {
+		t.Fatal("a freshly built approval service exempts itself from the diff gate, so an instance that never calls SetArtifactStorageAbsent admits approvals granted against nothing")
+	}
+
+	// And the default reaches the decision.
+	run := plannedRun()
+	run.PlanJSONURL = ""
+	svc, _ := approvalWithFaults(&fakeApprovalTx{run: run}, nil)
+	if _, err := approve(svc); err == nil {
+		t.Error("a service that was never told about storage admitted an approval with no diff")
 	}
 }

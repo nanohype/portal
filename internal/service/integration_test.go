@@ -159,10 +159,17 @@ func seedWorkspace(t *testing.T, ctx context.Context, orgID, userID string) stri
 
 // seedPlannedRun creates a run in the "planned" status — the state a run is in
 // when it's awaiting an apply approval.
+//
+// It carries a plan_json_url, because an approvable run does: an approval is
+// granted against the machine-readable plan and is refused without one. A run
+// row without it is not an approvable run, and seeding one that way makes every
+// approval test exercise a case production refuses.
 func seedPlannedRun(t *testing.T, ctx context.Context, wsID, orgID, userID string) string {
 	t.Helper()
 	runID := id()
-	exec(t, ctx, `INSERT INTO runs (id,workspace_id,org_id,operation,status,created_by) VALUES ($1,$2,$3,'apply','planned',$4)`, runID, wsID, orgID, userID)
+	exec(t, ctx, `INSERT INTO runs (id,workspace_id,org_id,operation,status,created_by,plan_json_url)
+	              VALUES ($1,$2,$3,'apply','planned',$4,$5)`,
+		runID, wsID, orgID, userID, "plans/"+runID+"/plan.json")
 	return runID
 }
 

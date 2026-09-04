@@ -309,7 +309,7 @@ func (e *LocalExecutor) Execute(ctx context.Context, params ExecuteParams) (*Exe
 		return result, nil
 
 	case "plan":
-		tfArgs = []string{"plan", "-no-color", "-detailed-exitcode", "-out=planfile"}
+		tfArgs = []string{"plan", "-no-color", "-detailed-exitcode", "-out=" + planFilePath(tfDir)}
 		if e.hasVarFile(tfDir) {
 			tfArgs = append(tfArgs, "-var-file=portal.auto.tfvars")
 		}
@@ -358,11 +358,16 @@ func (e *LocalExecutor) Execute(ctx context.Context, params ExecuteParams) (*Exe
 
 	result.Output = output
 
-	// Generate JSON plan from planfile (plan operation only)
+	// Generate JSON plan from the plan file (plan operation only).
+	//
+	// Both the -out above and the show here name the file by absolute path —
+	// see planFilePath. `show` still runs at the leaf, which is where
+	// terragrunt expects to be invoked from; only the file it is pointed at is
+	// absolute.
 	if params.Operation == "plan" {
-		planfilePath := filepath.Join(tfDir, "planfile")
+		planfilePath := planFilePath(tfDir)
 		if _, statErr := os.Stat(planfilePath); statErr == nil {
-			jsonCmd := exec.CommandContext(ctx, binary, "show", "-json", "planfile")
+			jsonCmd := exec.CommandContext(ctx, binary, "show", "-json", planfilePath)
 			jsonCmd.Dir = tfDir
 			jsonCmd.Env = env
 			if jsonOut, jsonErr := jsonCmd.Output(); jsonErr == nil {
@@ -370,6 +375,8 @@ func (e *LocalExecutor) Execute(ctx context.Context, params ExecuteParams) (*Exe
 			} else {
 				logger.Warn("failed to generate JSON plan", "error", jsonErr)
 			}
+		} else {
+			logger.Warn("no plan file was written, so this run has no JSON plan", "path", planfilePath)
 		}
 	}
 

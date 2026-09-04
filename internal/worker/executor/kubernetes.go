@@ -320,10 +320,16 @@ func operationScript(params ExecuteParams) (string, error) {
 		sb.WriteString("./smoke-test.sh\n")
 	case "plan":
 		sb.WriteString("echo \"\\$ $BIN plan\"\n")
+		// The plan file is named by absolute path. A relative -out is resolved
+		// against tofu's working directory, and terragrunt runs tofu inside its
+		// rendered .terragrunt-cache directory — so `-out=planfile` lands there
+		// while the `[ -f planfile ]` test below runs at the leaf and finds
+		// nothing. Every terragrunt plan would produce no JSON plan at all.
+		sb.WriteString("PLANFILE=\"$PWD/planfile\"\n")
 		// -detailed-exitcode: 0=no changes, 1=error, 2=changes detected
 		// Capture exit code explicitly — only fail on exit 1 (error)
 		sb.WriteString("set +e\n")
-		sb.WriteString("$BIN plan -no-color -detailed-exitcode -out=planfile $VAR_FILE\n")
+		sb.WriteString("$BIN plan -no-color -detailed-exitcode -out=\"$PLANFILE\" $VAR_FILE\n")
 		sb.WriteString("PLAN_EXIT=$?\n")
 		sb.WriteString("set -e\n")
 		// -detailed-exitcode defines 0 and 2 and nothing else, so every other
@@ -335,10 +341,12 @@ func operationScript(params ExecuteParams) (string, error) {
 		sb.WriteString("  exit 1\n")
 		sb.WriteString("fi\n")
 		sb.WriteString("\n# JSON plan, framed — see framing.go.\n")
-		sb.WriteString("if [ -f planfile ]; then\n")
+		sb.WriteString("if [ -f \"$PLANFILE\" ]; then\n")
 		sb.WriteString(frameFor(framedPlanJSON).open())
-		sb.WriteString("$BIN show -json planfile\n")
+		sb.WriteString("$BIN show -json \"$PLANFILE\"\n")
 		sb.WriteString(frameFor(framedPlanJSON).close())
+		sb.WriteString("else\n")
+		sb.WriteString("  echo 'No plan file was written, so this run has no JSON plan.'\n")
 		sb.WriteString("fi\n")
 	case "apply":
 		sb.WriteString("echo \"\\$ $BIN apply\"\n")
