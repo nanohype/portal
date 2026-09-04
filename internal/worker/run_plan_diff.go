@@ -58,8 +58,8 @@ func (w *RunJobWorker) recordPlanDiff(ctx context.Context, args RunJobArgs, plan
 // fail rather than park.
 //
 // An instance with no object storage is excluded, because it stores no artefact
-// for any run: the plan-json endpoint answers 503 "storage not configured" there
-// whatever the run did (internal/handler/run.go). Refusing on that would make
+// for any run: no run there can carry a diff, so a refusal or a notice would land
+// on every run and name nothing its operator can act on. Refusing would also make
 // every approval-gated workspace unusable on an instance that has chosen not to
 // persist artefacts, which is a supported configuration rather than a fault.
 //
@@ -113,11 +113,11 @@ func joinRunNotices(notices []string) *string {
 // artefacts at all.
 //
 // It marks the one absence that is a declared shape rather than a fault. Portal
-// supports running with no object storage, and says so where the diff is read:
-// the plan-json endpoint answers 503 "storage not configured"
-// (internal/handler/run.go). No run on such an instance can carry a diff, so
-// refusing or annotating each one would put a line on every run that its
-// operator cannot act on.
+// supports running with no object storage. No run on such an instance can carry
+// a diff, so refusing or annotating each one would put a line on every run that
+// its operator cannot act on. The plan-json endpoint answers 404 "no plan JSON
+// available" for those runs, on the empty plan_json_url and before it reaches
+// its own storage check (internal/handler/run.go).
 //
 // It is deliberately not returned when object storage is configured and absent.
 // cmd/worker/main.go leaves the store nil on that arm too — on purpose, so an
@@ -147,9 +147,14 @@ const (
 	StorageConfigured StorageIntent = true
 )
 
-// StorageIntentFor reads the intent off the setting that decides it. One rule,
-// so the worker and the approval gate cannot disagree about which instance they
-// are running on.
+// StorageIntentFor reads the intent off the setting that decides it. The worker
+// and the approval gate run in separate processes and each reads this function
+// once at wiring: the server in setupRouter, the worker in NewRunJobWorker, which
+// derives it from the config rather than accepting one so the worker binary has
+// no intent to state. Each of those two readings is held by a test that fails
+// when it stops tracking S3Endpoint, which is what keeps the two agreeing —
+// being one function is not on its own enough, since two callers can read one
+// rule and pass different answers on.
 func StorageIntentFor(s3Endpoint string) StorageIntent {
 	return StorageIntent(s3Endpoint != "")
 }

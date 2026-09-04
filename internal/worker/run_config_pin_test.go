@@ -6,6 +6,7 @@ import (
 
 	"github.com/riverqueue/river"
 
+	"github.com/nanohype/portal/internal/config"
 	"github.com/nanohype/portal/internal/logstream"
 	"github.com/nanohype/portal/internal/repository"
 	"github.com/nanohype/portal/internal/worker/executor"
@@ -45,9 +46,9 @@ func (e *recordingExecutor) Execute(_ context.Context, params executor.ExecutePa
 }
 
 func newTestRunWorker(exec executor.Executor) *RunJobWorker {
-	// StorageNotConfigured: the test worker has no object store, and it is not
+	// An empty S3Endpoint: the test worker has no object store, and it is not
 	// pretending to be an instance that lost one.
-	return NewRunJobWorker(testQueries, exec, logstream.NewMemoryStreamer(), nil, StorageNotConfigured, nil)
+	return NewRunJobWorker(testQueries, exec, logstream.NewMemoryStreamer(), nil, &config.Config{}, nil)
 }
 
 // The apply that follows an approval is a fresh execution — a new checkout, a

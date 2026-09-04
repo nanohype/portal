@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
+	"github.com/nanohype/portal/internal/config"
 	"github.com/nanohype/portal/internal/logstream"
 	"github.com/nanohype/portal/internal/metrics"
 	"github.com/nanohype/portal/internal/repository"
@@ -93,7 +94,11 @@ func (w *RunJobWorker) Timeout(*river.Job[RunJobArgs]) time.Duration {
 	return 2 * time.Hour
 }
 
-func NewRunJobWorker(queries *repository.Queries, exec executor.Executor, streamer logstream.Streamer, store *storage.S3Storage, intent StorageIntent, encryptor *secrets.Encryptor) *RunJobWorker {
+// NewRunJobWorker builds the worker from the configuration the process was
+// started with. The storage intent is derived here rather than passed in, so a
+// binary wiring this worker has no intent to spell: whatever it configured for
+// object storage is what the run path reads.
+func NewRunJobWorker(queries *repository.Queries, exec executor.Executor, streamer logstream.Streamer, store *storage.S3Storage, cfg *config.Config, encryptor *secrets.Encryptor) *RunJobWorker {
 	w := &RunJobWorker{
 		pipelines:     queries,
 		variables:     queries,
@@ -104,7 +109,7 @@ func NewRunJobWorker(queries *repository.Queries, exec executor.Executor, stream
 		executor:      exec,
 		streamer:      streamer,
 		encryptor:     encryptor,
-		storageIntent: intent,
+		storageIntent: StorageIntentFor(cfg.S3Endpoint),
 	}
 	// A nil *storage.S3Storage placed in an interface field is not a nil
 	// interface: every `w.storage != nil` on the run path would be true and the

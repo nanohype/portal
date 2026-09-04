@@ -8,6 +8,8 @@ import (
 
 	"github.com/riverqueue/river"
 
+	"github.com/nanohype/portal/internal/config"
+	"github.com/nanohype/portal/internal/logstream"
 	"github.com/nanohype/portal/internal/repository"
 )
 
@@ -381,10 +383,11 @@ func TestRunNotices_ProducersAreDisjointByOperation(t *testing.T) {
 	}
 }
 
-// The rule that decides which instance this is. It lives in one function
-// because the worker's notices and the approval gate both key on it, and an
-// instance where those two disagree either refuses every approval or exempts a
-// broken one.
+// The rule that decides which instance this is. The worker's notices and the
+// approval gate both key on it, and an instance where those two disagree either
+// refuses every approval or exempts a broken one. This holds the rule itself;
+// the two tests below hold each process's reading of it, because a rule with one
+// spelling is only shared for as long as both sides keep reading it.
 func TestStorageIntentFor_ReadsTheSettingThatDecidesIt(t *testing.T) {
 	if got := StorageIntentFor(""); got != StorageNotConfigured {
 		t.Errorf("StorageIntentFor(\"\") = %v, want StorageNotConfigured", got)
@@ -393,5 +396,32 @@ func TestStorageIntentFor_ReadsTheSettingThatDecidesIt(t *testing.T) {
 		if got := StorageIntentFor(endpoint); got != StorageConfigured {
 			t.Errorf("StorageIntentFor(%q) = %v, want StorageConfigured; a configured endpoint whose store is absent must not be exempt", endpoint, got)
 		}
+	}
+}
+
+// The worker process's reading. NewRunJobWorker derives the intent from the
+// configuration it is handed rather than accepting one, so cmd/worker/main.go
+// has no intent to state and cannot state one that disagrees with the endpoint
+// it configured. Pinning an intent inside this constructor is what this fails
+// on: a worker built with no endpoint that reports StorageConfigured fails every
+// approval-gated plan run with "refusing to park this run for approval" on an
+// instance the approval gate is exempting.
+func TestNewRunJobWorker_ReadsTheIntentOffTheConfigItIsBuiltFrom(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		endpoint string
+		want     StorageIntent
+	}{
+		{"no endpoint configured", "", StorageNotConfigured},
+		{"an endpoint configured", "http://minio:9000", StorageConfigured},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := NewRunJobWorker(nil, nil, logstream.NewMemoryStreamer(), nil,
+				&config.Config{S3Endpoint: tc.endpoint}, nil)
+			if w.storageIntent != tc.want {
+				t.Errorf("storageIntent = %v, want %v; the worker read something other than S3Endpoint=%q",
+					w.storageIntent, tc.want, tc.endpoint)
+			}
+		})
 	}
 }
