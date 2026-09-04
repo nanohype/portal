@@ -58,6 +58,20 @@ jobs:
       # bytes beside it. Same pinned-ref reading as above.
       - name: Tenant CRD schema pin fidelity
         run: scripts/crd.sh check
+      # The licence is stated in more than one artifact — a grant file, a prose
+      # section, any package manifest carrying the field — and they drift
+      # independently. This asks each what it declares and requires the answers
+      # to agree, over a population derived from the tree rather than a list of
+      # filenames: a manifest added anywhere is in scope the moment it exists.
+      - name: One licence across the tree
+        run: scripts/licence.py
+      # And the same question the chart assertions answer: a gate that passes on
+      # a clean tree has shown nothing until it is watched to reject. Each case
+      # plants one disagreement and requires the offending file to be named;
+      # the third adds a manifest this gate was never told about, which a
+      # population written as a list would not see.
+      - name: Licence assertions catch what they claim to
+        run: scripts/licence.py selftest
       # Fail the build on a known CVE in a Go dependency or the stdlib — the
       # supply-chain gate that catches what Dependabot would only flag later.
       # Pinned scanner version; CVE data is still fetched live from vuln.go.dev.
