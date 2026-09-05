@@ -268,7 +268,7 @@ tasks:
       - scripts/crd.sh check
 
   crd:sync:
-    desc: "Re-vendor the tenant CRD schemas, optionally moving the pin (usage: task crd:sync -- <sha>)"
+    desc: "Re-vendor the tenant CRD schemas, optionally moving the pin (usage: task crd:sync -- <sha>|latest)"
     cmds:
       - scripts/crd.sh sync {{.CLI_ARGS}}
       - go test ./internal/tenantmanifest/
@@ -284,7 +284,7 @@ tasks:
       - scripts/xrd.sh check
 
   xrd:sync:
-    desc: "Re-vendor the Cluster XRD, optionally moving the pin (usage: task xrd:sync -- <sha>)"
+    desc: "Re-vendor the Cluster XRD, optionally moving the pin (usage: task xrd:sync -- <sha>|latest)"
     cmds:
       - scripts/xrd.sh sync {{.CLI_ARGS}}
       - go test ./internal/clusterspec/

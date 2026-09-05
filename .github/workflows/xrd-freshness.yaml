@@ -96,7 +96,7 @@ jobs:
           Re-vendor and re-run the render tests:
 
           \`\`\`
-          task xrd:sync -- <sha>
+          task xrd:sync -- latest
           go test ./internal/clusterspec/
           \`\`\`
 

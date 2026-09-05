@@ -97,7 +97,7 @@ jobs:
           Re-vendor and re-run the schema tests:
 
           \`\`\`
-          task crd:sync -- <sha>
+          task crd:sync -- latest
           go test ./internal/tenantmanifest/
           \`\`\`
 
