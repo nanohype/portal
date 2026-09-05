@@ -72,6 +72,13 @@ jobs:
       # population written as a list would not see.
       - name: Licence assertions catch what they claim to
         run: scripts/licence.py selftest
+      # The freshness reports are copied verbatim into an issue body that is
+      # re-edited weekly and read on whatever day someone opens it, so a commit id
+      # printed there is presented as current long after it stops being. This runs
+      # both reports against a real upstream repository and requires them to name a
+      # command that resolves HEAD rather than a commit that cannot.
+      - name: Freshness reports name a command, not a commit
+        run: scripts/freshness_test.sh
       # Fail the build on a known CVE in a Go dependency or the stdlib — the
       # supply-chain gate that catches what Dependabot would only flag later.
       # Pinned scanner version; CVE data is still fetched live from vuln.go.dev.

@@ -4,7 +4,7 @@
 # tenant manifest against, and verify the vendored copies against upstream at the
 # pinned ref.
 #
-#   scripts/crd.sh sync [<sha>]   # re-vendor (optionally moving the pin) + rewrite the digests
+#   scripts/crd.sh sync [<sha>|latest]   # re-vendor (optionally moving the pin) + rewrite the digests
 #   scripts/crd.sh check          # the blocking CI gate
 #   scripts/crd.sh freshness      # is the pin behind upstream? (scheduled; exit 2 = behind)
 #
@@ -67,8 +67,34 @@ fetch() {
     || die "what came back for ${file} at ${ref} is not a CustomResourceDefinition"
 }
 
+# upstream_head — the newest commit touching the vendored path upstream.
+#
+# Resolved the same two ways `fetch` resolves file contents: from
+# $EKS_AGENT_PLATFORM_DIR when it names a checkout, and from GitHub otherwise. Sharing
+# the seam is what lets the freshness verdict be driven against a real repository
+# rather than only against whatever github.com says this minute.
+upstream_head() {
+  local head
+  if [[ -n "${EKS_AGENT_PLATFORM_DIR:-}" ]]; then
+    [[ -d "${EKS_AGENT_PLATFORM_DIR}/.git" ]] || die "EKS_AGENT_PLATFORM_DIR=${EKS_AGENT_PLATFORM_DIR} is not a git checkout"
+    head="$(git -C "${EKS_AGENT_PLATFORM_DIR}" log -1 --format=%H -- "$UPSTREAM_PATH")" \
+      || die "cannot read the newest ${UPSTREAM_PATH} from EKS_AGENT_PLATFORM_DIR"
+  else
+    need curl
+    head="$(curl -fsSL -H 'Accept: application/vnd.github+json' \
+      "https://api.github.com/repos/${REPO}/commits?path=${UPSTREAM_PATH}&per_page=1" | jq -r '.[0].sha')" \
+      || die "cannot ask GitHub for the newest ${UPSTREAM_PATH}"
+  fi
+  [[ -n "$head" && "$head" != "null" ]] || die "no commit found for ${UPSTREAM_PATH} in ${REPO}"
+  printf '%s\n' "$head"
+}
+
 cmd_sync() {
+  # `latest` resolves upstream HEAD here, at the moment the re-vendor runs.
+  # It is what the freshness report names, so that instruction stays correct
+  # however long the issue carrying it has been open.
   local ref="${1:-$(pinned_ref)}" tmp updated
+  [[ "$ref" == "latest" ]] && ref="$(upstream_head)"
   tmp="$(mktemp)"; trap 'rm -f "$tmp"' RETURN
 
   updated="$(jq --arg r "$ref" '.upstream.ref = $r' "$MANIFEST")"
@@ -133,11 +159,7 @@ cmd_check() {
 cmd_freshness() {
   local ref head
   ref="$(pinned_ref)"
-  need curl
-  head="$(curl -fsSL -H 'Accept: application/vnd.github+json' \
-    "https://api.github.com/repos/${REPO}/commits?path=${UPSTREAM_PATH}&per_page=1" | jq -r '.[0].sha')" \
-    || die "cannot ask GitHub for the newest ${UPSTREAM_PATH}"
-  [[ -n "$head" && "$head" != "null" ]] || die "GitHub returned no commit for ${UPSTREAM_PATH}"
+  head="$(upstream_head)"
 
   if [[ "$head" == "$ref" ]]; then
     echo "crd: pin is current (${ref})"
@@ -149,8 +171,13 @@ cmd_freshness() {
   # out", and the scheduled workflow files an issue for the first while failing
   # loudly for the second. Collapsing them would let a week of failed lookups
   # read as a week of confirmed drift, or the reverse.
-  echo "crd: pin ${ref} is behind — ${UPSTREAM_PATH} last changed at ${head}" >&2
-  echo "crd: re-vendor with: task crd:sync -- ${head}" >&2
+  # The remediation names a command, not a commit. This report is copied verbatim
+  # into an issue body that is re-edited weekly and read on whatever day someone
+  # opens it, so a resolved sha here is correct for at most a week and is presented
+  # as current for as long as the issue is open. `latest` resolves when the
+  # re-vendor runs, which is the only moment the answer is wanted.
+  echo "crd: pin ${ref} is behind — ${UPSTREAM_PATH} in ${REPO} has changed since it" >&2
+  echo "crd: re-vendor with: task crd:sync -- latest" >&2
   return 2
 }
 
@@ -158,5 +185,5 @@ case "${1:-}" in
   sync)      shift; cmd_sync "$@" ;;
   check)     cmd_check ;;
   freshness) cmd_freshness ;;
-  *)         die "usage: scripts/crd.sh {sync [<sha>]|check|freshness}" ;;
+  *)         die "usage: scripts/crd.sh {sync [<sha>|latest]|check|freshness}" ;;
 esac
