@@ -292,7 +292,7 @@ jobs:
       # a zero account id, placeholder token, or account-less ARN that only
       # appears after templating.
       - name: Assert no unfilled sentinels in rendered output
-        uses: nanohype/nanohype/.github/actions/render-assert@main
+        uses: nanohype/nanohype/.github/actions/render-assert@8f17945a575120474db782217bc536ad507d9d64 # main
         with:
           manifests: rendered
 
@@ -314,7 +314,7 @@ jobs:
     # merges come from pull requests; on push it is skipped and gates nothing.
     if: always() && github.event_name == 'pull_request'
     steps:
-      - uses: nanohype/.github/actions/merge-gate@6ec6c5b3e6c4a8b15e12da4afd7ac4870a630092 # main
+      - uses: nanohype/.github/actions/merge-gate@cb1c34008a390e775dcb69a4542b7e960abe72bb # main
         with:
           needs: ${{ toJSON(needs) }}
           gate-job-id: merge-gate
