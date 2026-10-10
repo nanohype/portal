@@ -63,7 +63,7 @@ package internal/logstream          0     # redis pub/sub, exercised end-to-end 
 package internal/metrics            0     # prometheus collector registration
 package internal/repository         10    # hand-written pgx; needs TEST_DATABASE_URL
 package internal/secrets            88
-package internal/server             95
+package internal/server             91    # rebased from 95 for Go 1.27.2, which counts statements inside some blocks differently: the same 226 tests cover the same 134 of 155 blocks and measure 91.5 where 1.27.1 measured 95.5
 package internal/service            42
 package internal/storage            0     # s3/minio client construction
 package internal/tfparse            75
@@ -72,7 +72,7 @@ package internal/tracing            0     # otel wiring
 package internal/varmerge           91
 package internal/vcs                100
 package internal/worker             57
-package internal/worker/executor    70
+package internal/worker/executor    58    # rebased from 70 for Go 1.27.2: the same 98 tests cover the same 232 of 410 blocks and measure 61.3 where 1.27.1 measured 72.6
 package cmd/migrate                 0     # main() wrappers
 package cmd/seeddemo                0
 package cmd/server                  0
