@@ -6,11 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -41,7 +41,13 @@ type S3Storage struct {
 func NewS3Storage(cfg *config.Config) (*S3Storage, error) {
 	loadOpts := []func(*awsconfig.LoadOptions) error{
 		awsconfig.WithRegion(cfg.S3Region),
-		awsconfig.WithHTTPClient(&http.Client{Timeout: requestTimeout}),
+		// A BuildableClient, not a bare *http.Client: when AWS_CA_BUNDLE is set
+		// the SDK appends that bundle to the client's TLS RootCAs, which it can
+		// only do through WithTransportOptions. A plain *http.Client makes
+		// LoadDefaultConfig fail outright ("unable to add custom RootCAs
+		// HTTPClient, has no WithTransportOptions"), so any host that sets a
+		// corporate or proxy CA bundle would lose object storage entirely.
+		awsconfig.WithHTTPClient(awshttp.NewBuildableClient().WithTimeout(requestTimeout)),
 	}
 	if cfg.S3AccessKey != "" && cfg.S3SecretKey != "" {
 		// Explicit static keys — dev, or any non-IRSA S3-compatible store.

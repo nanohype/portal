@@ -2,11 +2,16 @@ package storage
 
 import (
 	"context"
+	"encoding/pem"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
+
+	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 
 	"github.com/nanohype/portal/internal/config"
 )
@@ -93,4 +98,54 @@ func TestS3StartupBound_FitsInsideALivenessBudget(t *testing.T) {
 	// rather than remembered.
 	t.Logf("client timeout %s exceeds the %s liveness budget — startup calls must pass a "+
 		"shorter context", requestTimeout, livenessBudget)
+}
+
+// AWS_CA_BUNDLE must load, and must take effect.
+//
+// The SDK appends the bundle to the HTTP client's TLS roots, which it can only
+// do on a client that exposes WithTransportOptions. Handing it a bare
+// *http.Client made LoadDefaultConfig fail on every host that set the variable
+// — a corporate proxy CA, a sandbox — so storage was lost before a request was
+// ever made. This test points the bundle at a TLS server's self-signed
+// certificate and requires both that construction succeeds and that a request
+// to that server verifies against the bundle, with the per-request bound still
+// in place.
+func TestNewS3Storage_HonoursAWSCABundle(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK) // HeadBucket: the bucket exists
+	}))
+	t.Cleanup(srv.Close)
+
+	bundle := filepath.Join(t.TempDir(), "ca.pem")
+	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})
+	if err := os.WriteFile(bundle, pemBytes, 0o600); err != nil {
+		t.Fatalf("write bundle: %v", err)
+	}
+	t.Setenv("AWS_CA_BUNDLE", bundle)
+
+	s, err := NewS3Storage(&config.Config{
+		S3Endpoint:  srv.Listener.Addr().String(),
+		S3Bucket:    "probe",
+		S3AccessKey: "k",
+		S3SecretKey: "s",
+		S3UseSSL:    true,
+		S3Region:    "us-west-2",
+	})
+	if err != nil {
+		t.Fatalf("NewS3Storage with AWS_CA_BUNDLE set: %v", err)
+	}
+
+	bc, ok := s.client.Options().HTTPClient.(*awshttp.BuildableClient)
+	if !ok {
+		t.Fatalf("HTTP client is %T, want *awshttp.BuildableClient", s.client.Options().HTTPClient)
+	}
+	if got := bc.GetTimeout(); got != requestTimeout {
+		t.Errorf("client timeout = %s, want requestTimeout (%s)", got, requestTimeout)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := s.EnsureBucket(ctx); err != nil {
+		t.Fatalf("EnsureBucket against a server the bundle trusts: %v", err)
+	}
 }
