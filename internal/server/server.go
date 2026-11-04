@@ -237,7 +237,7 @@ func (s *Server) setupRouter() {
 	}
 	runHandler := handler.NewRunHandler(s.runSvc, workspaceSvc, streamer, auditSvc, wsOrigins, store)
 	discoverySvc := service.NewDiscoveryService(queries, store)
-	variableHandler := handler.NewVariableHandler(queries, encryptor, auditSvc, variableSvc, workspaceSvc, discoverySvc, s.authz)
+	variableHandler := handler.NewVariableHandler(auditSvc, variableSvc, workspaceSvc, discoverySvc, s.authz)
 	teamSvc := service.NewTeamService(queries)
 	teamHandler := handler.NewTeamHandler(teamSvc, auditSvc)
 	stateSvc := service.NewStateService(queries, store)

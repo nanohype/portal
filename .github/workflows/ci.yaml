@@ -292,7 +292,7 @@ jobs:
       # a zero account id, placeholder token, or account-less ARN that only
       # appears after templating.
       - name: Assert no unfilled sentinels in rendered output
-        uses: nanohype/nanohype/.github/actions/render-assert@main
+        uses: nanohype/nanohype/.github/actions/render-assert@35c8c0ee052884bf2109eca0238c898ce562435f # main
         with:
           manifests: rendered
 
