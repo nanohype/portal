@@ -640,7 +640,7 @@ export function TenantCreateModal({
             htmlFor={`${uid}-attribution`}
             className="sm:col-span-2"
             locked={!allowed(FIELD_PATHS.attributionOperators)}
-            hint="One lowercased identity per line. Naming anyone turns attribution on: sessions then carry that person as STS SourceIdentity and may impersonate them at the apiserver, so the string must match their Kubernetes RBAC subject exactly. Leave empty for an unattributed tenant."
+            hint="One lowercase email address per line, at most 16 (no ':', so no system: principal). Naming anyone turns attribution on: sessions then carry that person as STS SourceIdentity and may impersonate them at the apiserver, so the string must match their Kubernetes RBAC subject exactly. Leave empty for an unattributed tenant."
           >
             <textarea
               id={`${uid}-attribution`}

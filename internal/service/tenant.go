@@ -225,6 +225,66 @@ func (in CreateTenantInput) Validate() error {
 	if err := ValidateDatastores(in.Name, in.Values); err != nil {
 		return apperr.Validation(err.Error())
 	}
+	if err := ValidateIdentityBounds(in.Values); err != nil {
+		return apperr.Validation(err.Error())
+	}
+	return nil
+}
+
+// The Platform CRD's bounds on the two lists that grant privilege by content:
+// spec.attribution.operators (each entry becomes an impersonate resourceName and
+// an sts:SourceIdentity value) and spec.identity.allowedModels (each entry is an
+// exclusion from the model-scoping Deny). The vendored schema enforces them in
+// the worker before commit; mirroring them here moves the refusal from a failed
+// git operation to a 400 on the form that names the field. The patterns are
+// copied byte-for-byte from the CRD and TestIdentityBoundsMatchTheVendoredCRD
+// holds them equal, so a re-vendor that moves a bound fails until this moves too.
+const (
+	attributionOperatorPattern   = `^[a-z0-9][a-z0-9._%+-]*@[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$`
+	attributionOperatorMaxLength = 254
+	attributionOperatorsMaxItems = 16
+
+	allowedModelPattern   = `^((us-gov|us|eu|apac|jp|au|global)\.)?[a-z][a-z0-9-]{2,}\.[a-z0-9][a-z0-9-]*-(v?[0-9][a-z0-9-]*)(:[0-9]+)?$`
+	allowedModelMaxLength = 128
+	allowedModelsMaxItems = 32
+)
+
+var (
+	attributionOperatorRe = regexp.MustCompile(attributionOperatorPattern)
+	allowedModelRe        = regexp.MustCompile(allowedModelPattern)
+)
+
+// ValidateIdentityBounds checks attribution.operators and identity.allowedModels
+// in a values blob against the Platform CRD's count, length and pattern bounds.
+// Pure, so the create path and its tests exercise the same code. Entries that
+// are not strings are left to the schema validator, which reports the type.
+func ValidateIdentityBounds(values map[string]interface{}) error {
+	checks := []struct {
+		path     string
+		re       *regexp.Regexp
+		maxLen   int
+		maxItems int
+		hint     string
+	}{
+		{"attribution.operators", attributionOperatorRe, attributionOperatorMaxLength, attributionOperatorsMaxItems,
+			"a lowercase email address (no ':'; it must byte-match the operator's RBAC subject)"},
+		{"identity.allowedModels", allowedModelRe, allowedModelMaxLength, allowedModelsMaxItems,
+			"a whole Bedrock model id with its version, e.g. anthropic.claude-sonnet-4-20250514-v1:0, optionally geo-prefixed"},
+	}
+	for _, c := range checks {
+		list := stringSliceFromPath(values, c.path)
+		if len(list) > c.maxItems {
+			return fmt.Errorf("%s has %d entries; the Platform CRD allows at most %d", c.path, len(list), c.maxItems)
+		}
+		for _, v := range list {
+			if len(v) > c.maxLen {
+				return fmt.Errorf("%s entry %q is %d characters; the Platform CRD allows at most %d", c.path, v, len(v), c.maxLen)
+			}
+			if !c.re.MatchString(v) {
+				return fmt.Errorf("%s entry %q must be %s", c.path, v, c.hint)
+			}
+		}
+	}
 	return nil
 }
 
