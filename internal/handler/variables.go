@@ -13,7 +13,6 @@ import (
 	"github.com/nanohype/portal/internal/auth"
 	"github.com/nanohype/portal/internal/handler/respond"
 	"github.com/nanohype/portal/internal/repository"
-	"github.com/nanohype/portal/internal/secrets"
 	"github.com/nanohype/portal/internal/service"
 )
 
@@ -27,9 +26,7 @@ type auditLogger interface {
 }
 
 type VariableHandler struct {
-	queries      *repository.Queries
 	variableSvc  *service.VariableService
-	encryptor    *secrets.Encryptor
 	auditSvc     auditLogger
 	workspaceSvc *service.WorkspaceService
 	discoverySvc *service.DiscoveryService
@@ -41,10 +38,8 @@ type VariableHandler struct {
 // import-outputs — name a SECOND workspace in the request body. The route's
 // gate only covers the workspace in the path, so those two have to authorize
 // the body's workspace themselves.
-func NewVariableHandler(queries *repository.Queries, encryptor *secrets.Encryptor, auditSvc auditLogger, variableSvc *service.VariableService, workspaceSvc *service.WorkspaceService, discoverySvc *service.DiscoveryService, authz auth.WorkspaceRoleResolver) *VariableHandler {
+func NewVariableHandler(auditSvc auditLogger, variableSvc *service.VariableService, workspaceSvc *service.WorkspaceService, discoverySvc *service.DiscoveryService, authz auth.WorkspaceRoleResolver) *VariableHandler {
 	return &VariableHandler{
-		queries:      queries,
-		encryptor:    encryptor,
 		auditSvc:     auditSvc,
 		workspaceSvc: workspaceSvc,
 		discoverySvc: discoverySvc,
