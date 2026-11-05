@@ -304,3 +304,40 @@ func TestValidateAllowsTheLocalExecutorInDevelopment(t *testing.T) {
 		t.Fatalf("EXECUTOR_TYPE=local rejected in development: %v", err)
 	}
 }
+
+// The Cluster XRD requires the hub's state backend on every Cluster CR. With the
+// vend path enabled and either half missing, every order would be accepted and
+// then fail in the worker, so the process refuses to start instead.
+func TestValidateRequiresTheClusterStateBackendWhenVendingIsEnabled(t *testing.T) {
+	for _, tc := range []struct {
+		name, repo, bucket, region string
+		wantErr                    bool
+	}{
+		{"vend path off needs neither", "", "", "", false},
+		{"both set", "git@github.com:nanohype/clusters.git", "fleet-tfstate", "us-east-1", false},
+		{"bucket missing", "git@github.com:nanohype/clusters.git", "", "us-east-1", true},
+		{"region missing", "git@github.com:nanohype/clusters.git", "fleet-tfstate", "", true},
+		{"blank bucket", "git@github.com:nanohype/clusters.git", "  ", "us-east-1", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := prodConfig()
+			c.ClustersRepoURL, c.ClusterStateBucket, c.ClusterStateRegion = tc.repo, tc.bucket, tc.region
+			err := c.Validate()
+			if tc.wantErr && (err == nil || !strings.Contains(err.Error(), "CLUSTER_STATE_BUCKET and CLUSTER_STATE_REGION")) {
+				t.Fatalf("Validate() = %v, want an error naming both variables", err)
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("Validate() rejected: %v", err)
+			}
+		})
+	}
+}
+
+// Development does not require them: `task dev` vends nothing real, and a worker
+// without them fails the op with a message naming the variable.
+func TestValidateDoesNotRequireTheClusterStateBackendInDevelopment(t *testing.T) {
+	c := &Config{Environment: "development", ExecutorType: "local", ClustersRepoURL: "git@github.com:nanohype/clusters.git"}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("rejected in development: %v", err)
+	}
+}

@@ -276,6 +276,19 @@ portal stamps it onto the `Cluster`'s `bootstrapAccessRoleArn` so the bootstrap
 Workspace's get-token can reach the spoke API. Empty means same-account vends
 only.
 
+`fleet.stateBucket` / `fleet.stateRegion` name the hub's tofu S3 backend — the
+one bucket every vended cluster's state lives in, and that bucket's region. The
+`Cluster` XRD requires both (`spec.stateBucket`, `spec.stateRegion`) and
+defaults neither, so portal stamps them onto every CR it writes. Outside
+development they are required whenever `gitops.clustersRepoURL` is set; portal
+refuses to start without them.
+
+```yaml
+fleet:
+  stateBucket: "<fleet-hub tfstate bucket>"
+  stateRegion: "us-east-1"
+```
+
 ### extraEnv / extraEnvFrom
 
 `server.extraEnv`/`worker.extraEnv` (inline `name`/`value` or `valueFrom`) and

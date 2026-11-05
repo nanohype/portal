@@ -180,6 +180,12 @@ gitops:
   sshKey: |
     <contents of ~/.ssh/portal-clusters-rw — the WRITE key from 2b; keep out of git>
 
+fleet:
+  # The hub's tofu state backend every vended Cluster's state lives in
+  # (landing-zone fleet-hub). Required whenever clustersRepoURL is set.
+  stateBucket: <fleet_state_bucket_name>
+  stateRegion: <fleet_state_bucket_region>
+
 clusterWatchback: { enabled: true, interval: "30s" }
 clusterHealth:    { enabled: true, interval: "60s" }
 ```

@@ -44,25 +44,39 @@ spec:
                 # --- placement: which spoke account/region to vend into -------
                 account:
                   type: string
-                  description: Workload AWS account id (records + tags). Cross-account targeting is via spec.vendRoleArn (the order desk sets the fleet-vend role ARN); empty = same-account.
+                  maxLength: 12
+                  description: >-
+                    Workload AWS account id. Records the placement and feeds resource
+                    tags. It does not select the account — spec.vendRoleArn does, being
+                    the role the entrypoint's provider assumes — so the two must agree,
+                    and admission requires this id to appear in that ARN. Leave
+                    vendRoleArn empty for a same-account vend, where the hub's own
+                    credentials are used and this field stands alone.
                 region:
                   type: string
+                  maxLength: 32
                   description: >-
-                    AWS region the cluster is vended into. Any region is valid —
-                    the tofu state backend is decoupled from it: state always lives
-                    in the single hub-account bucket (nanohype-eks-fleet-tfstate,
-                    us-west-2), never in a per-region bucket that would have to track
-                    this value. So a vend into us-east-1 builds the cluster there but
-                    stores its state in us-west-2.
+                    AWS region the cluster is vended into. Any region is valid — the
+                    tofu state backend is decoupled from it: state lives in the single
+                    hub-account bucket named by spec.stateBucket, in spec.stateRegion,
+                    never in a per-region bucket that would have to track this value.
+                    So a vend into us-west-1 builds the cluster there but still stores
+                    its state in the one hub bucket. A region-lock SCP on the target
+                    account's OU can deny actions outside a permitted set, in which
+                    case the region named here must be one that SCP permits.
                 environment:
                   type: string
+                  maxLength: 32
                   default: development
                   description: Environment tier (development | staging | production) — prefixes resource names + tags.
                 team:
                   type: string
+                  maxLength: 64
                   description: Owning team (tagging + ownership).
                 vendRoleArn:
                   type: string
+                  maxLength: 2048
+                  pattern: '^$|^arn:aws[a-z0-9-]*:iam::[0-9]{12}:role/.+$'
                   default: ""
                   description: >-
                     Cross-account role the entrypoint's provider assumes to provision
@@ -70,6 +84,8 @@ spec:
                     credentials (same-account — e.g. the local kind-hub validation).
                 clusterPermissionsBoundaryArn:
                   type: string
+                  maxLength: 2048
+                  pattern: '^$|^arn:aws[a-z0-9-]*:iam::[0-9]{12}:policy/.+$'
                   default: ""
                   description: >-
                     Permissions-boundary ARN cluster-stack mints the cluster's IAM
@@ -85,6 +101,8 @@ spec:
                     ungated (e.g. the local kind hub on user credentials).
                 operatorPermissionsBoundaryArn:
                   type: string
+                  maxLength: 2048
+                  pattern: '^$|^arn:aws[a-z0-9-]*:iam::[0-9]{12}:policy/.+$'
                   default: ""
                   description: >-
                     Permissions-boundary ARN the bootstrap Workspace mints the
@@ -95,6 +113,8 @@ spec:
                     operator_permissions_boundary_arn var. Empty = ungated.
                 bootstrapAccessRoleArn:
                   type: string
+                  maxLength: 2048
+                  pattern: '^$|^arn:aws[a-z0-9-]*:iam::[0-9]{12}:role/.+$'
                   default: ""
                   description: >-
                     For cross-account vends, the hub's Crossplane role ARN — granted
@@ -104,6 +124,8 @@ spec:
                     the creator (the hub) is already admin.
                 portalAccessRoleArn:
                   type: string
+                  maxLength: 2048
+                  pattern: '^$|^arn:aws[a-z0-9-]*:iam::[0-9]{12}:role/.+$'
                   default: ""
                   description: >-
                     The portal worker's per-account spoke role ARN — granted a read
@@ -112,6 +134,8 @@ spec:
                     eks:DescribeCluster. Empty = portal not wired for this cluster.
                 dataKmsKeyArn:
                   type: string
+                  maxLength: 2048
+                  pattern: '^$|^arn:aws[a-z0-9-]*:kms:[a-z0-9-]+:[0-9]{12}:key/.+$'
                   default: ""
                   description: >-
                     The spoke's secrets-component data CMK ARN. The bootstrap
@@ -147,9 +171,11 @@ spec:
                     and environment. Must not equal the environment token. Capped at 12
                     characters so the derived <environment>-<clusterName> keeps the tightest
                     cluster-scoped S3 name (agent-iam's account+region-qualified
-                    model-artifacts bucket) within S3's 63-char limit in us-west-2.
+                    model-artifacts bucket) within S3's 63-char limit for a
+                    9-character region token like us-east-1.
                 clusterVersion:
                   type: string
+                  maxLength: 16
                   default: "1.36"
                   description: Kubernetes version.
                 endpointPublicAccess:
@@ -162,7 +188,8 @@ spec:
                     spec rejects public-with-empty at admission).
                 endpointPublicAccessCidrs:
                   type: array
-                  items: {type: string}
+                  items: {type: string, maxLength: 43}
+                  maxItems: 64
                   default: []
                   description: >-
                     CIDRs allowed to reach the public API endpoint. Required
@@ -178,7 +205,8 @@ spec:
                   properties:
                     instanceTypes:
                       type: array
-                      items: {type: string}
+                      items: {type: string, maxLength: 32}
+                      maxItems: 32
                       default: ["m7g.xlarge", "m6g.xlarge"]
                     minSize: {type: integer, default: 2}
                     maxSize: {type: integer, default: 6}
@@ -200,6 +228,7 @@ spec:
                   properties:
                     mode:
                       type: string
+                      maxLength: 16
                       enum: [create, adopt]
                       default: create
                       description: >-
@@ -217,10 +246,12 @@ spec:
                       properties:
                         vpcCidr:
                           type: string
+                          maxLength: 43
                           default: "10.0.0.0/16"
                           description: CIDR for the VPC (literal allocation). Mutually exclusive with ipamPoolId.
                         ipamPoolId:
                           type: string
+                          maxLength: 64
                           default: ""
                           description: >-
                             IPAM pool the VPC CIDR is drawn from. Empty (default) = literal
@@ -236,6 +267,7 @@ spec:
                             = literal allocation.
                         transitGatewayId:
                           type: string
+                          maxLength: 64
                           default: ""
                           description: >-
                             Transit gateway the VPC attaches to. Empty (default) = local NAT
@@ -263,6 +295,7 @@ spec:
                       properties:
                         vpcId:
                           type: string
+                          maxLength: 64
                           default: ""
                           description: VPC ID to adopt. Required (non-empty) when mode is adopt.
                         subnetIds:
@@ -272,12 +305,14 @@ spec:
                           properties:
                             private:
                               type: array
-                              items: {type: string}
+                              items: {type: string, maxLength: 64}
+                              maxItems: 64
                               default: []
                               description: Private subnet IDs (required, non-empty, when mode is adopt).
                             public:
                               type: array
-                              items: {type: string}
+                              items: {type: string, maxLength: 64}
+                              maxItems: 64
                               default: []
                               description: Public subnet IDs (empty is valid for a private-only cluster).
                   x-kubernetes-validations:
@@ -313,6 +348,7 @@ spec:
                 # --- bootstrap (the second, post-Ready Workspace) ------------
                 observabilityTier:
                   type: string
+                  maxLength: 16
                   enum: [floor, full]
                   default: floor
                   description: >-
@@ -346,6 +382,7 @@ spec:
                     Workspace runs (it always renders once the cluster is Ready).
                 tenantsRepoUrl:
                   type: string
+                  maxLength: 512
                   default: ""
                   description: >-
                     SSH URL of the private tenants GitOps repo. When set, the
@@ -353,6 +390,7 @@ spec:
                     credential so ArgoCD can pull portal-committed tenant manifests.
                 gitopsRepoUrl:
                   type: string
+                  maxLength: 512
                   default: "https://github.com/nanohype/eks-gitops.git"
                   description: >-
                     Git URL of the addon-catalog GitOps repo the spoke's app-of-apps
@@ -362,6 +400,7 @@ spec:
                     always sent (unlike tenantsRepoUrl, which is optional).
                 gitopsRepoBranch:
                   type: string
+                  maxLength: 255
                   default: "main"
                   description: >-
                     Branch of the addon-catalog GitOps repo the spoke tracks.
@@ -369,6 +408,7 @@ spec:
                 # --- the substrate the Workspace runs ------------------------
                 moduleSource:
                   type: string
+                  maxLength: 512
                   # Pinned to a landing-zone commit, not ?ref=main: provider-opentofu
                   # caches a module by its ref and never re-pulls on retry, so a moving
                   # ref makes a vend non-reproducible (and silently stale on a substrate
@@ -379,12 +419,59 @@ spec:
                   description: >-
                     Git source for the landing-zone repo the Workspace fetches; tofu runs
                     in the fleet/aws/cluster-stack subdir (set by the composition's
-                    entrypoint), which needs the whole repo present. See docs/architecture.md.
+                    entrypoint), which needs the whole repo present. Must be https and
+                    pinned to a full 40-character commit sha: the Workspace pod holds no
+                    SSH key, and provider-opentofu caches a module by its ref and never
+                    re-pulls, so a branch or tag resolves once and every later vend
+                    reuses that copy — two clusters ordered from the same spec would run
+                    different substrate. Point this at your own fork by changing the
+                    host; what is constrained is the shape of the source, not who
+                    publishes it. See docs/architecture.md.
+                # --- the tofu state backend ----------------------------------
+                # Both Workspaces complete the entrypoint's partial `backend "s3" {}`
+                # from initArgs. These are spec fields rather than composition literals
+                # because the bucket and its region are per-estate facts: a fork, a
+                # second hub, or a region-locked account cannot use one hard-coded pair.
+                # The state key is NOT a field — it is derived from the Cluster's
+                # namespace + name so two same-named Clusters can never share state.
+                stateBucket:
+                  type: string
+                  maxLength: 63
+                  description: >-
+                    S3 bucket holding every vended cluster's tofu state. One bucket in
+                    the hub account for the whole fleet, provisioned by landing-zone's
+                    fleet-hub component alongside the hub IRSA role — not by a vend, so
+                    it must exist before the first Cluster is applied. The per-cluster
+                    state key is derived (fleet/<namespace>/<name>/terraform.tfstate),
+                    so this names only the bucket. Required and deliberately
+                    undefaulted: an S3 bucket name is a global-namespace identifier
+                    belonging to one account, so no value here could be correct for a
+                    second deployment. Declare the hub's bucket rather than inheriting
+                    someone else's.
+                stateRegion:
+                  type: string
+                  maxLength: 32
+                  description: >-
+                    Region the stateBucket lives in. This is the bucket's own region,
+                    deliberately NOT spec.region — the S3 backend validates the bucket
+                    against it, and decoupling the two lets a vend into any region still
+                    init against the one real state bucket. Required alongside
+                    stateBucket because the two name one thing: where this fleet's state
+                    lives. A region that merely looks plausible is worse than no value —
+                    it inits against the wrong place instead of failing.
               required:
                 - account
                 - region
                 - team
                 - clusterName
+                # The tofu S3 backend. Required rather than defaulted: any default here
+                # is one deployment's answer, and the bucket half is a global-namespace
+                # identifier owned by a specific account. An empty or wrong value is not
+                # caught until `tofu init` runs inside a Workspace, twenty minutes
+                # into the vend, with a message that names a bucket rather than the
+                # field that chose it. `required` moves that to admission.
+                - stateBucket
+                - stateRegion
               x-kubernetes-validations:
                 # The EKS cluster name is <environment>-<clusterName>; if the two are
                 # equal the name doubles (development-development-*). Reject at admission
@@ -410,6 +497,81 @@ spec:
                     vendRoleArn requires clusterPermissionsBoundaryArn +
                     operatorPermissionsBoundaryArn (the fleet-vend boundary, SSM
                     /eks-fleet/<env>/fleet-vend/vend_permissions_boundary_arn)
+                # The backend pair rides initArgs, where tofu resolves it long after
+                # admission: an empty bucket or region renders `-backend-config=bucket=`
+                # and fails `tofu init` with a message that names neither the Cluster nor
+                # the empty field. `required` above catches omission; this catches the
+                # other half — present but blank, which `required` permits.
+                - rule: >-
+                    (!has(self.stateBucket) || self.stateBucket != '') &&
+                    (!has(self.stateRegion) || self.stateRegion != '')
+                  message: "stateBucket and stateRegion must be non-empty (they complete the tofu S3 backend: name the hub bucket and the region it lives in)"
+                # admission: the fields below identify WHICH infrastructure this
+                # Cluster owns. Editing one on a live Cluster does not move anything —
+                # it re-points the composition at a different target while the tofu
+                # state still describes the old one.
+                #
+                # stateBucket and stateRegion are the worst of them: the backend moves,
+                # tofu finds no state at the new location, and the next apply builds a
+                # second cluster while the first is left running and unmanaged. region
+                # and clusterName force a destroy-and-recreate of a cluster that is
+                # already serving. network.mode swaps a created VPC for an adopted one.
+                #
+                # None of that is recoverable from the Cluster CR, and none of it is
+                # visible at the moment of the edit — a one-word change is accepted, and
+                # the consequence arrives on the next reconcile. A transition rule is the
+                # only place to stop it, because only here is the previous value known.
+                #
+                # Changing the target is a new Cluster. Delete this one, or order another.
+                - rule: self.region == oldSelf.region
+                  message: "spec.region is immutable — it identifies the infrastructure this Cluster already owns; order a new Cluster instead"
+                - rule: self.clusterName == oldSelf.clusterName
+                  message: "spec.clusterName is immutable — changing it destroys and recreates a live cluster; order a new Cluster instead"
+                - rule: self.stateBucket == oldSelf.stateBucket
+                  message: "spec.stateBucket is immutable — moving the backend strands the existing tofu state and the next apply builds a second cluster"
+                - rule: self.stateRegion == oldSelf.stateRegion
+                  message: "spec.stateRegion is immutable — moving the backend strands the existing tofu state and the next apply builds a second cluster"
+                # admission: moduleSource names the OpenTofu module the hub clones and
+                # runs under its own IRSA, so its shape is a privilege boundary rather
+                # than a formatting preference. Two properties are required of it.
+                #
+                # https, because the Workspace pod carries no SSH key, and a scheme
+                # tofu resolves some other way (file::, s3::, a bare path) reaches
+                # something the hub can read but a reviewer of this repo cannot.
+                #
+                # A 40-character commit sha, because provider-opentofu caches a module
+                # by ref and never re-pulls it: a branch or tag resolves once, on
+                # whichever node happened to fetch first, and every later vend silently
+                # reuses that copy. A moving ref is therefore not a newer substrate, it
+                # is an unknown one, and two clusters ordered from the same spec can run
+                # different code.
+                - rule: >-
+                    !has(self.moduleSource) ||
+                    self.moduleSource.matches('^git::https://[^?]+[.]git[?]ref=[0-9a-f]{40}$')
+                  message: "moduleSource must be an https git source pinned to a full 40-character commit sha, e.g. git::https://github.com/<org>/landing-zone.git?ref=<sha>"
+                # admission: account and vendRoleArn both name where the cluster goes,
+                # and only one of them decides. vendRoleArn is the role the entrypoint's
+                # provider assumes, so it selects the account the cluster is really built
+                # in; account is recorded and tagged, and the composition never reads it.
+                # Nothing reconciled the two, so a Cluster could declare one account and
+                # vend into another, and every record downstream — tags, inventory, the
+                # order desk's own view — would name the wrong one.
+                #
+                # The mismatch is invisible in both directions: nothing surfaces it at
+                # apply time, and nothing surfaces it afterwards either, because the
+                # record that would reveal the true account is the field that was wrong.
+                #
+                # An ARN carries its account between the fifth and sixth colon, so
+                # requiring it to appear there makes the recorded account load-bearing
+                # rather than decorative.
+                - rule: >-
+                    !has(self.vendRoleArn) || self.vendRoleArn == '' ||
+                    self.vendRoleArn.contains('::' + self.account + ':')
+                  message: >-
+                    vendRoleArn must name the account in spec.account
+                    (arn:aws:iam::<account>:role/...) — the role decides which account
+                    the cluster is built in, so a mismatch would tag and record the
+                    wrong one
             status:
               type: object
               description: >-
@@ -417,23 +579,29 @@ spec:
                 they converge, and read by everything downstream — cluster-bootstrap,
                 the agent-platform operator, and anyone connecting to the cluster.
               properties:
-                clusterName: {type: string, description: The vended cluster's EKS name.}
-                clusterEndpoint: {type: string, description: EKS API endpoint.}
-                certificateAuthorityData: {type: string, description: Base64 cluster CA.}
+                clusterName: {type: string, maxLength: 64, description: The vended cluster's EKS name.}
+                clusterEndpoint: {type: string, maxLength: 512, description: EKS API endpoint.}
+                certificateAuthorityData: {type: string, maxLength: 32768, description: Base64 cluster CA.}
                 clusterSecurityGroupId:
                   type: string
+                  maxLength: 64
                   description: >-
                     The EKS-managed cluster security group. Rules that need to reach
                     the control plane target this, not the node groups' own groups.
-                oidcProviderArn: {type: string, description: IAM OIDC provider ARN.}
-                oidcIssuer: {type: string, description: OIDC issuer URL (no scheme).}
+                oidcProviderArn: {type: string, maxLength: 2048, description: IAM OIDC provider ARN.}
+                oidcIssuer: {type: string, maxLength: 512, description: OIDC issuer URL (no scheme).}
                 karpenterIamRoleArn:
                   type: string
+                  maxLength: 2048
                   description: The instance-profile role Karpenter assigns to the nodes it launches.
-                vpcId: {type: string, description: The cluster VPC, for peering and endpoint attachment.}
+                vpcId:
+                  type: string
+                  maxLength: 64
+                  description: The cluster VPC, for peering and endpoint attachment.
                 privateSubnetIds:
                   type: array
-                  items: {type: string}
+                  items: {type: string, maxLength: 64}
+                  maxItems: 64
                   description: >-
                     Private subnet IDs of the cluster's VPC (cluster-stack's
                     private_subnet_ids output). cluster-bootstrap republishes them in
@@ -442,7 +610,8 @@ spec:
                     internal load balancers correctly.
                 publicSubnetIds:
                   type: array
-                  items: {type: string}
+                  items: {type: string, maxLength: 64}
+                  maxItems: 64
                   description: >-
                     Public subnet IDs of the cluster's VPC (cluster-stack's
                     public_subnet_ids output). cluster-bootstrap republishes them in adopt
@@ -450,11 +619,12 @@ spec:
                     on public subnets.
                 subnetAzIds:
                   type: array
-                  items: {type: string}
+                  items: {type: string, maxLength: 64}
+                  maxItems: 64
                   description: >-
-                    AWS AZ IDs (e.g. usw2-az1) of the cluster's private subnets, in
+                    AWS AZ IDs (e.g. use1-az1) of the cluster's private subnets, in
                     privateSubnetIds order (cluster-stack's private_subnet_az_ids output).
-                    AZ IDs, not AZ names — a name like us-west-2a maps to a different
+                    AZ IDs, not AZ names — a name like us-east-1a maps to a different
                     physical zone per account, so it isn't meaningful across the account
                     boundary an adopted/shared subnet crosses; the AZ ID is the stable
                     cross-account identifier.

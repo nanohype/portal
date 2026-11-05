@@ -3,12 +3,12 @@
   "upstream": {
     "repository": "nanohype/eks-fleet",
     "path": "apis/cluster/definition.yaml",
-    "ref": "88cf274e6db719d7f8daca77dc3197396397194f"
+    "ref": "e42e88fcb0589a3442e0c14b5d1b14939af9812e"
   },
   "files": [
     {
       "file": "cluster-xrd.yaml",
-      "sha256": "856bebaa1a677f50cff44debe47860a93476f9dc3d6c86ec0bbd7eb0e3a80c0e"
+      "sha256": "271d3dfef11a992d7d39d890839694291dafec142187df6eb3554ef8b5937e28"
     }
   ]
 }

@@ -79,8 +79,9 @@ var (
 //     by reference (VendRoleArn and friends are SSM-published prerequisites, not
 //     things the vend creates).
 //   - Stamped — what portal knows about itself and fills in on the operator's
-//     behalf: BootstrapAccessRoleArn, PortalAccessRoleArn, TenantsRepoURL. An
-//     explicit value always wins, so these stay overridable.
+//     behalf: BootstrapAccessRoleArn, PortalAccessRoleArn, TenantsRepoURL, and
+//     the hub's tofu state backend (StateBucket, StateRegion). An explicit value
+//     always wins, so these stay overridable.
 //   - Absent by decision — enableAgentPlatform, gitopsRepoUrl, gitopsRepoBranch
 //     and moduleSource are org-wide constants or escape hatches; portal takes
 //     the XRD default deliberately. They are named in unexpressedXRDFields so
@@ -128,6 +129,17 @@ type Input struct {
 	// registers no deploy key, and ArgoCD on the vended cluster cannot pull the
 	// tenant manifests portal writes for it.
 	TenantsRepoURL string `json:"tenants_repo_url,omitempty"`
+
+	// StateBucket and StateRegion name the hub's tofu S3 backend — the one bucket
+	// every vended cluster's state lives in, and that bucket's own region (not
+	// Region, the vend target). The XRD requires both and deliberately defaults
+	// neither, because a bucket name is a global identifier one account owns.
+	// They describe the hub, not the order, so the apply worker stamps them from
+	// CLUSTER_STATE_BUCKET / CLUSTER_STATE_REGION (see WithStateBackend). Render
+	// refuses a CR without them: the alternative is an admission rejection after
+	// the manifest is already committed.
+	StateBucket string `json:"state_bucket,omitempty"`
+	StateRegion string `json:"state_region,omitempty"`
 }
 
 // SystemNodes is the system node group sizing.
@@ -220,6 +232,16 @@ func (in Input) Validate() error {
 	if in.VendRoleArn != "" && (in.ClusterPermissionsBoundaryArn == "" || in.OperatorPermissionsBoundaryArn == "") {
 		return fmt.Errorf("vend_role_arn requires cluster_permissions_boundary_arn and operator_permissions_boundary_arn: a cross-account vend mints IAM under the fleet-vend boundary (SSM /eks-fleet/%s/fleet-vend/vend_permissions_boundary_arn)", in.EffectiveEnvironment())
 	}
+	// vendRoleArn decides which account the cluster is built in; account is only
+	// recorded and tagged. The XRD requires the recorded account to appear in the
+	// ARN so the two cannot disagree — mirrored so the mismatch is a 400 naming
+	// the field rather than an admission refusal after the commit.
+	if in.VendRoleArn != "" && !strings.Contains(in.VendRoleArn, "::"+in.Account+":") {
+		return fmt.Errorf("vend_role_arn %q must name the account in account (arn:aws:iam::%s:role/...): the role decides which account the cluster is built in, so a mismatch would tag and record the wrong one", in.VendRoleArn, in.Account)
+	}
+	if err := in.validateStateBackend(false); err != nil {
+		return err
+	}
 	if in.ObservabilityTier != "" && in.ObservabilityTier != "floor" && in.ObservabilityTier != "full" {
 		return fmt.Errorf("observability_tier %q must be floor or full", in.ObservabilityTier)
 	}
@@ -230,6 +252,30 @@ func (in Input) Validate() error {
 		return err
 	}
 	return in.Network.validate()
+}
+
+// validateStateBackend mirrors the XRD's state-backend rules: both fields are
+// required, and neither may be blank. required=false is the order-time check —
+// the fields are normally stamped by the apply worker after the order is taken,
+// so an order may leave them unset, but a value it does send must not be blank.
+// required=true is the render-time check, where an unset field is the XRD's
+// `required` violation and names the hub setting that should have supplied it.
+func (in Input) validateStateBackend(required bool) error {
+	for _, f := range []struct{ name, value, env string }{
+		{"state_bucket", in.StateBucket, "CLUSTER_STATE_BUCKET"},
+		{"state_region", in.StateRegion, "CLUSTER_STATE_REGION"},
+	} {
+		switch {
+		case f.value != "" && strings.TrimSpace(f.value) == "":
+			return fmt.Errorf("%s must not be blank: it completes the tofu S3 backend every vended cluster's state lives in", f.name)
+		case f.value == "" && required:
+			return fmt.Errorf("%s is not set: the Cluster XRD requires the hub's tofu state backend, which portal stamps from %s — set it on the portal worker", f.name, f.env)
+		}
+	}
+	if in.StateRegion != "" && !awsRegn.MatchString(in.StateRegion) {
+		return fmt.Errorf("state_region %q is not a valid AWS region", in.StateRegion)
+	}
+	return nil
 }
 
 // validate checks the system node group is one EKS will accept. Unlike its
@@ -417,6 +463,22 @@ func (in Input) WithPortalWiring(spokeRoleArn, tenantsRepoURL string) Input {
 	return in
 }
 
+// WithStateBackend stamps the hub's tofu state backend — the S3 bucket every
+// vended cluster's state lives in and that bucket's region — returning the
+// (possibly updated) Input. Like WithPortalWiring these are facts about the
+// deployment rather than the order, and the same semantics apply: an empty
+// argument stamps nothing (Render then refuses, naming the setting), and an
+// already-set field is an explicit override that wins.
+func (in Input) WithStateBackend(bucket, region string) Input {
+	if bucket != "" && in.StateBucket == "" {
+		in.StateBucket = bucket
+	}
+	if region != "" && in.StateRegion == "" {
+		in.StateRegion = region
+	}
+	return in
+}
+
 // WithAccountSubstrate stamps the per-account prerequisites landing-zone publishes
 // to SSM: the fleet-vend role a cross-account vend assumes, the data KMS key, and
 // the two permissions boundaries that cap the IAM such a vend mints.
@@ -480,6 +542,8 @@ type crSpec struct {
 	BootstrapAccessRoleArn         string         `json:"bootstrapAccessRoleArn,omitempty"`
 	PortalAccessRoleArn            string         `json:"portalAccessRoleArn,omitempty"`
 	TenantsRepoURL                 string         `json:"tenantsRepoUrl,omitempty"`
+	StateBucket                    string         `json:"stateBucket"`
+	StateRegion                    string         `json:"stateRegion"`
 }
 
 type crSystemNodes struct {
@@ -522,6 +586,9 @@ func (in Input) Render() (string, error) {
 	if err := in.Validate(); err != nil {
 		return "", err
 	}
+	if err := in.validateStateBackend(true); err != nil {
+		return "", err
+	}
 	clusterVersion := in.ClusterVersion
 	if clusterVersion == "" {
 		clusterVersion = defaultClusterVersion
@@ -557,6 +624,8 @@ func (in Input) Render() (string, error) {
 			BootstrapAccessRoleArn:         in.BootstrapAccessRoleArn,
 			PortalAccessRoleArn:            in.PortalAccessRoleArn,
 			TenantsRepoURL:                 in.TenantsRepoURL,
+			StateBucket:                    in.StateBucket,
+			StateRegion:                    in.StateRegion,
 		},
 	}
 	if in.SystemNodes != nil {

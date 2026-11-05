@@ -83,6 +83,10 @@ gitops:
     <clusters-repo WRITE deploy key — do not commit this file>
     -----END OPENSSH PRIVATE KEY-----
 
+fleet:                              # the hub's tofu state backend (spec.stateBucket/stateRegion)
+  stateBucket: "<your-fleet-tfstate-bucket>"
+  stateRegion: "us-west-2"
+
 clusterWatchback:                   # the vend loop's closing leg
   enabled: true
   interval: "30s"

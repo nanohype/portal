@@ -53,6 +53,8 @@ type ClusterApplyJobWorker struct {
 	author         git.Author
 	hubRoleArn     string
 	tenantsRepoURL string
+	stateBucket    string
+	stateRegion    string
 	riverClient    *river.Client[pgx.Tx]
 	db             *pgxpool.Pool
 }
@@ -73,6 +75,11 @@ type ClusterApplyDeps struct {
 	// to — the same GITOPS_TENANTS_REPO_URL the tenant-apply worker pushes to.
 	// Stamped onto every vend so the cluster's ArgoCD can pull them back.
 	TenantsRepoURL string
+	// StateBucket / StateRegion are the hub's tofu S3 backend
+	// (CLUSTER_STATE_BUCKET / CLUSTER_STATE_REGION). The Cluster XRD requires
+	// both and defaults neither, so they are stamped onto every vend.
+	StateBucket string
+	StateRegion string
 }
 
 func NewClusterApplyJobWorker(d ClusterApplyDeps) *ClusterApplyJobWorker {
@@ -89,6 +96,8 @@ func NewClusterApplyJobWorker(d ClusterApplyDeps) *ClusterApplyJobWorker {
 		author:         d.Author,
 		hubRoleArn:     d.HubRoleArn,
 		tenantsRepoURL: d.TenantsRepoURL,
+		stateBucket:    d.StateBucket,
+		stateRegion:    d.StateRegion,
 	}
 }
 
@@ -123,6 +132,10 @@ func (w *ClusterApplyJobWorker) provisionManifest(specJSON []byte) (string, erro
 	// ordered. The spoke-role half is stamped at enqueue, where the ordering
 	// account's row is already in hand.
 	input = input.WithPortalWiring("", w.tenantsRepoURL)
+	// The state backend is the hub's, like the tenants repo. Render refuses a
+	// CR without it, naming the setting, so an unconfigured worker fails the op
+	// here rather than at admission after the commit.
+	input = input.WithStateBackend(w.stateBucket, w.stateRegion)
 
 	manifest, err := input.Render()
 	if err != nil {
