@@ -9,8 +9,14 @@ import (
 
 func intp(i int) *int { return &i }
 
+// The hub's state backend, which the apply worker stamps onto every order.
+const (
+	testStateBucket = "nanohype-eks-fleet-tfstate"
+	testStateRegion = "us-east-1"
+)
+
 func TestRender_MinimalDefaults(t *testing.T) {
-	in := Input{Name: "platform", Account: "111111111111", Region: "us-west-2", Team: "platform"}
+	in := Input{Name: "platform", Account: "111111111111", Region: "us-west-2", Team: "platform"}.WithStateBackend(testStateBucket, testStateRegion)
 	out, err := in.Render()
 	if err != nil {
 		t.Fatalf("render: %v", err)
@@ -46,7 +52,7 @@ func TestRender_MinimalDefaults(t *testing.T) {
 // set and the projection: a Cluster that renders spec.environment=production with
 // a label saying development is worse than no label at all.
 func TestRender_CarriesTheRequiredLabels(t *testing.T) {
-	in := Input{Name: "platform", Account: "111111111111", Region: "us-west-2", Team: "eng", Environment: "production"}
+	in := Input{Name: "platform", Account: "111111111111", Region: "us-west-2", Team: "eng", Environment: "production"}.WithStateBackend(testStateBucket, testStateRegion)
 	out, err := in.Render()
 	if err != nil {
 		t.Fatalf("render: %v", err)
@@ -76,7 +82,7 @@ func TestRender_CarriesTheRequiredLabels(t *testing.T) {
 // every defaulted order renders an empty label value, which the API server
 // rejects outright.
 func TestRender_EnvironmentLabelFollowsTheEffectiveEnvironment(t *testing.T) {
-	in := Input{Name: "platform", Account: "111111111111", Region: "us-west-2", Team: "platform"}
+	in := Input{Name: "platform", Account: "111111111111", Region: "us-west-2", Team: "platform"}.WithStateBackend(testStateBucket, testStateRegion)
 	out, err := in.Render()
 	if err != nil {
 		t.Fatalf("render: %v", err)
@@ -111,7 +117,7 @@ func TestRender_FullSpec(t *testing.T) {
 		OperatorPermissionsBoundaryArn: "arn:aws:iam::222222222222:policy/vend-boundary",
 		PortalAccessRoleArn:            "arn:aws:iam::222222222222:role/production-portal-spoke",
 		TenantsRepoURL:                 "git@github.com:nanohype/tenants.git",
-	}
+	}.WithStateBackend(testStateBucket, testStateRegion)
 	out, err := in.Render()
 	if err != nil {
 		t.Fatalf("render: %v", err)
@@ -146,7 +152,7 @@ func TestRender_FullSpec(t *testing.T) {
 		t.Errorf("clusterName = %q, want analytics", cr.Spec.ClusterName)
 	}
 	// camelCase field names in the YAML (not snake_case).
-	for _, want := range []string{"clusterName:", "clusterVersion:", "systemNodes:", "instanceTypes:", "vpcCidr:", "natGateways:", "endpointPublicAccess:", "observabilityTier:", "tenantsRepoUrl:", "portalAccessRoleArn:"} {
+	for _, want := range []string{"clusterName:", "clusterVersion:", "systemNodes:", "instanceTypes:", "vpcCidr:", "natGateways:", "endpointPublicAccess:", "observabilityTier:", "tenantsRepoUrl:", "portalAccessRoleArn:", "stateBucket:", "stateRegion:"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("rendered YAML missing camelCase field %q:\n%s", want, out)
 		}
@@ -182,7 +188,7 @@ func TestRender_BootstrapAccessRoleArn(t *testing.T) {
 		VendRoleArn:                    "arn:aws:iam::222222222222:role/production-eks-fleet-vend",
 		ClusterPermissionsBoundaryArn:  "arn:aws:iam::222222222222:policy/vend-boundary",
 		OperatorPermissionsBoundaryArn: "arn:aws:iam::222222222222:policy/vend-boundary",
-	}.WithCrossAccountBootstrap("arn:aws:iam::111111111111:role/eks-fleet-crossplane")
+	}.WithCrossAccountBootstrap("arn:aws:iam::111111111111:role/eks-fleet-crossplane").WithStateBackend(testStateBucket, testStateRegion)
 	out, err := in.Render()
 	if err != nil {
 		t.Fatalf("render: %v", err)
@@ -265,5 +271,60 @@ func TestEffectiveEnvironment(t *testing.T) {
 	}
 	if (Input{Environment: "staging"}).EffectiveEnvironment() != "staging" {
 		t.Error("set env should pass through")
+	}
+}
+
+func TestWithStateBackend(t *testing.T) {
+	cases := []struct {
+		name               string
+		in                 Input
+		bucket, region     string
+		wantBkt, wantRegon string
+	}{
+		{"stamps both onto an order that set neither", Input{}, testStateBucket, testStateRegion, testStateBucket, testStateRegion},
+		{"explicit override is preserved", Input{StateBucket: "other", StateRegion: "eu-west-1"}, testStateBucket, testStateRegion, "other", "eu-west-1"},
+		{"empty hub config stamps nothing", Input{}, "", "", "", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.in.WithStateBackend(tc.bucket, tc.region)
+			if got.StateBucket != tc.wantBkt || got.StateRegion != tc.wantRegon {
+				t.Errorf("state backend = %q/%q, want %q/%q", got.StateBucket, got.StateRegion, tc.wantBkt, tc.wantRegon)
+			}
+		})
+	}
+}
+
+// The XRD requires both state fields with no default. A CR without them is
+// refused at admission — after the manifest is committed — so Render refuses
+// first and names the hub setting that should have supplied the value.
+func TestRender_RequiresTheStateBackend(t *testing.T) {
+	base := Input{Name: "platform", Account: "111111111111", Region: "us-west-2", Team: "platform"}
+	for _, tc := range []struct {
+		name string
+		in   Input
+		want string
+	}{
+		{"no bucket", base.WithStateBackend("", testStateRegion), "CLUSTER_STATE_BUCKET"},
+		{"no region", base.WithStateBackend(testStateBucket, ""), "CLUSTER_STATE_REGION"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := tc.in.Render()
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("Render() error = %v, want one naming %s", err, tc.want)
+			}
+		})
+	}
+
+	out, err := base.WithStateBackend(testStateBucket, testStateRegion).Render()
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	var cr clusterCR
+	if err := yaml.Unmarshal([]byte(out), &cr); err != nil {
+		t.Fatalf("invalid YAML: %v", err)
+	}
+	if cr.Spec.StateBucket != testStateBucket || cr.Spec.StateRegion != testStateRegion {
+		t.Errorf("state backend rendered as %q/%q, want %q/%q", cr.Spec.StateBucket, cr.Spec.StateRegion, testStateBucket, testStateRegion)
 	}
 }

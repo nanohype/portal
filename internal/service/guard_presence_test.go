@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -307,6 +308,29 @@ func TestEnqueueProvision_ValidatesBeforeTouchingTheDatabase(t *testing.T) {
 	}
 	if records.calls != 0 || records.acctCalls != 0 {
 		t.Error("validation ran after the record lookups rather than before them")
+	}
+}
+
+func TestEnqueueProvision_RevalidatesTheStampedAccountSubstrate(t *testing.T) {
+	// The account row supplies vend_role_arn after the order-time Validate. A
+	// row whose role sits in a different account than the one ordered would
+	// otherwise pass, be committed, and be refused by the XRD at admission —
+	// so the stamped order is validated again, as a 400.
+	boundary := "arn:aws:iam::333333333333:policy/vend-boundary"
+	vendRole := "arn:aws:iam::333333333333:role/production-eks-fleet-vend"
+	records := &stubClusterRecords{account: repository.Account{
+		AssumeRoleARN:                  "arn:aws:iam::222222222222:role/production-portal-spoke",
+		VendRoleARN:                    &vendRole,
+		ClusterPermissionsBoundaryARN:  &boundary,
+		OperatorPermissionsBoundaryARN: &boundary,
+	}}
+	err := provision(records, vendOrder())
+
+	if apperr.KindOf(err) != apperr.KindValidation {
+		t.Fatalf("kind = %v (err %v), want Validation for a vend role outside the ordered account", apperr.KindOf(err), err)
+	}
+	if !strings.Contains(err.Error(), "vend_role_arn") {
+		t.Errorf("message does not name the field: %v", err)
 	}
 }
 

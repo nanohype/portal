@@ -147,6 +147,17 @@ type Config struct {
 	// reach the spoke API. Empty = same-account only (no stamping).
 	FleetHubRoleArn string `env:"FLEET_HUB_ROLE_ARN"`
 
+	// ClusterStateBucket / ClusterStateRegion name the hub's tofu S3 backend:
+	// the one bucket every vended cluster's state lives in (provisioned by
+	// landing-zone's fleet-hub component) and that bucket's own region, which is
+	// independent of the region a cluster is vended into. The Cluster XRD
+	// requires spec.stateBucket and spec.stateRegion and defaults neither — a
+	// bucket name belongs to one account — so the worker stamps these onto every
+	// Cluster CR it renders. No default here for the same reason; outside
+	// development Validate requires both whenever the vend path is enabled.
+	ClusterStateBucket string `env:"CLUSTER_STATE_BUCKET"`
+	ClusterStateRegion string `env:"CLUSTER_STATE_REGION"`
+
 	// ArgoCD cluster-registry sync (read path). When enabled, the worker reads
 	// ArgoCD's cluster Secrets (in ArgoCDNamespace, via the pod's in-cluster
 	// ServiceAccount) every ArgoCDSyncInterval and upserts the cluster inventory
@@ -254,6 +265,12 @@ func (c *Config) Validate() error {
 		}
 		if c.S3AccessKey == "minioadmin" || c.S3SecretKey == "minioadmin" {
 			return fmt.Errorf("S3_ACCESS_KEY and S3_SECRET_KEY must not use default values in non-development environments")
+		}
+		// The vend path is on: every Cluster CR the worker renders needs the
+		// hub's state backend, and without it each order would be accepted and
+		// then fail in the worker. Refuse at startup instead.
+		if c.ClustersRepoURL != "" && (strings.TrimSpace(c.ClusterStateBucket) == "" || strings.TrimSpace(c.ClusterStateRegion) == "") {
+			return fmt.Errorf("CLUSTER_STATE_BUCKET and CLUSTER_STATE_REGION must be set in non-development environments when GITOPS_CLUSTERS_REPO_URL enables cluster vending: the Cluster XRD requires spec.stateBucket and spec.stateRegion (the hub's tofu S3 backend bucket and the region it lives in), and portal stamps them onto every Cluster CR it writes")
 		}
 	}
 	if c.EncryptionKey != "" && c.EncryptionKey != "dev-encryption-key-32bytes!!!!!!" && len(c.EncryptionKey) != 32 {

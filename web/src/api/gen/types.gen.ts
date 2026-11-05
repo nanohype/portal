@@ -680,7 +680,7 @@ export type ClusterOrderInput = {
      */
     ttl_days?: number;
     /**
-     * The fleet-vend role for a cross-account vend. Setting it requires both permissions-boundary ARNs below — the vend mints IAM in the workload account, and the Cluster XRD refuses one that does not cap what it can mint.
+     * The fleet-vend role for a cross-account vend. Setting it requires both permissions-boundary ARNs below — the vend mints IAM in the workload account, and the Cluster XRD refuses one that does not cap what it can mint. The role must also be in the ordered account (arn:aws:iam::<account>:role/...): it decides which account the cluster is built in, so a mismatch is rejected with 400.
      *
      */
     vend_role_arn?: string;

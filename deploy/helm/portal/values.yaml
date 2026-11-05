@@ -261,6 +261,12 @@ gitops:
 # Workspace's get-token can reach the spoke API. Empty = same-account vends only.
 fleet:
   hubRoleArn: ""             # e.g. arn:aws:iam::111111111111:role/eks-fleet-crossplane
+  # -- The hub's tofu S3 backend, stamped onto every vended Cluster CR as
+  # spec.stateBucket / spec.stateRegion (CLUSTER_STATE_BUCKET / _REGION). The
+  # Cluster XRD requires both and defaults neither. Required outside development
+  # whenever gitops.clustersRepoURL is set — portal refuses to start without them.
+  stateBucket: ""            # e.g. the fleet-hub component's tfstate bucket
+  stateRegion: ""            # the bucket's own region, e.g. us-east-1
 
 # -- Cluster provision watch-back (the vend loop's closing leg). When enabled,
 # the worker — running in-cluster on the hub — polls each committed provision

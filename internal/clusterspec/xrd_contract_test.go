@@ -78,6 +78,8 @@ func maximalInput() Input {
 		BootstrapAccessRoleArn:         "arn:aws:iam::111111111111:role/eks-fleet-crossplane",
 		PortalAccessRoleArn:            "arn:aws:iam::222222222222:role/production-portal-spoke",
 		TenantsRepoURL:                 "git@github.com:nanohype/tenants.git",
+		StateBucket:                    "nanohype-eks-fleet-tfstate",
+		StateRegion:                    "us-east-1",
 	}
 }
 
@@ -320,7 +322,8 @@ type celRule struct {
 	path, rule, mirror string
 }
 
-// mirroredCELRules is the tripwire under Validate.
+// mirroredCELRules is the tripwire under Validate. Its counterpart,
+// unmirroredCELRules, holds the rules portal records but does not copy.
 //
 // The schema is vendored for its *structure* — properties, required, enums —
 // and the contract tests above compare the render against it. Its *rules* are a
@@ -364,6 +367,52 @@ var mirroredCELRules = []celRule{
 		rule:   `!has(self.create) || !has(self.create.ipamPoolId) || self.create.ipamPoolId == '' || !has(self.create.vpcCidr) || self.create.vpcCidr == '10.0.0.0/16'`,
 		mirror: "Network.validate: an IPAM pool and a chosen CIDR are mutually exclusive",
 	},
+	{
+		path:   "spec",
+		rule:   `!has(self.vendRoleArn) || self.vendRoleArn == '' || self.vendRoleArn.contains('::' + self.account + ':')`,
+		mirror: "Validate: vend_role_arn must name the account in account",
+	},
+	{
+		path:   "spec",
+		rule:   `(!has(self.stateBucket) || self.stateBucket != '') && (!has(self.stateRegion) || self.stateRegion != '')`,
+		mirror: "Input.validateStateBackend: state_bucket and state_region must not be blank (and Render requires both)",
+	},
+}
+
+// unmirroredCELRules are the XRD rules portal deliberately does not copy into
+// Validate, each with the reason. They are recorded rather than omitted for the
+// same reason unexpressedXRDFields is: "this cannot fail on anything portal
+// sends" should be a decision written down, and the tripwire below fails when
+// one of them changes upstream so the reason gets re-read.
+var unmirroredCELRules = []celRule{
+	{
+		path: "spec",
+		rule: `self.region == oldSelf.region`,
+		mirror: "not mirrored: a transition rule, evaluated only when an existing Cluster is updated. portal never renders an update — " +
+			"a provision writes a new manifest under a name assertNameAvailable has proven unused (no registered cluster, no pending or committed provision), " +
+			"there is no edit or retry of a committed order, and deprovision deletes the file. The previous value the rule compares against never exists on portal's path",
+	},
+	{
+		path:   "spec",
+		rule:   `self.clusterName == oldSelf.clusterName`,
+		mirror: "not mirrored: same as the region rule — portal only ever creates a Cluster CR, so there is no oldSelf for clusterName to differ from",
+	},
+	{
+		path: "spec",
+		rule: `self.stateBucket == oldSelf.stateBucket`,
+		mirror: "not mirrored: same as the region rule — a transition rule portal cannot trip because it never rewrites an existing CR. " +
+			"Changing CLUSTER_STATE_BUCKET on the hub affects only clusters ordered afterwards, which is the only safe meaning it can have",
+	},
+	{
+		path:   "spec",
+		rule:   `self.stateRegion == oldSelf.stateRegion`,
+		mirror: "not mirrored: same as stateBucket",
+	},
+	{
+		path:   "spec",
+		rule:   `!has(self.moduleSource) || self.moduleSource.matches('^git::https://[^?]+[.]git[?]ref=[0-9a-f]{40}$')`,
+		mirror: "not mirrored: portal never renders moduleSource (see unexpressedXRDFields), so the XRD's own sha-pinned default is what admission checks",
+	},
 }
 
 // collectCELRules walks the schema and returns every validation rule by path,
@@ -401,18 +450,22 @@ func TestEveryXRDValidationRuleHasAMirror(t *testing.T) {
 
 	// A collector that walked nothing would make both loops below pass
 	// vacuously, which is the one way this tripwire could fail open.
-	if len(found) < len(mirroredCELRules) {
-		t.Fatalf("found %d validation rules in the vendored XRD but %d are recorded — the collector stopped walking", len(found), len(mirroredCELRules))
+	if want := len(mirroredCELRules) + len(unmirroredCELRules); len(found) < want {
+		t.Fatalf("found %d validation rules in the vendored XRD but %d are recorded — the collector stopped walking", len(found), want)
 	}
 
 	recorded := map[string]celRule{}
-	for _, r := range mirroredCELRules {
-		recorded[celKey(r.path, r.rule)] = r
+	for _, r := range append(append([]celRule{}, mirroredCELRules...), unmirroredCELRules...) {
+		key := celKey(r.path, r.rule)
+		if _, dup := recorded[key]; dup {
+			t.Errorf("rule recorded twice (mirrored and unmirrored lists must not overlap):\n  %s", key)
+		}
+		recorded[key] = r
 	}
 
 	for key := range found {
 		if _, ok := recorded[key]; !ok {
-			t.Errorf("the Cluster XRD enforces a rule portal does not mirror:\n  %s\nEither mirror it in Validate — a rule broken at admission surfaces after the manifest is committed and the operation reported committed — or record it here with a note saying why portal does not.", key)
+			t.Errorf("the Cluster XRD enforces a rule portal does not mirror:\n  %s\nEither mirror it in Validate — a rule broken at admission surfaces after the manifest is committed and the operation reported committed — or record it in unmirroredCELRules with a note saying why portal does not.", key)
 		}
 	}
 	for key, r := range recorded {

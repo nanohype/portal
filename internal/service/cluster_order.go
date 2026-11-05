@@ -69,6 +69,14 @@ func (s *ClusterOrderService) EnqueueProvision(ctx context.Context, orgID, creat
 	if err != nil {
 		return repository.ClusterOperation{}, err
 	}
+	// Again after the stamps: the account row supplies vend_role_arn and the
+	// boundaries, and a row whose role names a different account (or carries a
+	// role without both boundaries) would otherwise pass here and be refused by
+	// the worker's Render — or by admission — after the order was accepted.
+	if err := input.Validate(); err != nil {
+		return repository.ClusterOperation{}, apperr.Validation(fmt.Sprintf(
+			"the substrate registered for AWS account %s does not make a valid order: %v", input.Account, err))
+	}
 	return s.enqueue(ctx, orgID, "provision", createdBy, input)
 }
 

@@ -215,6 +215,8 @@ tasks:
       Required: ROLE_ARN (the portal-hub IRSA role ARN), STATE_BUCKET (the portal
         state bucket), REGION.
       Optional: CLUSTERS_REPO_URL + SSH_KEY_PATH (clusters-repo write deploy key),
+        FLEET_STATE_BUCKET + FLEET_STATE_REGION (the hub's tofu state backend every
+        vended Cluster CR names; required with CLUSTERS_REPO_URL outside development),
         RELEASE (portal), NAMESPACE (default), ENVIRONMENT (development — dev-login,
         for validation; production needs real secrets plus config.allowedGitHubOrg,
         pass them via EXTRA_ARGS), EXTRA_ARGS (passed straight to helm — images,
@@ -240,6 +242,8 @@ tasks:
         --set clusterHealth.enabled=true
         {{if .CLUSTERS_REPO_URL}}--set gitops.clustersRepoURL={{.CLUSTERS_REPO_URL}}{{end}}
         {{if .SSH_KEY_PATH}}--set-file gitops.sshKey={{.SSH_KEY_PATH}}{{end}}
+        {{if .FLEET_STATE_BUCKET}}--set fleet.stateBucket={{.FLEET_STATE_BUCKET}}{{end}}
+        {{if .FLEET_STATE_REGION}}--set fleet.stateRegion={{.FLEET_STATE_REGION}}{{end}}
         {{.EXTRA_ARGS}}
 
   # === Quality ===

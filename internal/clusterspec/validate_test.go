@@ -467,3 +467,66 @@ func TestWithAccountSubstrate(t *testing.T) {
 		}
 	})
 }
+
+// The XRD requires vendRoleArn to carry spec.account, because the role is what
+// selects the account the cluster is built in and account is only recorded.
+func TestValidate_VendRoleMustNameTheOrderedAccount(t *testing.T) {
+	boundary := "arn:aws:iam::222222222222:policy/vend-boundary"
+	for _, tc := range []struct {
+		name, vend string
+		wantErr    bool
+	}{
+		{"same-account vend has no role to check", "", false},
+		{"role in the ordered account", "arn:aws:iam::222222222222:role/production-eks-fleet-vend", false},
+		{"role in another account", "arn:aws:iam::333333333333:role/production-eks-fleet-vend", true},
+		{"account only as a substring of the role name", "arn:aws:iam::333333333333:role/vend-222222222222", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in := validOrder()
+			in.VendRoleArn = tc.vend
+			if tc.vend != "" {
+				in.ClusterPermissionsBoundaryArn = boundary
+				in.OperatorPermissionsBoundaryArn = boundary
+			}
+			err := in.Validate()
+			if tc.wantErr && err == nil {
+				t.Fatal("accepted a vend role the XRD would reject at admission")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("rejected a valid vend role: %v", err)
+			}
+			if tc.wantErr && !strings.Contains(err.Error(), "vend_role_arn") {
+				t.Errorf("message does not name the field: %v", err)
+			}
+		})
+	}
+}
+
+// The state backend is stamped after the order is taken, so an order may leave
+// it unset — but a value it does send is checked against the XRD's non-blank
+// rule, and the region against the region shape.
+func TestValidate_StateBackend(t *testing.T) {
+	for _, tc := range []struct {
+		name, bucket, region, wantField string
+	}{
+		{"unset on the order is fine", "", "", ""},
+		{"explicit values are fine", "my-tfstate", "eu-west-1", ""},
+		{"blank bucket", "   ", "", "state_bucket"},
+		{"blank region", "", " ", "state_region"},
+		{"malformed region", "", "Europe", "state_region"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in := validOrder()
+			in.StateBucket, in.StateRegion = tc.bucket, tc.region
+			err := in.Validate()
+			switch {
+			case tc.wantField == "" && err != nil:
+				t.Fatalf("rejected: %v", err)
+			case tc.wantField != "" && err == nil:
+				t.Fatal("accepted a state backend the XRD would reject")
+			case tc.wantField != "" && !strings.Contains(err.Error(), tc.wantField):
+				t.Errorf("message does not name %s: %v", tc.wantField, err)
+			}
+		})
+	}
+}
