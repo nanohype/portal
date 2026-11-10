@@ -38,8 +38,6 @@
     "zustand": "^5.0.13"
   },
   "overrides": {
-    "minimatch": ">=5.1.8",
-    "js-yaml": "^4.3.1",
     "picomatch": ">=4.0.4"
   },
   "devDependencies": {
