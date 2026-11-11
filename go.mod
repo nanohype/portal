@@ -4,7 +4,8 @@ go 1.26.0
 
 // Pin the toolchain to a release that carries the std-lib security fixes
 // (GO-2026-5037/5038 + net/textproto, GO-2026-5856 crypto/tls ECH,
-// GO-2026-6809 crypto/x509) — keeps `govulncheck ./...` green in CI.
+// GO-2026-6809 crypto/x509, GO-2026-6859 net/http MaxBytesReader) — keeps
+// `govulncheck ./...` green in CI.
 toolchain go1.27.4
 
 require (
