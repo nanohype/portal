@@ -170,7 +170,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install Helm
-        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+        uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5
 
       - name: Install kubeconform
         run: |
@@ -292,7 +292,7 @@ jobs:
       # a zero account id, placeholder token, or account-less ARN that only
       # appears after templating.
       - name: Assert no unfilled sentinels in rendered output
-        uses: nanohype/nanohype/.github/actions/render-assert@35c8c0ee052884bf2109eca0238c898ce562435f # main
+        uses: nanohype/nanohype/.github/actions/render-assert@24a0d85eabb9ab5a9ee0633e38d3286980d85a48 # main
         with:
           manifests: rendered
 
