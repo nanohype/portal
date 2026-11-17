@@ -298,6 +298,12 @@ tasks:
     cmds:
       - scripts/xrd.sh freshness
 
+  audit:npm:
+    desc: npm audit both trees at high/critical, honouring the expiring .npm-audit-allowlist.json (needs npm ci in each)
+    cmds:
+      - scripts/npm_audit.py web tools/apigen
+      - scripts/npm_audit.py selftest
+
   test:
     desc: Run tests
     cmds:

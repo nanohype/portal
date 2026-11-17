@@ -1,0 +1,103 @@
+name: npm audit allowlist expiry
+# Runs the npm audit gate on a schedule, against main as it stands.
+#
+# CI runs the same gate on every push and pull request, and that is the blocking
+# half. What CI cannot do is notice the clock: an allowlist entry in
+# .npm-audit-allowlist.json expires at a fixed instant, and main stays green past
+# it until the next push or pull request, which then fails for a reason unrelated
+# to its own change. The same goes for a new high/critical advisory published
+# against a dependency nobody touched. This run asks the question daily, so the
+# expiry is reported on the day it falls due rather than by whoever pushes next.
+#
+# A scheduled red run is not a signal anyone receives (see crd-freshness.yaml),
+# so a failure files ONE issue, edited in place on each failing run and closed
+# automatically once the gate passes again.
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+  issues: write
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    env:
+      AUDIT_LABEL: npm-audit
+      AUDIT_TITLE: "npm audit gate fails on main"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+
+      # npm audit reads the lockfile, so no install is needed. The `|| code=$?`
+      # form keeps errexit (GitHub runs this as `bash -e`) from ending the step
+      # before the exit code and the report are recorded.
+      - name: npm audit (high/critical, expiring allowlist)
+        id: audit
+        run: |
+          set -uo pipefail
+          code=0
+          scripts/npm_audit.py web tools/apigen > audit.log 2>&1 || code=$?
+          cat audit.log
+          echo "code=${code}" >> "$GITHUB_OUTPUT"
+          {
+            echo 'report<<REPORT_EOF'
+            cat audit.log
+            echo 'REPORT_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: File the audit issue
+        if: steps.audit.outputs.code != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPORT: ${{ steps.audit.outputs.report }}
+        run: |
+          set -euo pipefail
+          gh label create "$AUDIT_LABEL" \
+            --color B60205 \
+            --description "The npm audit gate fails on main" \
+            2>/dev/null || true
+
+          body=$(cat <<BODY
+          The npm audit gate (\`scripts/npm_audit.py web tools/apigen\`) fails on \`main\`,
+          so the next pull request will fail it too, whatever that pull request changes.
+
+          \`\`\`
+          ${REPORT}
+          \`\`\`
+
+          An **expired** entry in \`.npm-audit-allowlist.json\` means its exposure argument
+          is due for re-reading: either the dependency now has a fix to take, or the
+          argument is re-checked against the code and the lockfile and renewed with a new
+          expiry. An advisory that is **not in** the allowlist is new. This issue closes
+          itself once the gate passes on \`main\`.
+          BODY
+          )
+
+          existing=$(gh issue list --state open --label "$AUDIT_LABEL" --json number,title \
+            --jq "[.[] | select(.title == \"${AUDIT_TITLE}\")] | .[0].number // empty")
+
+          if [[ -n "$existing" ]]; then
+            gh issue edit "$existing" --body "$body"
+            echo "updated issue #${existing}"
+          else
+            gh issue create --title "$AUDIT_TITLE" --label "$AUDIT_LABEL" --body "$body"
+          fi
+
+      - name: Close the audit issue
+        if: steps.audit.outputs.code == '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          existing=$(gh issue list --state open --label "$AUDIT_LABEL" --json number,title \
+            --jq "[.[] | select(.title == \"${AUDIT_TITLE}\")] | .[0].number // empty")
+          if [[ -n "$existing" ]]; then
+            gh issue close "$existing" --comment "The npm audit gate passes on main again — closed by the scheduled run."
+          fi
+
+      - name: Fail while the gate fails
+        if: steps.audit.outputs.code != '0'
+        run: exit 1
