@@ -1,0 +1,7 @@
+[
+  {
+    "id": "GHSA-fc5q-39xc-vjpf",
+    "expires": "2026-12-08T00:00:00Z",
+    "reason": "picomatch <= 4.0.7 has no patched release; it backtracks exponentially only when the glob PATTERN it compiles is a single-branch repeated extglob such as +(*). Here it is reached only from web/ (tools/apigen does not install it), at 4.0.7, as a dev-only package (web/package-lock.json marks it dev) pulled in by vite, vitest and tinyglobby, with fdir as a peer. It runs in the Vite dev server, vite build and vitest: on developer machines, in CI, and in the builder stage of docker/Dockerfile.web. Nothing deployed loads it: the web image ships nginx serving static dist/, and server, worker and migrate are Go binaries. The patterns it compiles are repo-authored or pinned: web/vite.config.ts (test include/exclude, coverage threshold keys, server.fs.deny defaults), the filters of the lockfile-pinned vite/vitest/plugin packages, and the exports keys of lockfile-pinned dependencies; web/src has no import.meta.glob. Dev-server request paths are matched against those patterns as input and never compiled as one. No request, user or untrusted file supplies a pattern, and anyone able to change one already runs code in that process, so the worst case is a stalled local or CI build."
+  }
+]
