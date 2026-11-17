@@ -28,7 +28,7 @@ From the repo root, `task dev:web` does the same alongside the server + worker.
 ```bash
 npx tsc -b           # the real typecheck — the root tsconfig uses project references
 npx vite build       # production build
-npm audit --audit-level=high
+(cd .. && task audit:npm)   # npm audit at high in web/ and tools/apigen/, plus the expiring allowlist
 ```
 
 ## Layout
